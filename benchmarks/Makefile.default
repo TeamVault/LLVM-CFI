@@ -1,0 +1,39 @@
+CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g -flto
+
+GOLD_PLUGIN = $(LLVM_BUILD_DIR)/Release+Asserts/lib/LLVMgold.so
+
+LD = $(BINUTILS_BUILD_DIR)/gold/ld-new
+
+LD_FLAGS = -z relro --hash-style=gnu --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2
+
+LD_OBJS = /usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crt1.o \
+/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crti.o \
+/usr/lib/gcc/x86_64-linux-gnu/4.8/crtbegin.o
+
+LD_LIB_FOLDERS = -L/usr/lib/gcc/x86_64-linux-gnu/4.8 \
+-L/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu \
+-L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu \
+-L/usr/lib/gcc/x86_64-linux-gnu/4.8/../../.. \
+-L/home/gokhan/libs/llvm3.7/llvm-build/Release+Asserts/bin/../lib \
+-L/lib -L/usr/lib
+
+LD_PLUGIN = -plugin $(GOLD_PLUGIN) -plugin-opt=mcpu=x86-64
+
+LD_LIBS = -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc \
+/usr/lib/gcc/x86_64-linux-gnu/4.8/crtend.o \
+/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crtn.o
+
+EXEC = main
+.PHONY: clean
+
+all: $(EXEC)
+
+main: main.o $(OBJS)
+	$(LD) $(LD_FLAGS) -o $@ $(LD_OBJS) $(LD_LIB_FOLDERS) $(LD_PLUGIN) $^ $(LD_LIBS)
+
+%.o: %.cpp
+	$(CC) -c $< -o $@
+
+clean:
+	@rm -f *.o *.sd.log *.o.orig *.symM *.ld.map *.png \
+	  *.newLayoutInds $(EXEC)
