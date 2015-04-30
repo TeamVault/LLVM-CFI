@@ -297,6 +297,10 @@ void initializePlaceBackedgeSafepointsImplPass(PassRegistry&);
 void initializePlaceSafepointsPass(PassRegistry&);
 void initializeDwarfEHPreparePass(PassRegistry&);
 void initializeFloat2IntPass(PassRegistry&);
+
+// safedispatch additions
+void initializeSafeDispatch(PassRegistry&);
+void initializeChangeConstantPass(PassRegistry&);
 }
 
 #endif

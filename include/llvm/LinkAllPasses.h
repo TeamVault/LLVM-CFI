@@ -38,6 +38,7 @@
 #include "llvm/Transforms/Vectorize.h"
 #include "llvm/Support/Valgrind.h"
 #include <cstdlib>
+#include "llvm/Transforms/IPO/SafeDispatch.h"
 
 namespace {
   struct ForcePassLinking {
@@ -184,6 +185,8 @@ namespace {
       X.add(nullptr, 0, llvm::AAMDNodes()); // for -print-alias-sets
       (void) llvm::AreStatisticsEnabled();
       (void) llvm::sys::RunningOnValgrind();
+
+      (void) llvm::createChangeConstantPass();
     }
   } ForcePassLinking; // Force link by creating a global definition.
 }

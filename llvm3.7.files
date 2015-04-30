@@ -681,6 +681,7 @@ include/llvm/Transforms/InstCombine/InstCombineWorklist.h
 include/llvm/Transforms/IPO/InlinerPass.h
 include/llvm/Transforms/IPO/LowerBitSets.h
 include/llvm/Transforms/IPO/PassManagerBuilder.h
+include/llvm/Transforms/IPO/SafeDispatch.h
 include/llvm/Transforms/Scalar/EarlyCSE.h
 include/llvm/Transforms/Scalar/LowerExpectIntrinsic.h
 include/llvm/Transforms/Scalar/SimplifyCFG.h
@@ -2183,10 +2184,12 @@ lib/Transforms/IPO/IPConstantPropagation.cpp
 lib/Transforms/IPO/IPO.cpp
 lib/Transforms/IPO/LoopExtractor.cpp
 lib/Transforms/IPO/LowerBitSets.cpp
+lib/Transforms/IPO/Makefile
 lib/Transforms/IPO/MergeFunctions.cpp
 lib/Transforms/IPO/PartialInlining.cpp
 lib/Transforms/IPO/PassManagerBuilder.cpp
 lib/Transforms/IPO/PruneEH.cpp
+lib/Transforms/IPO/SafeDispatch.cpp
 lib/Transforms/IPO/StripDeadPrototypes.cpp
 lib/Transforms/IPO/StripSymbols.cpp
 lib/Transforms/ObjCARC/ARCInstKind.cpp

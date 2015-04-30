@@ -110,3 +110,15 @@ void LLVMAddStripDeadPrototypesPass(LLVMPassManagerRef PM) {
 void LLVMAddStripSymbolsPass(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createStripSymbolsPass());
 }
+
+void llvm::initializeSafeDispatch(PassRegistry &Registry) {
+  initializeChangeConstantPass(Registry);
+}
+
+void LLVMInitializeSafeDispatch(LLVMPassRegistryRef R) {
+  initializeSafeDispatch(*unwrap(R));
+}
+
+void LLVMAddChangeConstantPass(LLVMPassManagerRef PM) {
+  unwrap(PM)->add(createChangeConstantPass());
+}

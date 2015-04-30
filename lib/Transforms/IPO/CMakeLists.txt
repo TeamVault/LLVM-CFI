@@ -21,6 +21,7 @@ add_llvm_library(LLVMipo
   PruneEH.cpp
   StripDeadPrototypes.cpp
   StripSymbols.cpp
+  SafeDispatch.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Transforms
