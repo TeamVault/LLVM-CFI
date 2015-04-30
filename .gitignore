@@ -67,3 +67,5 @@ bindings/go/llvm/workdir
 
 .svn
 *.o
+*.ll
+*.bc

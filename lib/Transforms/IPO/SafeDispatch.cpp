@@ -20,11 +20,25 @@ namespace {
     }
 
     bool runOnBasicBlock(BasicBlock &BB) override {
-      Function* function = BB.getParent();
-      Module* module = function->getParent();
+      for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
+        Instruction* inst = instItr;
+        if (inst->getOpcode() == 28) { // store operation
+          StoreInst* storeInst = dyn_cast_or_null<StoreInst>(inst);
+          assert(storeInst);
 
-      errs() << "HELLO WORLD FROM CHANGECONSTANT !!!\n";
-      errs() <<  module->getName() << ", " << function->getName() << "\n";
+          Value* storeVal = storeInst->getOperand(0);
+          ConstantInt* constIntVal = dyn_cast_or_null<ConstantInt>(storeVal);
+
+          if(constIntVal) {
+            if (*(constIntVal->getValue().getRawData()) == 42) {
+              errs() << "this has the magic one\n";
+              IntegerType* intType = constIntVal->getType();
+              inst->setOperand(0, ConstantInt::get(intType, 43, false));
+              inst->dump();
+            }
+          }
+        }
+      }
 
       return false;
     }
