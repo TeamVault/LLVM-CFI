@@ -1,5 +1,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/SafeDispatch.h"
+#include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instruction.h"

@@ -3,9 +3,7 @@
 
 namespace llvm {
 
-class BasicBlockPass;
-
-BasicBlockPass* createChangeConstantPass();
+// add something here
 
 } // End llvm namespace
 

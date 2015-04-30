@@ -38,7 +38,6 @@
 #include "llvm/Transforms/Vectorize.h"
 #include "llvm/Support/Valgrind.h"
 #include <cstdlib>
-#include "llvm/Transforms/IPO/SafeDispatch.h"
 
 namespace {
   struct ForcePassLinking {

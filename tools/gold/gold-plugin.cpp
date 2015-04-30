@@ -721,6 +721,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
 
   legacy::PassManager passes;
   passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
+  passes.add(createChangeConstantPass());
 
   PassManagerBuilder PMB;
   PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
