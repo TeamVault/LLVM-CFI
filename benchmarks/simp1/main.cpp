@@ -5,9 +5,13 @@
 
 #include <stdint.h>
 #include <iostream>
+#include <cstdio>
 
 int main(int argc, char *argv[])
 {
+  int lucky = 42;
+  printf("42 == %d\n", lucky);
+
   A* a = new A();
   B* b = new B();
   C* c = new C();
