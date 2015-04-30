@@ -1450,6 +1450,23 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
   llvm::Value *VFuncPtr =
       CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
+
+  llvm::GetElementPtrInst* gepInst = dyn_cast_or_null<llvm::GetElementPtrInst>(VFuncPtr);
+  assert(gepInst);
+
+  // put mangled vtable name into a string
+  SmallString<256> OutName;
+  llvm::raw_svector_ostream Out(OutName);
+  const CXXRecordDecl* RD = (cast<CXXMethodDecl>(GD.getDecl()))->getParent();
+  getMangleContext().mangleCXXVTable(RD, Out);
+  Out.flush();
+  StringRef Name = OutName.str();
+
+  llvm::Instruction* inst = gepInst;
+  llvm::LLVMContext& C = inst->getContext();
+  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+  inst->setMetadata("sd.class.name", N);
+
   return CGF.Builder.CreateLoad(VFuncPtr);
 }
 

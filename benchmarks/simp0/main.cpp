@@ -2,8 +2,9 @@
 
 int main(int argc, char *argv[])
 {
-  int a = 42;
-  printf("%d\n", a);
+  int a = 41;
+  int b = 42;
+  printf("%d, %d\n", a, b);
 
   return 0;
 }

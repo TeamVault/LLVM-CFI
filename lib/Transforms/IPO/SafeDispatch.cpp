@@ -3,6 +3,7 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -10,6 +11,9 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "cc"
+
+#define STORE_OPCODE 28
+#define GEP_OPCODE   29
 
 namespace {
   struct ChangeConstant : public BasicBlockPass {
@@ -20,22 +24,41 @@ namespace {
     }
 
     bool runOnBasicBlock(BasicBlock &BB) override {
+      Module* module = BB.getParent()->getParent();
+      unsigned mdId = module->getMDKindID("sd.class.name");
+
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
         Instruction* inst = instItr;
-        if (inst->getOpcode() == 28) { // store operation
-          StoreInst* storeInst = dyn_cast_or_null<StoreInst>(inst);
-          assert(storeInst);
 
-          Value* storeVal = storeInst->getOperand(0);
-          ConstantInt* constIntVal = dyn_cast_or_null<ConstantInt>(storeVal);
+//        if (inst->getOpcode() == STORE_OPCODE) { // store operation
+//          StoreInst* storeInst = dyn_cast_or_null<StoreInst>(inst);
+//          assert(storeInst);
 
-          if(constIntVal) {
-            if (*(constIntVal->getValue().getRawData()) == 42) {
-              errs() << "this has the magic one\n";
-              IntegerType* intType = constIntVal->getType();
-              inst->setOperand(0, ConstantInt::get(intType, 43, false));
-              inst->dump();
-            }
+//          Value* storeVal = storeInst->getOperand(0);
+//          ConstantInt* constIntVal = dyn_cast_or_null<ConstantInt>(storeVal);
+
+//          if(constIntVal) {
+//            if (*(constIntVal->getValue().getRawData()) == 42) {
+//              errs() << "this has the magic one\n";
+//              IntegerType* intType = constIntVal->getType();
+//              inst->setOperand(0, ConstantInt::get(intType, 43, false));
+//              inst->dump();
+//            }
+//          }
+//        }
+
+        if (inst->getOpcode() == GEP_OPCODE) {
+          GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+          llvm::MDNode* mdNode = gepInst->getMetadata(mdId);
+          if (mdNode) {
+            gepInst->dump();
+            gepInst->getOperand(1)->dump();
+            StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+            errs() << className << "\n";
+
+            gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
+                                                    0,
+                                                    false));
           }
         }
       }
