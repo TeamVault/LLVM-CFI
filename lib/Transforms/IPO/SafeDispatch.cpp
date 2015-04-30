@@ -11,6 +11,11 @@
 #include "llvm/IR/IRBuilder.h"
 #include <vector>
 
+// you have to modify the following files for each additional LLVM pass
+// 1. IPO.h and IPO.cpp
+// 2. LinkAllPasses.h
+// 3. InitializePasses.h
+
 using namespace llvm;
 
 #define DEBUG_TYPE "cc"
@@ -101,12 +106,71 @@ namespace {
     }
 
   };
+
+  struct SDModule : public ModulePass {
+    static char ID; // Pass identification, replacement for typeid
+
+    SDModule() : ModulePass(ID) {
+      initializeSDModulePass(*PassRegistry::getPassRegistry());
+    }
+
+    bool runOnModule(Module &M) {
+      for (Module::global_iterator itr = M.getGlobalList().begin(); itr != M.getGlobalList().end(); itr++ ) {
+        GlobalVariable* globalVar = itr;
+        StringRef varName = globalVar->getName();
+
+        if (varName.startswith("_ZTV") &&
+            ! varName.startswith("_ZTVN10__cxxabiv")) {
+          errs() << varName << ":\n";
+          errs() << "old type: ";
+          globalVar->getType()->dump();
+
+          ArrayType* arrType = dyn_cast<ArrayType>(globalVar->getType()->getArrayElementType());
+          assert(arrType);
+
+          // assuming there are only 2 entries before vfunptrs
+          uint64_t newSize = arrType->getArrayNumElements() * 2 - 2;
+          PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), 8), 0);
+          ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
+          errs() << "new type: ";
+          newArrType->dump();
+
+          assert(globalVar->hasInitializer());
+          ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
+          assert(vtable);
+
+          std::vector<Constant*> newVtableElems;
+          newVtableElems.push_back(vtable->getOperand(0));
+          newVtableElems.push_back(vtable->getOperand(1));
+          for (unsigned vtblInd = 2; vtblInd < vtable->getNumOperands(); vtblInd++) {
+            newVtableElems.push_back(vtable->getOperand(vtblInd));
+            newVtableElems.push_back(ConstantPointerNull::get(vtblElemType));
+          }
+
+          Constant* newVtable = ConstantArray::get(newArrType, newVtableElems);
+          errs() << "old vtable:\n";
+          globalVar->getOperand(0)->dump();
+          errs() << "new vtable:\n";
+          newVtable->dump();
+        }
+      }
+      errs() << "##############################################\n";
+
+      return false;
+    }
+  };
 }
 
 char ChangeConstant::ID = 0;
+char SDModule::ID = 0;
 
 INITIALIZE_PASS(ChangeConstant, "cc", "Change Constant", false, false)
+INITIALIZE_PASS(SDModule, "sdmp", "Module pass for SafeDispatch", false, false)
 
 BasicBlockPass* llvm::createChangeConstantPass() {
   return new ChangeConstant();
+}
+
+ModulePass* llvm::createSDModulePass() {
+  return new SDModule();
 }

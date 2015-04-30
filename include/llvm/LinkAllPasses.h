@@ -186,6 +186,7 @@ namespace {
       (void) llvm::sys::RunningOnValgrind();
 
       (void) llvm::createChangeConstantPass();
+      (void) llvm::createSDModulePass();
     }
   } ForcePassLinking; // Force link by creating a global definition.
 }
