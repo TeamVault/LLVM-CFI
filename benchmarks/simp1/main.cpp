@@ -42,5 +42,19 @@ int main(int argc, char *argv[])
   d->g();
   d->t();
 
+  std::cout << "=====================================" << std::endl;
+
+  A* a1 = (A*) b;
+  A* a2 = (A*) c;
+  A* a3 = (A*) d;
+
+  a1->f();
+  a2->f();
+  a3->f();
+
+  a1->h();
+  a2->h();
+  a3->h();
+
   return 0;
 }
