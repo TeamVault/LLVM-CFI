@@ -131,19 +131,7 @@ namespace {
       LoadInst* loadInst = dyn_cast<LoadInst>(inst);
       assert(loadInst);
 
-      GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(loadInst->getOperand(0));
-      assert(gepInst);
-
-      IRBuilder<> builder(gepInst);
-      builder.SetInsertPoint(gepInst);
-
-      Value *idx = ConstantInt::get(Type::getInt64Ty(inst->getContext()), -2UL);
-      Value* newGepInst =
-          builder.CreateInBoundsGEP(gepInst->getSourceElementType(),
-                                    gepInst->getOperand(0), idx, "sd.new_typeid");
-
-      gepInst->replaceAllUsesWith(newGepInst);
-      gepInst->eraseFromParent();
+      changeGEPIndex(inst, 0, -2UL);
     }
 
     FunctionType* getDynCastFunType(LLVMContext& context) {
@@ -312,4 +300,21 @@ bool llvm::replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector
   callInst->eraseFromParent();
 
   return true;
+}
+
+
+void llvm::changeGEPIndex(Instruction* inst, unsigned operandNo, int64_t newIndex) {
+  GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst->getOperand(operandNo));
+  assert(gepInst);
+
+  IRBuilder<> builder(gepInst);
+  builder.SetInsertPoint(gepInst);
+
+  Value *idx = ConstantInt::get(Type::getInt64Ty(inst->getContext()), newIndex);
+  Value* newGepInst =
+          builder.CreateInBoundsGEP(gepInst->getSourceElementType(),
+                                    gepInst->getOperand(0), idx, "sd.new_typeid");
+
+  gepInst->replaceAllUsesWith(newGepInst);
+  gepInst->eraseFromParent();
 }

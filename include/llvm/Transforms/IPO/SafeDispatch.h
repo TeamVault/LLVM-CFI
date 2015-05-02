@@ -22,6 +22,11 @@ namespace llvm {
    */
   bool replaceCallFunctionWith(CallInst* from, Function* to, std::vector<Value*> args);
 
+  /**
+   * Replace the GEP's index value inside the given instruction
+   */
+  void changeGEPIndex(Instruction* inst, unsigned operandNo, int64_t newIndex);
+
 } // End llvm namespace
 
 #endif
