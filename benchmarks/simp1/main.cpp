@@ -7,8 +7,12 @@
 #include <iostream>
 #include <cstdio>
 
+void foo();
+
 int main(int argc, char *argv[])
 {
+  foo();
+
   int lucky = 42;
   printf("42 == %d\n", lucky);
 

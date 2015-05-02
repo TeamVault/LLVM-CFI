@@ -1083,7 +1083,19 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
 
   // Load the type info.
   Value = CGF.Builder.CreateConstInBoundsGEP1_64(Value, -1ULL);
-  return CGF.Builder.CreateLoad(Value);
+  Value = CGF.Builder.CreateLoad(Value);
+
+  llvm::LoadInst* loadInst = dyn_cast<llvm::LoadInst>(Value);
+  assert(loadInst);
+
+  // put mangled vtable name into a string
+  std::string Name = CGM.getCXXABI().GetClassMangledName(SrcRecordTy->getAsCXXRecordDecl());
+
+  llvm::LLVMContext& C = loadInst->getContext();
+  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+  loadInst->setMetadata("sd.typeid", N);
+
+  return Value;
 }
 
 bool ItaniumCXXABI::shouldDynamicCastCallBeNullChecked(bool SrcIsPtr,
@@ -1115,6 +1127,18 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
 
   llvm::Value *args[] = {Value, SrcRTTI, DestRTTI, OffsetHint};
   Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
+
+  // make sure that the result is a bitcast instruction
+  llvm::CallInst* cInst = dyn_cast<llvm::CallInst>(Value);
+  assert(cInst && cInst->getOpcode() == 49);
+
+  // put mangled vtable name into a string
+  std::string Name = CGM.getCXXABI().GetClassMangledName(SrcDecl);
+
+  llvm::LLVMContext& C = cInst->getContext();
+  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+  cInst->setMetadata("sd.cast.from", N);
+
   Value = CGF.Builder.CreateBitCast(Value, DestLTy);
 
   /// C++ [expr.dynamic.cast]p9:

@@ -406,6 +406,10 @@ public:
   /// Gets the deleted virtual member call name.
   virtual StringRef GetDeletedVirtualCallName() = 0;
 
+  std::string GetClassMangledName(const CXXRecordDecl *RD);
+  std::string GetClassMangledConstrName(const CXXRecordDecl *RD,
+                                                const BaseSubobject &Base);
+
   /**************************** Array cookies ******************************/
 
   /// Returns the extra size required in order to store the array
