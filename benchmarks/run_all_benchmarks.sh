@@ -2,7 +2,8 @@
 
 set -e
 
-declare -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt' 'my_ex1')
+declare -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt'
+'my_ex1' 'abi_ex' 'single_template')
 
 # if an argument is not given, run all the benchmarks
 # otherwise run the given ones
@@ -15,14 +16,28 @@ for b in ${benchmarks[@]}; do
     pushd $b > /dev/null
 
     echo "############################################################"
-    echo "compiling $b"
+    echo "g++ compiling $b"
 
-    make clean all
+    NO_LTO=OK make clean all > /dev/null
 
     echo "############################################################"
-    echo "running $b"
+    echo "g++ running $b"
 
-    ./main
+    ./main 2>&1 > /tmp/normal_run.txt
+
+    echo "############################################################"
+    echo "sd compiling $b"
+
+    make clean all > /dev/null
+
+    echo "############################################################"
+    echo "sd running $b"
+
+    ./main 2>&1 > /tmp/sd_run.txt
+
+    diff /tmp/normal_run.txt /tmp/sd_run.txt
+
+    rm -f /tmp/{normal,sd}_run.txt
 
     popd > /dev/null
   else

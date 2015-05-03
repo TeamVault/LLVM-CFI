@@ -18,15 +18,15 @@ int main(int argc, char *argv[])
   C* c = new C();
   D* d = new D();
 
-  uint64_t* ZTVA = *((uint64_t**)a);
-  std::cout << ZTVA << std::endl;
+  //uint64_t* ZTVA = *((uint64_t**)a);
+  //std::cout << ZTVA << std::endl;
   a->f();
   a->h();
 
   std::cout << "=====================================" << std::endl;
 
-  uint64_t* ZTVB = *((uint64_t**)b);
-  std::cout << ZTVB << std::endl;
+  //uint64_t* ZTVB = *((uint64_t**)b);
+  //std::cout << ZTVB << std::endl;
   b->f();
   b->h();
   b->g();
