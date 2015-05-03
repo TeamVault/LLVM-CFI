@@ -24,10 +24,54 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <algorithm>
+
 #include <cstdio>
+#include <string>
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/ADT/APInt.h"
 
 using namespace clang;
 using namespace CodeGen;
+
+#define SD_DEBUG
+
+static void
+print(const char* fmt, ...) {
+#ifdef SD_DEBUG
+  va_list args;
+  va_start(args,fmt);
+  printf("SD] ");
+  vprintf(fmt,args);
+  va_end(args);
+#endif
+}
+
+static void
+addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const CXXMethodDecl *MD,
+                 const ThunkInfo *Thunk, bool isVarArgs = false) {
+  if (Thunk && ! Thunk->This.NonVirtual) {
+    // this is a bitcast instruction with a gep inside
+    llvm::BitCastInst* bcInst = dyn_cast<llvm::BitCastInst>(adjustedThisPtr);
+    assert(bcInst);
+    int64_t vcallOffset = Thunk->This.Virtual.Itanium.VCallOffsetOffset;
+
+    std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+    print("Emitting virtual thunk for %s (original offset %ld) %s %s\n",
+          className.c_str(), vcallOffset, (isVarArgs ? "(varargs)" : ""),
+          MD->getQualifiedNameAsString().c_str());
+    llvm::LLVMContext& C = bcInst->getContext();
+    std::vector<llvm::Metadata*> tupleElements;
+    tupleElements.push_back(llvm::MDString::get(C, className));
+    tupleElements.push_back(llvm::ConstantAsMetadata::get(
+                              llvm::ConstantInt::getSigned(
+                                llvm::Type::getInt64Ty(bcInst->getContext()), vcallOffset)));
+
+    llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
+    bcInst->setMetadata("sd.vcall", mdTuple);
+  }
+}
+
 
 CodeGenVTables::CodeGenVTables(CodeGenModule &CGM)
     : CGM(CGM), VTContext(CGM.getContext().getVTableContext()) {}
@@ -170,6 +214,8 @@ void CodeGenFunction::GenerateVarArgsThunk(
       CGM.getCXXABI().performThisAdjustment(*this, ThisPtr, Thunk.This);
   ThisStore->setOperand(0, AdjustedThisPtr);
 
+  addVcallMetadata(CGM, AdjustedThisPtr, MD, &Thunk, true);
+
   if (!Thunk.Return.isEmpty()) {
     // Fix up the returned value, if necessary.
     for (llvm::Function::iterator I = Fn->begin(), E = Fn->end(); I != E; I++) {
@@ -231,6 +277,8 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
   llvm::Value *AdjustedThisPtr = Thunk ? CGM.getCXXABI().performThisAdjustment(
                                              *this, LoadCXXThis(), Thunk->This)
                                        : LoadCXXThis();
+
+  addVcallMetadata(CGM, AdjustedThisPtr, MD, Thunk, false);
 
   if (CurFnInfo->usesInAlloca()) {
     // We don't handle return adjusting thunks, because they require us to call

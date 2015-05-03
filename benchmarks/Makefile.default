@@ -1,3 +1,7 @@
+ifeq ($(NO_LTO),OK)
+CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g
+LD = $(CC)
+else
 CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g -flto
 
 GOLD_PLUGIN = $(LLVM_BUILD_DIR)/Release+Asserts/lib/LLVMgold.so
@@ -22,6 +26,7 @@ LD_PLUGIN = -plugin $(GOLD_PLUGIN) -plugin-opt=mcpu=x86-64
 LD_LIBS = -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc -ldyncast \
 /usr/lib/gcc/x86_64-linux-gnu/4.8/crtend.o \
 /usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crtn.o
+endif
 
 EXEC = main
 .PHONY: clean

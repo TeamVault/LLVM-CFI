@@ -5,6 +5,7 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Constant.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
@@ -36,9 +37,11 @@ namespace {
     bool runOnBasicBlock(BasicBlock &BB) override {
       Module* module = BB.getParent()->getParent();
 
-      unsigned classNameMDId = module->getMDKindID("sd.class.name");
-      unsigned castFromMDId = module->getMDKindID("sd.cast.from");
-      unsigned typeidMDId = module->getMDKindID("sd.typeid");
+      unsigned classNameMDId = module->getMDKindID(SD_MD_CLASS_NAME);
+      unsigned castFromMDId = module->getMDKindID(SD_MD_CAST_FROM);
+      unsigned typeidMDId = module->getMDKindID(SD_MD_TYPEID);
+      unsigned vcallMDId = module->getMDKindID(SD_MD_VCALL);
+      llvm::MDNode* vcallMDNode = NULL;
 
       std::vector<Instruction*> instructions;
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
@@ -50,24 +53,23 @@ namespace {
         Instruction* inst = *instItr;
         unsigned opcode = inst->getOpcode();
 
-        if (opcode == STORE_OPCODE) {
-          change42to43(inst);
-        }
-
         if (opcode == GEP_OPCODE) {
-          changeVfptrIndex(classNameMDId, inst);
-        }
-
-        if (opcode == CALL_OPCODE) {
-          duplicatePrintf(inst);
+          multVfptrIndexBy2(classNameMDId, inst);
         }
 
         if (inst->getMetadata(castFromMDId)) {
-          handleDynCast(module, inst);
+          replaceDynamicCast(module, inst);
         }
 
         if (inst->getMetadata(typeidMDId)) {
-          changeRTTIOffset(inst);
+          multRTTIOffsetBy2(inst);
+        }
+
+        if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
+          llvm::MDTuple* vcallMDTuple = cast<llvm::MDTuple>(vcallMDNode);
+          llvm::ConstantAsMetadata* oldOffMD = cast<ConstantAsMetadata>(vcallMDTuple->getOperand(1));
+          ConstantInt* oldOffset = cast<ConstantInt>(oldOffMD->getValue());
+          multVcallOffsetBy2(inst, oldOffset->getSExtValue());
         }
       }
       return true;
@@ -75,28 +77,26 @@ namespace {
 
   private:
 
-    void changeVfptrIndex(unsigned classNameMDId, Instruction* inst) {
-      GetElementPtrInst* gepInst = cast<GetElementPtrInst>(inst);
+    void multVfptrIndexBy2(unsigned classNameMDId, Instruction* inst) {
+      GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+      assert(gepInst);
       llvm::MDNode* mdNode = gepInst->getMetadata(classNameMDId);
       if (mdNode) {
         StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
         if (className.startswith("_ZTVSt"))
           return;
 
-        ConstantInt* index = dyn_cast<ConstantInt>(gepInst->getOperand(1));
-        assert(index);
+        ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
         uint64_t indexVal = *(index->getValue().getRawData());
         uint64_t newIndexVal = indexVal * 2;
 
         gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
                                                 newIndexVal,
                                                 false));
-
-        errs() << className << ": from: " << indexVal << ", to: " << newIndexVal << "\n";
       }
     }
 
-    void handleDynCast(Module* module, Instruction* inst) {
+    void replaceDynamicCast(Module* module, Instruction* inst) {
       Function* from = module->getFunction("__dynamic_cast");
 
       if (!from)
@@ -109,29 +109,46 @@ namespace {
       Constant* dyncastFun = module->getOrInsertFunction(SD_DYNCAST_FUNC_NAME,
                                                          dyncastFunType);
 
-      Function* dyncastFunF = dyn_cast<Function>(dyncastFun);
-      assert(dyncastFunF);
+      Function* dyncastFunF = cast<Function>(dyncastFun);
 
       // create the argument list for calling the function
       std::vector<Value*> arguments;
-      CallInst* callInst = cast<CallInst>(inst);
+      CallInst* callInst = dyn_cast<CallInst>(inst);
+      assert(callInst);
 
       assert(callInst->getNumArgOperands() == 4);
       for (unsigned argNo = 0; argNo < callInst->getNumArgOperands(); ++argNo) {
         arguments.push_back(callInst->getArgOperand(argNo));
       }
-      arguments.push_back(ConstantInt::get(context, APInt(64, -1 * 2 * 8))); // rtti
-      arguments.push_back(ConstantInt::get(context, APInt(64, -2 * 2 * 8))); // ott
+      arguments.push_back(ConstantInt::get(context, APInt(64, -1 * 2 * 8, true))); // rtti
+      arguments.push_back(ConstantInt::get(context, APInt(64, -2 * 2 * 8, true))); // ott
 
-      bool isReplaced = replaceCallFunctionWith(callInst, dyncastFunF, arguments);
+      bool isReplaced = sd_replaceCallFunctionWith(callInst, dyncastFunF, arguments);
       assert(isReplaced);
     }
 
-    void changeRTTIOffset(Instruction* inst) {
+    void multRTTIOffsetBy2(Instruction* inst) {
       LoadInst* loadInst = dyn_cast<LoadInst>(inst);
       assert(loadInst);
+      GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(loadInst->getOperand(0));
+      assert(gepInst);
 
-      changeGEPIndex(inst, 0, -2UL);
+      sd_changeGEPIndex(gepInst, 1, -2UL);
+    }
+
+    void multVcallOffsetBy2(Instruction* inst, int64_t oldValue) {
+      BitCastInst* bcInst = dyn_cast<BitCastInst>(inst);
+      assert(bcInst);
+      GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(bcInst->getOperand(0));
+      assert(gepInst);
+      LoadInst* loadInst = dyn_cast<LoadInst>(gepInst->getOperand(1));
+      assert(loadInst);
+      BitCastInst* bcInst2 = dyn_cast<BitCastInst>(loadInst->getOperand(0));
+      assert(bcInst2);
+      GetElementPtrInst* gepInst2 = dyn_cast<GetElementPtrInst>(bcInst2->getOperand(0));
+      assert(gepInst2);
+
+      sd_changeGEPIndex(gepInst2, 1, oldValue * 2);
     }
 
     FunctionType* getDynCastFunType(LLVMContext& context) {
@@ -148,7 +165,7 @@ namespace {
     }
 
     void duplicatePrintf(Instruction* inst) {
-      CallInst* callInst = cast<CallInst>(inst);
+      CallInst* callInst = dyn_cast<CallInst>(inst);
       assert(callInst);
       Function* calledF = callInst->getCalledFunction();
 
@@ -167,11 +184,11 @@ namespace {
     }
 
     void change42to43(Instruction* inst) {
-      StoreInst* storeInst = cast<StoreInst>(inst);
+      StoreInst* storeInst = dyn_cast<StoreInst>(inst);
       assert(storeInst);
 
       Value* storeVal = storeInst->getOperand(0);
-      ConstantInt* constIntVal = dyn_cast_or_null<ConstantInt>(storeVal);
+      ConstantInt* constIntVal = dyn_cast<ConstantInt>(storeVal);
 
       if(constIntVal) {
         if (*(constIntVal->getValue().getRawData()) == 42) {
@@ -201,7 +218,7 @@ namespace {
         StringRef varName = globalVar->getName();
 
         if (varName.startswith("_ZTV") && ! varName.startswith("_ZTVN10__cxxabiv")) {
-          handleVtableVariable(M, globalVar);
+          expandVtableVariable(M, globalVar);
           isChanged = true;
         }
       }
@@ -219,7 +236,7 @@ namespace {
   private:
     bool isChanged = false;
 
-    void handleVtableVariable(Module &M, GlobalVariable* globalVar) {
+    void expandVtableVariable(Module &M, GlobalVariable* globalVar) {
       StringRef varName = globalVar->getName();
 
       ArrayType* arrType = dyn_cast<ArrayType>(globalVar->getType()->getArrayElementType());
@@ -242,19 +259,15 @@ namespace {
 
       Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
 
-      GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
-                                                     GlobalValue::ExternalLinkage,
-                                                     0, "_SD" + varName);
+      GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true, globalVar->getLinkage(),
+                                                     nullptr, "_SD" + varName, nullptr,
+                                                     globalVar->getThreadLocalMode(),
+                                                     0,globalVar->isExternallyInitialized());
       newVtable->setAlignment(8);
       newVtable->setInitializer(newVtableInit);
 
       // create the new vtable base offset
       Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
-      int64_t oldOffset = 2;
-      Constant* newOffset  = ConstantInt::get(M.getContext(), APInt(64, oldOffset * 2));
-      std::vector<Constant*> indices;
-      indices.push_back(zero);
-      indices.push_back(newOffset);
 
       for (GlobalVariable::user_iterator userItr = globalVar->user_begin();
            userItr != globalVar->user_end(); userItr++) {
@@ -263,8 +276,17 @@ namespace {
         ConstantExpr* userCE = dyn_cast<ConstantExpr>(user);
         assert(userCE && userCE->getOpcode() == GEP_OPCODE);
 
-        Constant* newConst = ConstantExpr::getGetElementPtr(newArrType,
-                                                            newVtable, indices, true);
+        ConstantInt* oldConst = dyn_cast<ConstantInt>(userCE->getOperand(2));
+        assert(oldConst);
+
+        int64_t oldOffset = oldConst->getSExtValue();
+        Constant* newOffset  = ConstantInt::getSigned(Type::getInt64Ty(M.getContext()), oldOffset * 2);
+
+        std::vector<Constant*> indices;
+        indices.push_back(zero);
+        indices.push_back(newOffset);
+
+        Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
 
         userCE->replaceAllUsesWith(newConst);
       }
@@ -288,8 +310,8 @@ ModulePass* llvm::createSDModulePass() {
   return new SDModule();
 }
 
-bool llvm::replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {
-  assert(callInst && to);
+bool llvm::sd_replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {
+  assert(callInst && to && args.size() > 0);
 
   IRBuilder<> builder(callInst);
   builder.SetInsertPoint(callInst);
@@ -302,19 +324,9 @@ bool llvm::replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector
   return true;
 }
 
+void llvm::sd_changeGEPIndex(GetElementPtrInst* inst, unsigned operandNo, int64_t newIndex) {
+  assert(inst);
 
-void llvm::changeGEPIndex(Instruction* inst, unsigned operandNo, int64_t newIndex) {
-  GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst->getOperand(operandNo));
-  assert(gepInst);
-
-  IRBuilder<> builder(gepInst);
-  builder.SetInsertPoint(gepInst);
-
-  Value *idx = ConstantInt::get(Type::getInt64Ty(inst->getContext()), newIndex);
-  Value* newGepInst =
-          builder.CreateInBoundsGEP(gepInst->getSourceElementType(),
-                                    gepInst->getOperand(0), idx, "sd.new_typeid");
-
-  gepInst->replaceAllUsesWith(newGepInst);
-  gepInst->eraseFromParent();
+  Value *idx = ConstantInt::getSigned(Type::getInt64Ty(inst->getContext()), newIndex);
+  inst->setOperand(operandNo, idx);
 }

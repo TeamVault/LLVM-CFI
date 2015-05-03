@@ -1,3 +1,9 @@
 main
 *.o
 *.so
+
+*.creator.user
+*.config
+*.creator
+*.files
+*.includes

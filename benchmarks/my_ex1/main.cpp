@@ -9,37 +9,20 @@ int main(int argc, char *argv[])
   D* d = new D();
 
   a->f();
+  a->g();
   a->h();
-
   std::cout << "-----------------" << std::endl;
-
   b->f();
+  b->g();
   b->h();
-
   std::cout << "-----------------" << std::endl;
-
+  c->f();
   c->g();
-
+  c->h();
   std::cout << "-----------------" << std::endl;
-
   d->f();
-  d->h();
   d->g();
-
-  std::cout << "-----------------" << std::endl;
-
-  A* a1 = (A*) b;
-  A* a2 = (A*) c;
-  A* a3 = (A*) d;
-
-  a1->f();
-  a1->h();
-  a2->f();
-  a2->h();
-  a3->f();
-  a3->h();
-
-
+  d->h();
 
   return 0;
 }

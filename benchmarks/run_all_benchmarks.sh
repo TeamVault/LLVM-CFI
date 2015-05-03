@@ -2,7 +2,7 @@
 
 set -e
 
-declare -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult')
+declare -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt')
 
 # if an argument is not given, run all the benchmarks
 # otherwise run the given ones
