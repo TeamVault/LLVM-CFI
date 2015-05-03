@@ -41,7 +41,10 @@ namespace {
       unsigned castFromMDId = module->getMDKindID(SD_MD_CAST_FROM);
       unsigned typeidMDId = module->getMDKindID(SD_MD_TYPEID);
       unsigned vcallMDId = module->getMDKindID(SD_MD_VCALL);
+      unsigned vbaseMDId = module->getMDKindID(SD_MD_VBASE);
+
       llvm::MDNode* vcallMDNode = NULL;
+      llvm::MDNode* vbaseMDNode = NULL;
 
       std::vector<Instruction*> instructions;
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
@@ -66,10 +69,27 @@ namespace {
         }
 
         if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
-          llvm::MDTuple* vcallMDTuple = cast<llvm::MDTuple>(vcallMDNode);
-          llvm::ConstantAsMetadata* oldOffMD = cast<ConstantAsMetadata>(vcallMDTuple->getOperand(1));
-          ConstantInt* oldOffset = cast<ConstantInt>(oldOffMD->getValue());
+          llvm::MDTuple* vcallMDTuple = dyn_cast<llvm::MDTuple>(vcallMDNode);
+          assert(vcallMDTuple);
+          llvm::ConstantAsMetadata* oldOffMD = dyn_cast<ConstantAsMetadata>(vcallMDTuple->getOperand(1));
+          assert(oldOffMD);
+          ConstantInt* oldOffset = dyn_cast<ConstantInt>(oldOffMD->getValue());
+          assert(oldOffset);
           multVcallOffsetBy2(inst, oldOffset->getSExtValue());
+        }
+
+        if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
+          llvm::MDTuple* vbaseMDTuple = dyn_cast<llvm::MDTuple>(vbaseMDNode);
+          assert(vbaseMDTuple);
+          llvm::ConstantAsMetadata* oldOffMD = dyn_cast<ConstantAsMetadata>(vbaseMDTuple->getOperand(1));
+          assert(oldOffMD);
+          ConstantInt* oldOffset = dyn_cast<ConstantInt>(oldOffMD->getValue());
+          assert(oldOffset);
+
+          GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+          assert(gepInst);
+
+          sd_changeGEPIndex(gepInst, 1, oldOffset->getSExtValue() * 2);
         }
       }
       return true;
@@ -83,7 +103,7 @@ namespace {
       llvm::MDNode* mdNode = gepInst->getMetadata(classNameMDId);
       if (mdNode) {
         StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
-        if (className.startswith("_ZTVSt"))
+        if (! sd_isVTableName(className))
           return;
 
         ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
@@ -217,7 +237,7 @@ namespace {
         GlobalVariable* globalVar = itr;
         StringRef varName = globalVar->getName();
 
-        if (varName.startswith("_ZTV") && ! varName.startswith("_ZTVN10__cxxabiv")) {
+        if (sd_isVTableName(varName)) {
           expandVtableVariable(M, globalVar);
           isChanged = true;
         }
@@ -308,6 +328,12 @@ BasicBlockPass* llvm::createChangeConstantPass() {
 
 ModulePass* llvm::createSDModulePass() {
   return new SDModule();
+}
+
+bool llvm::sd_isVTableName(StringRef& name) {
+  return (name.startswith("_ZTC") || name.startswith("_ZTV")) && // is a vtable
+      (!name.startswith("_ZTVSt")) &&                            // but not from std namespace
+      (!name.startswith("_ZTVN10__cxxabiv"));                    // or from this one
 }
 
 bool llvm::sd_replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {

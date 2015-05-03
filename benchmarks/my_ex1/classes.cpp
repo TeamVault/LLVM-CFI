@@ -6,6 +6,11 @@ B::B() {std::cout << "constructing B...\n";}
 C::C() {std::cout << "constructing C...\n";}
 D::D() {std::cout << "constructing D...\n";}
 
+A::~A() {std::cout << "deleting A...\n";}
+B::~B() {std::cout << "deleting B...\n";}
+C::~C() {std::cout << "deleting C...\n";}
+D::~D() {std::cout << "deleting D...\n";}
+
 void A::f() { std::cout << "A::f" << std::endl; }
 void A::g() { std::cout << "A::g" << std::endl; }
 void A::h() { std::cout << "A::h" << std::endl; }

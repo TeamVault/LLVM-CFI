@@ -1,7 +1,4 @@
-#include "A.h"
-#include "B.h"
-#include "C.h"
-#include "D.h"
+#include "classes.h"
 
 #include <stdint.h>
 #include <iostream>
@@ -59,6 +56,11 @@ int main(int argc, char *argv[])
   a1->h();
   a2->h();
   a3->h();
+
+  delete a;
+  delete a1;
+  delete a2;
+  delete a3;
 
   return 0;
 }

@@ -1,4 +1,4 @@
-OBJS = A.o B.o C.o D.o foo.o
+OBJS = classes.o foo.o
 
 include ../Makefile.config
 include ../Makefile.default

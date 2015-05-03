@@ -1,6 +1,11 @@
 #include "classes.h"
 #include <iostream>
 
+A::~A() { std::cout << "deleted A" << std::endl; }
+B::~B() { std::cout << "deleted B" << std::endl; }
+C::~C() { std::cout << "deleted C" << std::endl; }
+D::~D() { std::cout << "deleted D" << std::endl; }
+
 void A::f() { std::cout << "A::f" << std::endl; }
 void A::h() { std::cout << "A::h" << std::endl; }
 

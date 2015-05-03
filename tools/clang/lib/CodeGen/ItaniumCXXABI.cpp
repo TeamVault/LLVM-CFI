@@ -34,6 +34,9 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
 
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
+#include <iostream>
+
 using namespace clang;
 using namespace CodeGen;
 
@@ -1093,7 +1096,7 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
 
   llvm::LLVMContext& C = loadInst->getContext();
   llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-  loadInst->setMetadata("sd.typeid", N);
+  loadInst->setMetadata(SD_MD_TYPEID, N);
 
   return Value;
 }
@@ -1137,7 +1140,7 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
 
   llvm::LLVMContext& C = cInst->getContext();
   llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-  cInst->setMetadata("sd.cast.from", N);
+  cInst->setMetadata(SD_MD_CAST_FROM, N);
 
   Value = CGF.Builder.CreateBitCast(Value, DestLTy);
 
@@ -1200,6 +1203,26 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
   llvm::Value *VBaseOffsetPtr =
     CGF.Builder.CreateConstGEP1_64(VTablePtr, VBaseOffsetOffset.getQuantity(),
                                    "vbase.offset.ptr");
+
+  llvm::GetElementPtrInst* gepInst = dyn_cast<llvm::GetElementPtrInst>(VBaseOffsetPtr);
+  assert(gepInst);
+
+  std::string className = this->GetClassMangledName(ClassDecl);
+  int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
+
+  std::cerr << "SD] emitting vbase for " << className
+            << ", off: "<< vbaseOffset << "\n";
+
+  llvm::LLVMContext& C = gepInst->getContext();
+  std::vector<llvm::Metadata*> tupleElements;
+  tupleElements.push_back(llvm::MDString::get(C, className));
+  tupleElements.push_back(llvm::ConstantAsMetadata::get(
+                              llvm::ConstantInt::getSigned(
+                                  llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
+
+  llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
+  gepInst->setMetadata(SD_MD_VBASE, mdTuple);
+
   VBaseOffsetPtr = CGF.Builder.CreateBitCast(VBaseOffsetPtr,
                                              CGM.PtrDiffTy->getPointerTo());
 
@@ -1479,17 +1502,13 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   assert(gepInst);
 
   // put mangled vtable name into a string
-  SmallString<256> OutName;
-  llvm::raw_svector_ostream Out(OutName);
   const CXXRecordDecl* RD = (cast<CXXMethodDecl>(GD.getDecl()))->getParent();
-  getMangleContext().mangleCXXVTable(RD, Out);
-  Out.flush();
-  StringRef Name = OutName.str();
+  std::string Name = this->GetClassMangledName(RD);
 
   llvm::Instruction* inst = gepInst;
   llvm::LLVMContext& C = inst->getContext();
   llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-  inst->setMetadata("sd.class.name", N);
+  inst->setMetadata(SD_MD_CLASS_NAME, N);
 
   return CGF.Builder.CreateLoad(VFuncPtr);
 }

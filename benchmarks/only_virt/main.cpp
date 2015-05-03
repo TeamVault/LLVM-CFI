@@ -39,7 +39,14 @@ int main(int argc, char *argv[])
   a3->f();
   a3->h();
 
-
+  std::cout << "-----------------" << std::endl;
+  delete a;
+  std::cout << "-----------------" << std::endl;
+  delete a1;
+  std::cout << "-----------------" << std::endl;
+  delete a2;
+  std::cout << "-----------------" << std::endl;
+  delete a3;
 
   return 0;
 }

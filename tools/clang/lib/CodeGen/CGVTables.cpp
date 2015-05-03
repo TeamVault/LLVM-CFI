@@ -30,6 +30,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -68,7 +69,7 @@ addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const CXXMeth
                                 llvm::Type::getInt64Ty(bcInst->getContext()), vcallOffset)));
 
     llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
-    bcInst->setMetadata("sd.vcall", mdTuple);
+    bcInst->setMetadata(SD_MD_VCALL, mdTuple);
   }
 }
 
