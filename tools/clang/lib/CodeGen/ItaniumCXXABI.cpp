@@ -35,7 +35,8 @@
 #include "llvm/IR/Value.h"
 
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
-#include <iostream>
+//#define SD_DEBUG
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -1210,8 +1211,7 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
   std::string className = this->GetClassMangledName(ClassDecl);
   int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
 
-  std::cerr << "SD] emitting vbase for " << className
-            << ", off: "<< vbaseOffset << "\n";
+  sd_print("Emitting vbase for %s, off: %ld\n", className.c_str(), vbaseOffset);
 
   llvm::LLVMContext& C = gepInst->getContext();
   std::vector<llvm::Metadata*> tupleElements;

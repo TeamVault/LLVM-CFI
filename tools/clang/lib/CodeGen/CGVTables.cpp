@@ -25,7 +25,6 @@
 #include "llvm/Transforms/Utils/Cloning.h"
 #include <algorithm>
 
-#include <cstdio>
 #include <string>
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Constants.h"
@@ -35,18 +34,8 @@
 using namespace clang;
 using namespace CodeGen;
 
-#define SD_DEBUG
-
-static void
-print(const char* fmt, ...) {
-#ifdef SD_DEBUG
-  va_list args;
-  va_start(args,fmt);
-  printf("SD] ");
-  vprintf(fmt,args);
-  va_end(args);
-#endif
-}
+//#define SD_DEBUG
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 static void
 addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const CXXMethodDecl *MD,
@@ -58,7 +47,7 @@ addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const CXXMeth
     int64_t vcallOffset = Thunk->This.Virtual.Itanium.VCallOffsetOffset;
 
     std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
-    print("Emitting virtual thunk for %s (original offset %ld) %s %s\n",
+    sd_print("Emitting virtual thunk for %s (original offset %ld) %s %s\n",
           className.c_str(), vcallOffset, (isVarArgs ? "(varargs)" : ""),
           MD->getQualifiedNameAsString().c_str());
     llvm::LLVMContext& C = bcInst->getContext();

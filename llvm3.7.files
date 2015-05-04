@@ -9835,3 +9835,4 @@ utils/unittest/googletest/src/gtest.cc
 utils/unittest/UnitTestMain/TestMain.cpp
 utils/yaml-bench/YAMLBench.cpp
 include/llvm/Transforms/IPO/SafeDispatchMD.h
+include/llvm/Transforms/IPO/SafeDispatchLog.h

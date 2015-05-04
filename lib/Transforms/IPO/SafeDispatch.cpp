@@ -14,6 +14,9 @@
 #include "llvm/IR/CallSite.h"
 #include <vector>
 
+#define SD_DEBUG
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+
 // you have to modify the following files for each additional LLVM pass
 // 1. IPO.h and IPO.cpp
 // 2. LinkAllPasses.h
@@ -69,27 +72,17 @@ namespace {
         }
 
         if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
-          llvm::MDTuple* vcallMDTuple = dyn_cast<llvm::MDTuple>(vcallMDNode);
-          assert(vcallMDTuple);
-          llvm::ConstantAsMetadata* oldOffMD = dyn_cast<ConstantAsMetadata>(vcallMDTuple->getOperand(1));
-          assert(oldOffMD);
-          ConstantInt* oldOffset = dyn_cast<ConstantInt>(oldOffMD->getValue());
-          assert(oldOffset);
-          multVcallOffsetBy2(inst, oldOffset->getSExtValue());
+          int64_t oldValue = getMetadataConstant(vcallMDNode, 1);
+          multVcallOffsetBy2(inst, oldValue);
         }
 
         if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
-          llvm::MDTuple* vbaseMDTuple = dyn_cast<llvm::MDTuple>(vbaseMDNode);
-          assert(vbaseMDTuple);
-          llvm::ConstantAsMetadata* oldOffMD = dyn_cast<ConstantAsMetadata>(vbaseMDTuple->getOperand(1));
-          assert(oldOffMD);
-          ConstantInt* oldOffset = dyn_cast<ConstantInt>(oldOffMD->getValue());
-          assert(oldOffset);
+          int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
 
           GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
           assert(gepInst);
 
-          sd_changeGEPIndex(gepInst, 1, oldOffset->getSExtValue() * 2);
+          sd_changeGEPIndex(gepInst, 1, oldValue * 2);
         }
       }
       return true;
@@ -171,6 +164,21 @@ namespace {
       sd_changeGEPIndex(gepInst2, 1, oldValue * 2);
     }
 
+    int64_t getMetadataConstant(llvm::MDNode* mdNode, unsigned operandNo) {
+      llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
+      assert(mdTuple);
+
+      llvm::ConstantAsMetadata* constantMD = dyn_cast<ConstantAsMetadata>(
+            mdTuple->getOperand(operandNo));
+      assert(constantMD);
+
+      ConstantInt* constantInt = dyn_cast<ConstantInt>(constantMD->getValue());
+      assert(constantInt);
+
+      return constantInt->getSExtValue();
+    }
+
+
     FunctionType* getDynCastFunType(LLVMContext& context) {
       std::vector<Type*> argVector;
       argVector.push_back(Type::getInt8PtrTy(context)); // object address
@@ -199,7 +207,7 @@ namespace {
         }
 
         builder.CreateCall(calledF, arguments, "sd.call");
-        errs() << "duplicated printf call\n";
+        sd_print("Duplicated printf call");
       }
     }
 
@@ -214,7 +222,7 @@ namespace {
         if (*(constIntVal->getValue().getRawData()) == 42) {
           IntegerType* intType = constIntVal->getType();
           inst->setOperand(0, ConstantInt::get(intType, 43, false));
-          errs() << "changed constant val 42 to 43\n";
+          sd_print("changed constant val 42 to 43\n");
         }
       }
     }
@@ -246,8 +254,7 @@ namespace {
       for(unsigned i=0; i<vtablesToDelete.size(); i++) {
         StringRef varName(vtablesToDelete[i]->getName());
         vtablesToDelete[i]->eraseFromParent();
-        errs() << "successfully replaced " << varName << " with "
-               << "_SD" << varName << "\n";
+        sd_print("Successfully replaced %s with _SD%s\n", varName.bytes_begin(), varName.bytes_begin());
       }
 
       return isChanged;
