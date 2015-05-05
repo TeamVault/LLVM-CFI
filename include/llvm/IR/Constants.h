@@ -434,63 +434,6 @@ public:
   }
 };
 
-//===----------------------------------------------------------------------===//
-// MemberPointerStruct - Member Pointer Struct Declarations
-//
-class MemberPointerStruct : public Constant {
-  friend struct ConstantAggrKeyType<MemberPointerStruct>;
-  MemberPointerStruct(const MemberPointerStruct &) = delete;
-  std::string sd_className;
-
-protected:
-  MemberPointerStruct(StructType *T, ArrayRef<Constant *> Val);
-public:
-
-  void setClassName(std::string className) { sd_className = className; }
-  std::string getClassName() { return sd_className; }
-
-  // MemberPointerStruct accessors
-  static Constant *get(StructType *T, ArrayRef<Constant*> V);
-  static Constant *get(StructType *T, ...) LLVM_END_WITH_NULL;
-
-  /// getAnon - Return an anonymous struct that has the specified
-  /// elements.  If the struct is possibly empty, then you must specify a
-  /// context.
-  static Constant *getAnon(ArrayRef<Constant*> V, bool Packed = false) {
-    return get(getTypeForElements(V, Packed), V);
-  }
-  static Constant *getAnon(LLVMContext &Ctx,
-                           ArrayRef<Constant*> V, bool Packed = false) {
-    return get(getTypeForElements(Ctx, V, Packed), V);
-  }
-
-  /// getTypeForElements - Return an anonymous struct type to use for a constant
-  /// with the specified set of elements.  The list must not be empty.
-  static StructType *getTypeForElements(ArrayRef<Constant*> V,
-                                        bool Packed = false);
-  /// getTypeForElements - This version of the method allows an empty list.
-  static StructType *getTypeForElements(LLVMContext &Ctx,
-                                        ArrayRef<Constant*> V,
-                                        bool Packed = false);
-
-  /// Transparently provide more efficient getOperand methods.
-  DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Constant);
-
-  /// getType() specialization - Reduce amount of casting...
-  ///
-  inline StructType *getType() const {
-    return cast<StructType>(Value::getType());
-  }
-
-  void destroyConstant() override;
-  void replaceUsesOfWithOnConstant(Value *From, Value *To, Use *U) override;
-
-  /// Methods for support type inquiry through isa, cast, and dyn_cast:
-  static bool classof(const Value *V) {
-    return V->getValueID() == MemberPointerStructVal;
-  }
-};
-
 template <>
 struct OperandTraits<ConstantStruct> :
   public VariadicOperandTraits<ConstantStruct> {

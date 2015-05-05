@@ -350,9 +350,7 @@ public:
 
     // Markers:
     ConstantFirstVal = FunctionVal,
-    ConstantLastVal  = ConstantPointerNullVal,
-
-    MemberPointerStructVal,        // This is an instance of ConstantStruct
+    ConstantLastVal  = ConstantPointerNullVal
   };
 
   /// \brief Return an ID for the concrete type of this object.
