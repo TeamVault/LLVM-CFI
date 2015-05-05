@@ -34,8 +34,8 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
 
+#include "llvm/IR/Instructions.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
-//#define SD_DEBUG
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 using namespace clang;
@@ -699,6 +699,8 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
       MemPtr[1] = llvm::ConstantInt::get(CGM.PtrDiffTy,
                                          ThisAdjustment.getQuantity());
     }
+    sd_print("class: %s, member pointer: %lu\n",
+             GetClassMangledName(MD->getParent()).c_str(), VTableOffset);
   } else {
     const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();
     llvm::Type *Ty;
@@ -718,8 +720,12 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
                                        (UseARMMethodPtrABI ? 2 : 1) *
                                        ThisAdjustment.getQuantity());
   }
-  
-  return llvm::ConstantStruct::getAnon(MemPtr);
+
+  llvm::Constant* res = llvm::ConstantStruct::getAnon(MemPtr);
+
+  // burayi sil
+
+  return res;
 }
 
 llvm::Constant *ItaniumCXXABI::EmitMemberPointer(const APValue &MP,

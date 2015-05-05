@@ -399,5 +399,6 @@ utils/unittest/googletest/include/gtest
 utils/unittest/googletest/include/gtest/internal
 utils/unittest/googletest/src
 
-/home/gokhan/libs/llvm3.7/llvm-build/include
-/home/gokhan/libs/llvm3.7/binutils/include
+../llvm-build/tools/clang/include
+../llvm-build/include
+../binutils/include

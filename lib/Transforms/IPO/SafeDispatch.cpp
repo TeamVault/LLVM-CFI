@@ -14,7 +14,6 @@
 #include "llvm/IR/CallSite.h"
 #include <vector>
 
-#define SD_DEBUG
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 // you have to modify the following files for each additional LLVM pass
@@ -240,6 +239,8 @@ namespace {
     }
 
     bool runOnModule(Module &M) {
+      sd_print("Started safedispatch analysis\n");
+
       for (Module::global_iterator itr = M.getGlobalList().begin();
            itr != M.getGlobalList().end(); itr++ ) {
         GlobalVariable* globalVar = itr;
@@ -248,6 +249,10 @@ namespace {
         if (sd_isVTableName(varName)) {
           expandVtableVariable(M, globalVar);
           isChanged = true;
+        }
+
+        if (sd_isVTTName(varName)) {
+          handleVTT(M, globalVar);
         }
       }
 
@@ -320,6 +325,11 @@ namespace {
 
       vtablesToDelete.push_back(globalVar);
     }
+
+    void handleVTT(Module &M, GlobalVariable* globalVar) {
+      sd_print("VTT: %s\n", globalVar->getName().bytes_begin());
+      globalVar->dump();
+    }
   };
 }
 
@@ -341,6 +351,10 @@ bool llvm::sd_isVTableName(StringRef& name) {
   return (name.startswith("_ZTC") || name.startswith("_ZTV")) && // is a vtable
       (!name.startswith("_ZTVSt")) &&                            // but not from std namespace
       (!name.startswith("_ZTVN10__cxxabiv"));                    // or from this one
+}
+
+bool llvm::sd_isVTTName(StringRef& name) {
+  return name.startswith("_ZTT");
 }
 
 bool llvm::sd_replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {

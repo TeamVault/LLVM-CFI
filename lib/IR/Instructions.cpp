@@ -26,6 +26,8 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+
 //===----------------------------------------------------------------------===//
 //                            CallSite Class
 //===----------------------------------------------------------------------===//
@@ -1064,6 +1066,14 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile, unsigned Align,
     : StoreInst(val, addr, isVolatile, Align, NotAtomic, CrossThread,
                 InsertAtEnd) {}
 
+static void
+handleMethodPointerValue(StoreInst* storeInst, Value* val) {
+  llvm::ConstantStruct* cs = dyn_cast<llvm::ConstantStruct>(val);
+  if (cs) {
+    storeInst->dump();
+  }
+}
+
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      unsigned Align, AtomicOrdering Order,
                      SynchronizationScope SynchScope,
@@ -1078,6 +1088,8 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setAlignment(Align);
   setAtomic(Order, SynchScope);
   AssertOK();
+
+  handleMethodPointerValue(this, val);
 }
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
@@ -1094,6 +1106,8 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setAlignment(Align);
   setAtomic(Order, SynchScope);
   AssertOK();
+
+  handleMethodPointerValue(this, val);
 }
 
 void StoreInst::setAlignment(unsigned Align) {
