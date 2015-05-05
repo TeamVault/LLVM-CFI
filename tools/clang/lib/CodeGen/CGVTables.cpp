@@ -34,7 +34,6 @@
 using namespace clang;
 using namespace CodeGen;
 
-//#define SD_DEBUG
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 static void

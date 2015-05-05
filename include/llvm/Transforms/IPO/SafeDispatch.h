@@ -29,6 +29,8 @@ namespace llvm {
 
   bool sd_isVTableName(StringRef& name);
 
+  bool sd_isVTTName(StringRef& name);
+
 } // End llvm namespace
 
 #endif

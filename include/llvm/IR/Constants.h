@@ -28,6 +28,8 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/OperandTraits.h"
 
+#include <string>
+
 namespace llvm {
 
 class ArrayType;
@@ -385,9 +387,11 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(ConstantArray, Constant)
 class ConstantStruct : public Constant {
   friend struct ConstantAggrKeyType<ConstantStruct>;
   ConstantStruct(const ConstantStruct &) = delete;
+
 protected:
   ConstantStruct(StructType *T, ArrayRef<Constant *> Val);
 public:
+
   // ConstantStruct accessors
   static Constant *get(StructType *T, ArrayRef<Constant*> V);
   static Constant *get(StructType *T, ...) LLVM_END_WITH_NULL;
