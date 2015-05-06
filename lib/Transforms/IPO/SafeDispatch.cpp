@@ -63,7 +63,7 @@ namespace {
 
         // gep instruction
         if (opcode == GEP_OPCODE) {
-          if((vfptrMDNode = gepInst->getMetadata(classNameMDId))){
+          if((vfptrMDNode = inst->getMetadata(classNameMDId))){
             multVfptrIndexBy2(vfptrMDNode, inst);
           } else if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
             int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
@@ -171,7 +171,11 @@ namespace {
       sd_changeGEPIndex(gepInst2, 1, oldValue * 2);
     }
 
-    void handleMemberPointer(llvm::MDNode* md, Instruction* inst){
+    void handleMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
+      StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+      sd_print("Member pointer of class %s, inst: ", className.bytes_begin());
+      inst->dump();
+
       StoreInst* storeInst = dyn_cast<StoreInst>(inst);
       assert(storeInst);
 

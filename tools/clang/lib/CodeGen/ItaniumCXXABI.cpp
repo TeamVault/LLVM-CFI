@@ -700,9 +700,6 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
                                          ThisAdjustment.getQuantity());
     }
     std::string className = GetClassMangledName(MD->getParent());
-    sd_print("class: %s, member pointer: %lu\n",
-             className.c_str(), VTableOffset);
-
     return llvm::ConstantMemberPointer::getAnon(MemPtr, className);
 
   } else {
