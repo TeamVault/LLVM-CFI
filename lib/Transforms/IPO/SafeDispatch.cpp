@@ -44,9 +44,12 @@ namespace {
       unsigned typeidMDId = module->getMDKindID(SD_MD_TYPEID);
       unsigned vcallMDId = module->getMDKindID(SD_MD_VCALL);
       unsigned vbaseMDId = module->getMDKindID(SD_MD_VBASE);
+      unsigned memptrMDId = module->getMDKindID(SD_MD_MEMPTR);
 
+      llvm::MDNode* vfptrMDNode = NULL;
       llvm::MDNode* vcallMDNode = NULL;
       llvm::MDNode* vbaseMDNode = NULL;
+      llvm::MDNode* memptrMDNode = NULL;
 
       std::vector<Instruction*> instructions;
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
@@ -58,30 +61,38 @@ namespace {
         Instruction* inst = *instItr;
         unsigned opcode = inst->getOpcode();
 
+        // gep instruction
         if (opcode == GEP_OPCODE) {
-          multVfptrIndexBy2(classNameMDId, inst);
+          if((vfptrMDNode = gepInst->getMetadata(classNameMDId))){
+            multVfptrIndexBy2(vfptrMDNode, inst);
+          } else if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
+            int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
+
+            GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+            assert(gepInst);
+
+            sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+          }
         }
 
-        if (inst->getMetadata(castFromMDId)) {
+        // call instruction
+        else if (inst->getMetadata(castFromMDId)) {
           replaceDynamicCast(module, inst);
         }
 
-        if (inst->getMetadata(typeidMDId)) {
+        // load instruction
+        else if (inst->getMetadata(typeidMDId)) {
           multRTTIOffsetBy2(inst);
         }
 
-        if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
+        // bitcast instruction
+        else if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
           int64_t oldValue = getMetadataConstant(vcallMDNode, 1);
           multVcallOffsetBy2(inst, oldValue);
         }
 
-        if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
-          int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
-
-          GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
-          assert(gepInst);
-
-          sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+        else if ((memptrMDNode = inst->getMetadata(memptrMDId))) {
+          handleMemberPointer(memptrMDNode, inst);
         }
       }
       return true;
@@ -89,23 +100,20 @@ namespace {
 
   private:
 
-    void multVfptrIndexBy2(unsigned classNameMDId, Instruction* inst) {
+    void multVfptrIndexBy2(llvm::MDNode* mdNode, Instruction* inst) {
       GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
       assert(gepInst);
-      llvm::MDNode* mdNode = gepInst->getMetadata(classNameMDId);
-      if (mdNode) {
-        StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
-        if (! sd_isVTableName(className))
-          return;
 
-        ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
-        uint64_t indexVal = *(index->getValue().getRawData());
-        uint64_t newIndexVal = indexVal * 2;
+      StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+      if (! sd_isVTableName(className))
+        return;
 
-        gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
-                                                newIndexVal,
-                                                false));
-      }
+      ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
+      uint64_t indexVal = *(index->getValue().getRawData());
+      uint64_t newIndexVal = indexVal * 2;
+
+      gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
+                          newIndexVal, false));
     }
 
     void replaceDynamicCast(Module* module, Instruction* inst) {
@@ -161,6 +169,24 @@ namespace {
       assert(gepInst2);
 
       sd_changeGEPIndex(gepInst2, 1, oldValue * 2);
+    }
+
+    void handleMemberPointer(llvm::MDNode* md, Instruction* inst){
+      StoreInst* storeInst = dyn_cast<StoreInst>(inst);
+      assert(storeInst);
+
+      ConstantMemberPointer* memptr =
+          dyn_cast<ConstantMemberPointer>(storeInst->getOperand(0));
+      assert(memptr);
+
+      ConstantInt* vtblIndCI = dyn_cast<ConstantInt>(memptr->getOperand(0));
+      assert(vtblIndCI);
+
+      uint64_t oldInd = vtblIndCI->getSExtValue();
+
+      vtblIndCI->replaceAllUsesWith(
+            ConstantInt::get(
+              Type::getInt64Ty(inst->getContext()), oldInd * 2 - 1));
     }
 
     int64_t getMetadataConstant(llvm::MDNode* mdNode, unsigned operandNo) {

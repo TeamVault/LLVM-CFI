@@ -12,6 +12,7 @@
 #define SD_MD_TYPEID     "sd.typeid"
 #define SD_MD_VCALL      "sd.vcall"
 #define SD_MD_VBASE      "sd.vbase"
+#define SD_MD_MEMPTR     "sd.memptr"
 
 #endif
 

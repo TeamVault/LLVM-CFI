@@ -27,6 +27,7 @@
 using namespace llvm;
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
 
 //===----------------------------------------------------------------------===//
 //                            CallSite Class
@@ -1074,9 +1075,13 @@ handleMethodPointerValue(StoreInst* storeInst, Value* val) {
     sd_print("classname: %s, ", memptr->getClassName().c_str());
     memptr->dump();
 
-    Constant* vtblIndC = memptr->getAggregateElement(0);
+    Constant* vtblIndC = memptr->getAggregateElement((unsigned) 0);
     ConstantInt* vtblIndCI = dyn_cast<ConstantInt>(vtblIndC);
     assert(vtblIndCI);
+
+    llvm::LLVMContext& C = storeInst->getContext();
+    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, memptr->getClassName()));
+    storeInst->setMetadata(SD_MD_MEMPTR, N);
   }
 }
 

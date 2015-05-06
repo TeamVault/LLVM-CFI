@@ -3075,7 +3075,15 @@ void ConstantStruct::replaceUsesOfWithOnConstant(Value *From, Value *To,
 
 void ConstantMemberPointer::replaceUsesOfWithOnConstant(Value *From, Value *To,
                                                  Use *U) {
-  llvm_unreachable("I didn't bother to implement this");
+  assert(isa<Constant>(To) && "Cannot make Constant refer to non-constant!");
+  Constant *ToC = cast<Constant>(To);
+
+  unsigned OperandToUpdate = U-OperandList;
+
+  assert(getOperand(OperandToUpdate) == From && "ReplaceAllUsesWith broken!");
+  assert(! (ToC->isNullValue() || isa<UndefValue>(ToC)));
+
+  setOperand(OperandToUpdate, ToC);
 }
 
 void ConstantVector::replaceUsesOfWithOnConstant(Value *From, Value *To,
