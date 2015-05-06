@@ -26,8 +26,22 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
-#include "llvm/Transforms/IPO/SafeDispatchLog.h"
-#include "llvm/Transforms/IPO/SafeDispatchMD.h"
+//===----------------------------------------------------------------------===//
+//                        SafeDispatch Additions
+//===----------------------------------------------------------------------===//
+
+static void
+sd_handleStoreMethodPointer(StoreInst* storeInst, Value* val) {
+  llvm::ConstantMemberPointer* memptr = dyn_cast<llvm::ConstantMemberPointer>(val);
+
+  if (memptr) {
+    llvm::LLVMContext& C = storeInst->getContext();
+    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, memptr->getClassName()));
+    storeInst->setMetadata(SD_MD_MEMPTR, N);
+  } else if (storeInst->getMetadata(SD_MD_MEMPTR)) {
+    sd_print("HAS MD BUT NOT MEMPTR\n");
+  }
+}
 
 //===----------------------------------------------------------------------===//
 //                            CallSite Class
@@ -1067,26 +1081,6 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile, unsigned Align,
     : StoreInst(val, addr, isVolatile, Align, NotAtomic, CrossThread,
                 InsertAtEnd) {}
 
-static void
-handleMethodPointerValue(StoreInst* storeInst, Value* val) {
-  llvm::ConstantMemberPointer* memptr = dyn_cast<llvm::ConstantMemberPointer>(val);
-
-  if (memptr) {
-    sd_print("classname: %s, ", memptr->getClassName().c_str());
-    memptr->dump();
-
-    Constant* vtblIndC = memptr->getAggregateElement((unsigned) 0);
-    ConstantInt* vtblIndCI = dyn_cast<ConstantInt>(vtblIndC);
-    assert(vtblIndCI);
-
-    llvm::LLVMContext& C = storeInst->getContext();
-    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, memptr->getClassName()));
-    storeInst->setMetadata(SD_MD_MEMPTR, N);
-  } else if (storeInst->getMetadata(SD_MD_MEMPTR)) {
-    sd_print("HAS MD BUT NOT MEMPTR\n");
-  }
-}
-
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      unsigned Align, AtomicOrdering Order,
                      SynchronizationScope SynchScope,
@@ -1102,7 +1096,7 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setAtomic(Order, SynchScope);
   AssertOK();
 
-  handleMethodPointerValue(this, val);
+  sd_handleStoreMethodPointer(this, val);
 }
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
@@ -1120,7 +1114,7 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setAtomic(Order, SynchScope);
   AssertOK();
 
-  handleMethodPointerValue(this, val);
+  sd_handleStoreMethodPointer(this, val);
 }
 
 void StoreInst::setAlignment(unsigned Align) {

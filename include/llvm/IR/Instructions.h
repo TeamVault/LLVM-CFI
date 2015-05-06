@@ -26,6 +26,12 @@
 #include "llvm/Support/ErrorHandling.h"
 #include <iterator>
 
+
+#include "llvm/IR/Constants.h"
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
+#include <vector>
+
 namespace llvm {
 
 class APInt;
@@ -1623,11 +1629,34 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(CallInst, Value)
 /// SelectInst - This class represents the LLVM 'select' instruction.
 ///
 class SelectInst : public Instruction {
+  void sd_handleSelectMethodPointer(llvm::SelectInst* storeInst,
+                                    llvm::Value* val1, llvm::Value* val2) {
+    llvm::ConstantMemberPointer* memptr1 = dyn_cast<llvm::ConstantMemberPointer>(val1);
+
+    if (memptr1) {
+    llvm::ConstantMemberPointer* memptr2 = dyn_cast<llvm::ConstantMemberPointer>(val2);
+    assert(memptr2);
+
+    llvm::LLVMContext& C = storeInst->getContext();
+    std::vector<llvm::Metadata*> tupleElements;
+
+    tupleElements.push_back(llvm::MDString::get(C, memptr1->getClassName()));
+    tupleElements.push_back(llvm::MDString::get(C, memptr2->getClassName()));
+    llvm::MDNode* mdNode = llvm::MDNode::get(C, tupleElements);
+
+    storeInst->setMetadata(SD_MD_MEMPTR2, mdNode);
+    } else if (storeInst->getMetadata(SD_MD_MEMPTR2)) {
+    sd_print("HAS MD BUT NOT MEMPTR\n");
+    }
+  }
+
   void init(Value *C, Value *S1, Value *S2) {
     assert(!areInvalidOperands(C, S1, S2) && "Invalid operands for select");
     Op<0>() = C;
     Op<1>() = S1;
     Op<2>() = S2;
+
+    sd_handleSelectMethodPointer(this, S1, S2);
   }
 
   SelectInst(Value *C, Value *S1, Value *S2, const Twine &NameStr,

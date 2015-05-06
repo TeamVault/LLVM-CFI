@@ -1,5 +1,6 @@
 ifeq ($(NO_LTO),OK)
-CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g
+#CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g
+CC   = g++ -g
 LD = $(CC)
 else
 CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g -flto

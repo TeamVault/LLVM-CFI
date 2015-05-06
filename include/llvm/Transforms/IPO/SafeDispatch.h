@@ -15,6 +15,7 @@ namespace llvm {
 #define GEP_OPCODE     29
 #define BITCAST_OPCODE 44
 #define CALL_OPCODE    49
+#define SELECT_OPCODE  50
 
   /**
    * Replaces each occurence of function "from" with function "to" inside the given module

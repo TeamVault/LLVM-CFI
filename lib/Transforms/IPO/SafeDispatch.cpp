@@ -45,11 +45,13 @@ namespace {
       unsigned vcallMDId = module->getMDKindID(SD_MD_VCALL);
       unsigned vbaseMDId = module->getMDKindID(SD_MD_VBASE);
       unsigned memptrMDId = module->getMDKindID(SD_MD_MEMPTR);
+      unsigned memptr2MDId = module->getMDKindID(SD_MD_MEMPTR2);
 
       llvm::MDNode* vfptrMDNode = NULL;
       llvm::MDNode* vcallMDNode = NULL;
       llvm::MDNode* vbaseMDNode = NULL;
       llvm::MDNode* memptrMDNode = NULL;
+      llvm::MDNode* memptr2MDNode = NULL;
 
       std::vector<Instruction*> instructions;
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
@@ -91,8 +93,14 @@ namespace {
           multVcallOffsetBy2(inst, oldValue);
         }
 
+        // call instruction
         else if ((memptrMDNode = inst->getMetadata(memptrMDId))) {
-          handleMemberPointer(memptrMDNode, inst);
+          handleStoreMemberPointer(memptrMDNode, inst);
+        }
+
+        // select instruction
+        else if (opcode == SELECT_OPCODE && (memptr2MDNode = inst->getMetadata(memptr2MDId))) {
+          handleSelectMemberPointer(memptr2MDNode, inst);
         }
       }
       return true;
@@ -171,7 +179,29 @@ namespace {
       sd_changeGEPIndex(gepInst2, 1, oldValue * 2);
     }
 
-    void handleMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
+    void replaceConstantStruct(ConstantStruct* CS, Instruction* inst) {
+      std::vector<Constant*> V;
+      ConstantInt* ci = dyn_cast<ConstantInt>(CS->getOperand(0));
+      assert(ci);
+
+      V.push_back(ConstantInt::get(
+          Type::getInt64Ty(inst->getContext()),
+          ci->getSExtValue() * 2 - 1));
+
+      ci = dyn_cast<ConstantInt>(CS->getOperand(1));
+      assert(ci);
+
+      V.push_back(ConstantInt::get(
+          Type::getInt64Ty(inst->getContext()),
+          ci->getSExtValue()));
+
+      Constant* CSNew = ConstantStruct::getAnon(V);
+      assert(CSNew);
+
+      inst->replaceUsesOfWith(CS,CSNew);
+    }
+
+    void handleStoreMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
       std::string className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
 
       StoreInst* storeInst = dyn_cast<StoreInst>(inst);
@@ -179,28 +209,29 @@ namespace {
 
       ConstantStruct* CS = dyn_cast<ConstantStruct>(storeInst->getOperand(0));
       assert(CS);
-
-      std::vector<Constant*> V;
-      ConstantInt* ci = dyn_cast<ConstantInt>(CS->getOperand(0));
-      assert(ci);
-
-      V.push_back(ConstantInt::get(
-          Type::getInt64Ty(storeInst->getContext()),
-          ci->getSExtValue() * 2 - 1));
-
-      ci = dyn_cast<ConstantInt>(CS->getOperand(1));
-      assert(ci);
-
-      V.push_back(ConstantInt::get(
-          Type::getInt64Ty(storeInst->getContext()),
-          ci->getSExtValue()));
-
-      Constant* CSNew = ConstantStruct::getAnon(V);
-      assert(CSNew);
-
-      storeInst->replaceUsesOfWith(CS,CSNew);
+      replaceConstantStruct(CS, storeInst);
 
       sd_print("Member pointer of class %s, inst: ", className.c_str());
+      inst->dump();
+    }
+
+    void handleSelectMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
+      std::string className1 = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+      std::string className2 = cast<llvm::MDString>(mdNode->getOperand(1))->getString();
+
+      SelectInst* selectInst = dyn_cast<SelectInst>(inst);
+      assert(selectInst);
+
+      ConstantStruct* CS1 = dyn_cast<ConstantStruct>(selectInst->getOperand(1));
+      assert(CS1);
+      replaceConstantStruct(CS1, selectInst);
+
+      ConstantStruct* CS2 = dyn_cast<ConstantStruct>(selectInst->getOperand(2));
+      assert(CS2);
+      replaceConstantStruct(CS2, selectInst);
+
+      sd_print("Member pointer of class %s and %s, inst: ",
+               className1.c_str(), className2.c_str());
       inst->dump();
     }
 
