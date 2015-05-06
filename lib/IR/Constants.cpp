@@ -251,6 +251,9 @@ Constant *Constant::getAggregateElement(unsigned Elt) const {
   if (const ConstantStruct *CS = dyn_cast<ConstantStruct>(this))
     return Elt < CS->getNumOperands() ? CS->getOperand(Elt) : nullptr;
 
+  if (const ConstantMemberPointer *CS = dyn_cast<ConstantMemberPointer>(this))
+    return Elt < CS->getNumOperands() ? CS->getOperand(Elt) : nullptr;
+
   if (const ConstantArray *CA = dyn_cast<ConstantArray>(this))
     return Elt < CA->getNumOperands() ? CA->getOperand(Elt) : nullptr;
 
@@ -972,8 +975,10 @@ StructType *ConstantStruct::getTypeForElements(ArrayRef<Constant*> V,
 
 
 ConstantStruct::ConstantStruct(StructType *T, ArrayRef<Constant *> V)
-  : Constant(T, ConstantStructVal,
-             OperandTraits<ConstantStruct>::op_end(this) - V.size(),
+  : ConstantStruct(T,V,ConstantStructVal) {}
+
+ConstantStruct::ConstantStruct(StructType *T, ArrayRef<Constant *> V, ValueTy vty)
+  : Constant(T, vty, OperandTraits<ConstantStruct>::op_end(this) - V.size(),
              V.size()) {
   assert(V.size() == T->getNumElements() &&
          "Invalid initializer vector for constant structure");
@@ -1021,6 +1026,143 @@ Constant *ConstantStruct::get(StructType *T, ...) {
   va_end(ap);
   return get(T, Values);
 }
+
+/// <<< ConstantMemberPointer Functions
+
+/// getTypeForElements - Return an anonymous struct type to use for a constant
+/// with the specified set of elements.  The list must not be empty.
+StructType *ConstantMemberPointer::getTypeForElements(LLVMContext &Context,
+                                               ArrayRef<Constant*> V,
+                                               bool Packed) {
+  unsigned VecSize = V.size();
+  SmallVector<Type*, 16> EltTypes(VecSize);
+  for (unsigned i = 0; i != VecSize; ++i)
+    EltTypes[i] = V[i]->getType();
+
+  return StructType::get(Context, EltTypes, Packed);
+}
+
+
+StructType *ConstantMemberPointer::getTypeForElements(ArrayRef<Constant*> V,
+                                               bool Packed) {
+  assert(!V.empty() &&
+         "ConstantMemberPointer::getTypeForElements cannot be called on empty list");
+  return getTypeForElements(V[0]->getContext(), V, Packed);
+}
+
+
+ConstantMemberPointer::ConstantMemberPointer(StructType *T, ArrayRef<Constant *> V)
+  : ConstantStruct(T, V, ConstantMemberPointerVal){ }
+
+typedef LLVMContextImpl::CMPLookupKey sd_mpc_keyT;
+typedef LLVMContextImpl::CMPElement sd_mpc_elemT;
+typedef LLVMContextImpl::MemberPointerConstantsTy sd_mpc_mapT;
+typedef sd_mpc_mapT::iterator sd_mpc_mapitrT;
+
+static inline uint64_t
+sd_getUnsignedConstantValue(Constant* c) {
+  ConstantInt* ci = dyn_cast<ConstantInt>(c);
+  assert(ci);
+
+  int64_t value = ci->getSExtValue();
+  assert(value>0);
+
+  return value;
+}
+
+static inline int64_t
+sd_getSignedConstantValue(Constant* c) {
+  ConstantInt* ci = dyn_cast<ConstantInt>(c);
+  assert(ci);
+
+  return ci->getSExtValue();
+}
+
+static Constant*
+sd_findOrCreate(StructType *ST, ArrayRef<Constant*> V, std::string className) {
+  sd_mpc_mapT& map = ST->getContext().pImpl->MemberPointerConstants;
+
+  uint64_t vtblIndex = sd_getUnsignedConstantValue(V[0]);
+  int64_t thisAdj = sd_getSignedConstantValue(V[1]);
+
+  sd_mpc_keyT key(className, vtblIndex, thisAdj);
+  sd_mpc_mapitrT itr = map.find(key);
+
+  ConstantMemberPointer* mpc = NULL;
+
+  if (itr != map.end()) {
+    mpc = itr->second;
+    assert(mpc->getClassName() == className);
+  } else {
+    ConstantAggrKeyType<ConstantMemberPointer> cakt(V);
+    mpc = cakt.create(ST);
+    mpc->setClassName(className);
+    map[key] = mpc;
+  }
+
+  return mpc;
+}
+
+static void
+sd_removeMemberPointer(ConstantMemberPointer* memptr){
+  StructType* ST = memptr->getType();
+  assert(ST);
+
+  uint64_t vtblIndex = sd_getUnsignedConstantValue(
+        memptr->getAggregateElement((unsigned) 0));
+  int64_t thisAdj = sd_getSignedConstantValue(
+        memptr->getAggregateElement((unsigned) 1));
+
+  sd_mpc_mapT& map = ST->getContext().pImpl->MemberPointerConstants;
+
+  sd_mpc_keyT key(memptr->getClassName(), vtblIndex, thisAdj);
+
+  sd_mpc_mapitrT itr = map.find(key);
+  assert(itr != map.end());
+
+  map.erase(itr);
+}
+
+// ConstantMemberPointer accessors.
+Constant *ConstantMemberPointer::get(StructType *ST, ArrayRef<Constant*> V, std::string className) {
+  assert((ST->isOpaque() || ST->getNumElements() == V.size()) &&
+         "Incorrect # elements specified to ConstantMemberPointer::get");
+
+  // Create a ConstantAggregateZero value if all elements are zeros.
+  bool isZero = true;
+  bool isUndef = false;
+
+  if (!V.empty()) {
+    isUndef = isa<UndefValue>(V[0]);
+    isZero = V[0]->isNullValue();
+    if (isUndef || isZero) {
+      for (unsigned i = 0, e = V.size(); i != e; ++i) {
+        if (!V[i]->isNullValue())
+          isZero = false;
+        if (!isa<UndefValue>(V[i]))
+          isUndef = false;
+      }
+    }
+  }
+  if (isZero)
+    return ConstantAggregateZero::get(ST);
+  if (isUndef)
+    return UndefValue::get(ST);
+
+  return sd_findOrCreate(ST, V, className);
+}
+
+Constant *ConstantMemberPointer::get(StructType *T, std::string className, ...) {
+  va_list ap;
+  SmallVector<Constant*, 8> Values;
+  va_start(ap, className);
+  while (Constant *Val = va_arg(ap, llvm::Constant*))
+    Values.push_back(Val);
+  va_end(ap);
+  return get(T, Values, className);
+}
+
+/// ConstantMemberPointer Functions >>>
 
 ConstantVector::ConstantVector(VectorType *T, ArrayRef<Constant *> V)
   : Constant(T, ConstantVectorVal,
@@ -1386,6 +1528,11 @@ void ConstantArray::destroyConstant() {
 //
 void ConstantStruct::destroyConstant() {
   getType()->getContext().pImpl->StructConstants.remove(this);
+  destroyConstantImpl();
+}
+
+void ConstantMemberPointer::destroyConstant() {
+  sd_removeMemberPointer(this);
   destroyConstantImpl();
 }
 
@@ -2924,6 +3071,11 @@ void ConstantStruct::replaceUsesOfWithOnConstant(Value *From, Value *To,
   if (Constant *C = getContext().pImpl->StructConstants.replaceOperandsInPlace(
           Values, this, From, ToC))
     replaceUsesOfWithOnConstantImpl(C);
+}
+
+void ConstantMemberPointer::replaceUsesOfWithOnConstant(Value *From, Value *To,
+                                                 Use *U) {
+  llvm_unreachable("I didn't bother to implement this");
 }
 
 void ConstantVector::replaceUsesOfWithOnConstant(Value *From, Value *To,

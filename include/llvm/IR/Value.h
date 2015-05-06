@@ -340,6 +340,7 @@ public:
     ConstantFPVal,            // This is an instance of ConstantFP
     ConstantArrayVal,         // This is an instance of ConstantArray
     ConstantStructVal,        // This is an instance of ConstantStruct
+    ConstantMemberPointerVal, // This is an instance of ConstantStruct
     ConstantVectorVal,        // This is an instance of ConstantVector
     ConstantPointerNullVal,   // This is an instance of ConstantPointerNull
     MetadataAsValueVal,       // This is an instance of MetadataAsValue

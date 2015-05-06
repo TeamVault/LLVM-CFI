@@ -1068,9 +1068,15 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile, unsigned Align,
 
 static void
 handleMethodPointerValue(StoreInst* storeInst, Value* val) {
-  llvm::ConstantStruct* cs = dyn_cast<llvm::ConstantStruct>(val);
-  if (cs) {
-    storeInst->dump();
+  llvm::ConstantMemberPointer* memptr = dyn_cast<llvm::ConstantMemberPointer>(val);
+
+  if (memptr) {
+    sd_print("classname: %s, ", memptr->getClassName().c_str());
+    memptr->dump();
+
+    Constant* vtblIndC = memptr->getAggregateElement(0);
+    ConstantInt* vtblIndCI = dyn_cast<ConstantInt>(vtblIndC);
+    assert(vtblIndCI);
   }
 }
 

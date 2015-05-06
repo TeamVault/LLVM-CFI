@@ -571,6 +571,20 @@ int FunctionComparator::cmpConstants(const Constant *L, const Constant *R) {
     }
     return 0;
   }
+  case Value::ConstantMemberPointerVal: {
+    const ConstantMemberPointer *LS = cast<ConstantMemberPointer>(L);
+    const ConstantMemberPointer *RS = cast<ConstantMemberPointer>(R);
+    unsigned NumElementsL = cast<StructType>(TyL)->getNumElements();
+    unsigned NumElementsR = cast<StructType>(TyR)->getNumElements();
+    if (int Res = cmpNumbers(NumElementsL, NumElementsR))
+      return Res;
+    for (unsigned i = 0; i != NumElementsL; ++i) {
+      if (int Res = cmpConstants(cast<Constant>(LS->getOperand(i)),
+                                 cast<Constant>(RS->getOperand(i))))
+        return Res;
+    }
+    return 0;
+  }
   case Value::ConstantVectorVal: {
     const ConstantVector *LV = cast<ConstantVector>(L);
     const ConstantVector *RV = cast<ConstantVector>(R);

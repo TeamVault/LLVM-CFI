@@ -699,8 +699,12 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
       MemPtr[1] = llvm::ConstantInt::get(CGM.PtrDiffTy,
                                          ThisAdjustment.getQuantity());
     }
+    std::string className = GetClassMangledName(MD->getParent());
     sd_print("class: %s, member pointer: %lu\n",
-             GetClassMangledName(MD->getParent()).c_str(), VTableOffset);
+             className.c_str(), VTableOffset);
+
+    return llvm::ConstantMemberPointer::getAnon(MemPtr, className);
+
   } else {
     const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();
     llvm::Type *Ty;
@@ -719,13 +723,8 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
     MemPtr[1] = llvm::ConstantInt::get(CGM.PtrDiffTy,
                                        (UseARMMethodPtrABI ? 2 : 1) *
                                        ThisAdjustment.getQuantity());
+    return llvm::ConstantStruct::getAnon(MemPtr);
   }
-
-  llvm::Constant* res = llvm::ConstantStruct::getAnon(MemPtr);
-
-  // burayi sil
-
-  return res;
 }
 
 llvm::Constant *ItaniumCXXABI::EmitMemberPointer(const APValue &MP,
