@@ -1569,6 +1569,7 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
 
     OffsetPtr = CGF.Builder.CreateBitCast(OffsetPtr, PtrDiffTy->getPointerTo());
 
+    // burayi duzelt
     // Load the adjustment offset from the vtable.
     llvm::Value *Offset = CGF.Builder.CreateLoad(OffsetPtr);
 
