@@ -36,6 +36,8 @@
 #include <cstdarg>
 using namespace llvm;
 
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+
 //===----------------------------------------------------------------------===//
 //                              Constant Class
 //===----------------------------------------------------------------------===//
@@ -975,10 +977,7 @@ StructType *ConstantStruct::getTypeForElements(ArrayRef<Constant*> V,
 
 
 ConstantStruct::ConstantStruct(StructType *T, ArrayRef<Constant *> V)
-  : ConstantStruct(T,V,ConstantStructVal) {}
-
-ConstantStruct::ConstantStruct(StructType *T, ArrayRef<Constant *> V, ValueTy vty)
-  : Constant(T, vty, OperandTraits<ConstantStruct>::op_end(this) - V.size(),
+  : Constant(T, ConstantStructVal, OperandTraits<ConstantStruct>::op_end(this) - V.size(),
              V.size()) {
   assert(V.size() == T->getNumElements() &&
          "Invalid initializer vector for constant structure");
@@ -1052,7 +1051,14 @@ StructType *ConstantMemberPointer::getTypeForElements(ArrayRef<Constant*> V,
 
 
 ConstantMemberPointer::ConstantMemberPointer(StructType *T, ArrayRef<Constant *> V)
-  : ConstantStruct(T, V, ConstantMemberPointerVal){ }
+  : Constant(T, ConstantMemberPointerVal, OperandTraits<ConstantMemberPointer>::op_end(this) - V.size(), V.size()) {
+  assert(V.size() == T->getNumElements() &&
+         "Invalid initializer vector for constant structure");
+  for (unsigned i = 0, e = V.size(); i != e; ++i)
+    assert((T->isOpaque() || V[i]->getType() == T->getElementType(i)) &&
+           "Initializer for struct element doesn't match struct element type!");
+  std::copy(V.begin(), V.end(), op_begin());
+}
 
 typedef LLVMContextImpl::CMPLookupKey sd_mpc_keyT;
 typedef LLVMContextImpl::CMPElement sd_mpc_elemT;

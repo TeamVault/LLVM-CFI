@@ -390,7 +390,6 @@ class ConstantStruct : public Constant {
 
 protected:
   ConstantStruct(StructType *T, ArrayRef<Constant *> Val);
-  ConstantStruct(StructType *T, ArrayRef<Constant *> Val, ValueTy vty);
 public:
 
   // ConstantStruct accessors
@@ -445,7 +444,7 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(ConstantStruct, Constant)
 //===----------------------------------------------------------------------===//
 // ConstantMemberPointer - Constant Struct Declarations
 //
-class ConstantMemberPointer : public ConstantStruct {
+class ConstantMemberPointer : public Constant {
   friend struct ConstantAggrKeyType<ConstantMemberPointer>;
   ConstantMemberPointer(const ConstantMemberPointer &) = delete;
 

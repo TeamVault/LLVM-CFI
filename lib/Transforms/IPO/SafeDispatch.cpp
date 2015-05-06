@@ -172,25 +172,36 @@ namespace {
     }
 
     void handleMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
-      StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
-      sd_print("Member pointer of class %s, inst: ", className.bytes_begin());
-      inst->dump();
+      std::string className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
 
       StoreInst* storeInst = dyn_cast<StoreInst>(inst);
       assert(storeInst);
 
-      ConstantMemberPointer* memptr =
-          dyn_cast<ConstantMemberPointer>(storeInst->getOperand(0));
-      assert(memptr);
+      ConstantStruct* CS = dyn_cast<ConstantStruct>(storeInst->getOperand(0));
+      assert(CS);
 
-      ConstantInt* vtblIndCI = dyn_cast<ConstantInt>(memptr->getOperand(0));
-      assert(vtblIndCI);
+      std::vector<Constant*> V;
+      ConstantInt* ci = dyn_cast<ConstantInt>(CS->getOperand(0));
+      assert(ci);
 
-      uint64_t oldInd = vtblIndCI->getSExtValue();
+      V.push_back(ConstantInt::get(
+          Type::getInt64Ty(storeInst->getContext()),
+          ci->getSExtValue() * 2 - 1));
 
-      vtblIndCI->replaceAllUsesWith(
-            ConstantInt::get(
-              Type::getInt64Ty(inst->getContext()), oldInd * 2 - 1));
+      ci = dyn_cast<ConstantInt>(CS->getOperand(1));
+      assert(ci);
+
+      V.push_back(ConstantInt::get(
+          Type::getInt64Ty(storeInst->getContext()),
+          ci->getSExtValue()));
+
+      Constant* CSNew = ConstantStruct::getAnon(V);
+      assert(CSNew);
+
+      storeInst->replaceUsesOfWith(CS,CSNew);
+
+      sd_print("Member pointer of class %s, inst: ", className.c_str());
+      inst->dump();
     }
 
     int64_t getMetadataConstant(llvm::MDNode* mdNode, unsigned operandNo) {

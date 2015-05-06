@@ -1082,6 +1082,8 @@ handleMethodPointerValue(StoreInst* storeInst, Value* val) {
     llvm::LLVMContext& C = storeInst->getContext();
     llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, memptr->getClassName()));
     storeInst->setMetadata(SD_MD_MEMPTR, N);
+  } else if (storeInst->getMetadata(SD_MD_MEMPTR)) {
+    sd_print("HAS MD BUT NOT MEMPTR\n");
   }
 }
 
