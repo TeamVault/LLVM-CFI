@@ -323,15 +323,11 @@ namespace {
           isChanged = true;
         }
 
-        if (sd_isVTTName(varName)) {
-          handleVTT(M, globalVar);
-        }
+        // TODO: do we need to handle VTT's ?
       }
 
       for(unsigned i=0; i<vtablesToDelete.size(); i++) {
-        StringRef varName(vtablesToDelete[i]->getName());
         vtablesToDelete[i]->eraseFromParent();
-        sd_print("Successfully replaced %s with _SD%s\n", varName.bytes_begin(), varName.bytes_begin());
       }
 
       return isChanged;
@@ -354,6 +350,8 @@ namespace {
       assert(globalVar->hasInitializer());
       ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
       assert(vtable);
+
+      printVtable(globalVar);
 
       std::vector<Constant*> newVtableElems;
       for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
@@ -398,10 +396,36 @@ namespace {
       vtablesToDelete.push_back(globalVar);
     }
 
-    void handleVTT(Module &M, GlobalVariable* globalVar) {
-      sd_print("VTT: %s\n", globalVar->getName().bytes_begin());
-      globalVar->dump();
+    void printVtable(GlobalVariable* globalVar) {
+      StringRef varName = globalVar->getName();
+      ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
+      assert(vtable);
+
+      ConstantExpr* ce = NULL;
+      ConstantInt* vtblInt = NULL;
+      unsigned opcode = 0;
+
+      sd_print("%s elements:\n", varName.bytes_begin());
+      for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
+        ce = dyn_cast<ConstantExpr>(vtable->getOperand(vtblInd));
+        opcode = ce ? ce->getOpcode() : 0;
+
+        switch (opcode) {
+          case BITCAST_OPCODE:
+            sd_print("%-2u %s\n", vtblInd, ce->getOperand(0)->getName().bytes_begin());
+            break;
+          case INTTOPTR_OPCODE:
+            vtblInt = dyn_cast<ConstantInt>(ce->getOperand(0));
+            assert(vtblInt);
+            sd_print("%-2u %ld\n", vtblInd, vtblInt->getSExtValue());
+            break;
+          default: // this must be a null value
+            sd_print("%-2u 0\n", vtblInd);
+            break;
+        }
+      }
     }
+
   };
 }
 

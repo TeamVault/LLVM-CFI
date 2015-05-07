@@ -30,11 +30,10 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 using namespace clang;
 using namespace CodeGen;
-
-#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 
 static void
 addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const CXXMethodDecl *MD,
@@ -542,6 +541,7 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
     const CXXRecordDecl *RD, const VTableComponent *Components,
     unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
     unsigned NumVTableThunks, llvm::Constant *RTTI) {
+
   SmallVector<llvm::Constant *, 64> Inits;
 
   llvm::Type *Int8PtrTy = CGM.Int8PtrTy;
@@ -808,6 +808,16 @@ CodeGenVTables::GenerateClassData(const CXXRecordDecl *RD) {
     CGM.getCXXABI().emitVirtualInheritanceTables(RD);
 
   CGM.getCXXABI().emitVTableDefinitions(*this, RD);
+
+  // burayi sil
+  std::string className = CGM.getCXXABI().GetClassMangledName(RD);
+  llvm::NamedMDNode* classInfo =
+      CGM.getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO(className));
+
+  llvm::LLVMContext& C = CGM.getLLVMContext();
+  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
+
+  classInfo->addOperand(llvm::MDString::get(CGM.getLLVMContext(), N));
 }
 
 /// At this point in the translation unit, does it appear that can we
