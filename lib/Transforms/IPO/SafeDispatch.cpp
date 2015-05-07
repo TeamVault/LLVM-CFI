@@ -319,6 +319,16 @@ namespace {
         StringRef varName = globalVar->getName();
 
         if (sd_isVTableName(varName)) {
+          if(varName.startswith("_ZTV")){
+            NamedMDNode* nmd = M.getNamedMetadata(SD_MD_CLASSINFO(varName));
+            assert(nmd);
+            MDNode* mdClassName = nmd->getOperand(0);
+
+            sd_print("NamedMDNode of %s: %s\n",
+                     varName.bytes_begin(),
+                     cast<MDString>(mdClassName->getOperand(0))->getString().bytes_begin());
+          }
+
           expandVtableVariable(M, globalVar);
           isChanged = true;
         }

@@ -817,7 +817,7 @@ CodeGenVTables::GenerateClassData(const CXXRecordDecl *RD) {
   llvm::LLVMContext& C = CGM.getLLVMContext();
   llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
 
-  classInfo->addOperand(llvm::MDString::get(CGM.getLLVMContext(), N));
+  classInfo->addOperand(N);
 }
 
 /// At this point in the translation unit, does it appear that can we
