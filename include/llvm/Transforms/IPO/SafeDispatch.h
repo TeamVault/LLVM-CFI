@@ -29,8 +29,6 @@ namespace llvm {
    */
   void sd_changeGEPIndex(GetElementPtrInst* inst, unsigned operandNo, int64_t newIndex);
 
-  bool sd_isVTableName(StringRef& name);
-
   bool sd_isVTTName(StringRef& name);
 
 } // End llvm namespace

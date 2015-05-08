@@ -9837,3 +9837,4 @@ utils/yaml-bench/YAMLBench.cpp
 include/llvm/Transforms/IPO/SafeDispatchMD.h
 include/llvm/Transforms/IPO/SafeDispatchLog.h
 include/llvm/Transforms/IPO/SafeDispatchTrace.h
+include/llvm/Transforms/IPO/SafeDispatchTools.h

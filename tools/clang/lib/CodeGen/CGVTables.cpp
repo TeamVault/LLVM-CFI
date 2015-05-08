@@ -31,6 +31,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -38,16 +39,14 @@ using namespace CodeGen;
 static void
 addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const CXXMethodDecl *MD,
                  const ThunkInfo *Thunk, bool isVarArgs = false) {
-  if (Thunk && ! Thunk->This.NonVirtual) {
+  std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+
+  if (Thunk && ! Thunk->This.NonVirtual && sd_isVtableName(className)) {
     // this is a bitcast instruction with a gep inside
     llvm::BitCastInst* bcInst = dyn_cast<llvm::BitCastInst>(adjustedThisPtr);
     assert(bcInst);
     int64_t vcallOffset = Thunk->This.Virtual.Itanium.VCallOffsetOffset;
 
-    std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
-    sd_print("Emitting virtual thunk for %s (original offset %ld) %s %s\n",
-          className.c_str(), vcallOffset, (isVarArgs ? "(varargs)" : ""),
-          MD->getQualifiedNameAsString().c_str());
     llvm::LLVMContext& C = bcInst->getContext();
     std::vector<llvm::Metadata*> tupleElements;
     tupleElements.push_back(llvm::MDString::get(C, className));

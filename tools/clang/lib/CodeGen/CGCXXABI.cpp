@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGCXXABI.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 using namespace clang;
 using namespace CodeGen;

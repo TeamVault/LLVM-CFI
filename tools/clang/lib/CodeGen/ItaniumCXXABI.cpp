@@ -37,6 +37,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -467,6 +468,16 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
   if (!UseARMMethodPtrABI)
     VTableOffset = Builder.CreateSub(VTableOffset, ptrdiff_1);
   VTable = Builder.CreateGEP(VTable, VTableOffset);
+
+  llvm::GetElementPtrInst* vtableGepInst = dyn_cast<llvm::GetElementPtrInst>(VTable);
+  assert(vtableGepInst);
+  std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
+
+  if (sd_isVtableName(Name)) {
+    llvm::LLVMContext& C = vtableGepInst->getContext();
+    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
+  }
 
   // Load the virtual function to call.
   VTable = Builder.CreateBitCast(VTable, FTy->getPointerTo()->getPointerTo());
@@ -1097,9 +1108,11 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   // put mangled vtable name into a string
   std::string Name = CGM.getCXXABI().GetClassMangledName(SrcRecordTy->getAsCXXRecordDecl());
 
-  llvm::LLVMContext& C = loadInst->getContext();
-  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-  loadInst->setMetadata(SD_MD_TYPEID, N);
+  if (sd_isVtableName(Name)) {
+    llvm::LLVMContext& C = loadInst->getContext();
+    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+    loadInst->setMetadata(SD_MD_TYPEID, N);
+  }
 
   return Value;
 }
@@ -1141,9 +1154,11 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
   // put mangled vtable name into a string
   std::string Name = CGM.getCXXABI().GetClassMangledName(SrcDecl);
 
-  llvm::LLVMContext& C = cInst->getContext();
-  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-  cInst->setMetadata(SD_MD_CAST_FROM, N);
+  if (sd_isVtableName(Name)) {
+    llvm::LLVMContext& C = cInst->getContext();
+    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+    cInst->setMetadata(SD_MD_CAST_FROM, N);
+  }
 
   Value = CGF.Builder.CreateBitCast(Value, DestLTy);
 
@@ -1211,19 +1226,20 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
   assert(gepInst);
 
   std::string className = this->GetClassMangledName(ClassDecl);
-  int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
 
-  sd_print("Emitting vbase for %s, off: %ld\n", className.c_str(), vbaseOffset);
+  if (sd_isVtableName(className)) {
+    int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
 
-  llvm::LLVMContext& C = gepInst->getContext();
-  std::vector<llvm::Metadata*> tupleElements;
-  tupleElements.push_back(llvm::MDString::get(C, className));
-  tupleElements.push_back(llvm::ConstantAsMetadata::get(
-                              llvm::ConstantInt::getSigned(
-                                  llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
+    llvm::LLVMContext& C = gepInst->getContext();
+    std::vector<llvm::Metadata*> tupleElements;
+    tupleElements.push_back(llvm::MDString::get(C, className));
+    tupleElements.push_back(llvm::ConstantAsMetadata::get(
+                  llvm::ConstantInt::getSigned(
+                    llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
 
-  llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
-  gepInst->setMetadata(SD_MD_VBASE, mdTuple);
+    llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
+    gepInst->setMetadata(SD_MD_VBASE, mdTuple);
+  }
 
   VBaseOffsetPtr = CGF.Builder.CreateBitCast(VBaseOffsetPtr,
                                              CGM.PtrDiffTy->getPointerTo());
@@ -1507,10 +1523,12 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   const CXXRecordDecl* RD = (cast<CXXMethodDecl>(GD.getDecl()))->getParent();
   std::string Name = this->GetClassMangledName(RD);
 
-  llvm::Instruction* inst = gepInst;
-  llvm::LLVMContext& C = inst->getContext();
-  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-  inst->setMetadata(SD_MD_CLASS_NAME, N);
+  if (sd_isVtableName(Name)) {
+    llvm::Instruction* inst = gepInst;
+    llvm::LLVMContext& C = inst->getContext();
+    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+    inst->setMetadata(SD_MD_CLASS_NAME, N);
+  }
 
   return CGF.Builder.CreateLoad(VFuncPtr);
 }
@@ -1567,7 +1585,7 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
     llvm::Value *OffsetPtr =
         CGF.Builder.CreateConstInBoundsGEP1_64(VTablePtr, VirtualAdjustment);
 
-    sd_print("VirtualAdjustment: %ld\n", VirtualAdjustment);
+//    sd_print("VirtualAdjustment: %ld\n", VirtualAdjustment);
 
     OffsetPtr = CGF.Builder.CreateBitCast(OffsetPtr, PtrDiffTy->getPointerTo());
 

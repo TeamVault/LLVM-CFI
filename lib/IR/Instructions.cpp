@@ -26,6 +26,13 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
+#include "llvm/IR/Constants.h"
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
+#include <vector>
+
+
 //===----------------------------------------------------------------------===//
 //                        SafeDispatch Additions
 //===----------------------------------------------------------------------===//
@@ -35,9 +42,12 @@ sd_handleStoreMethodPointer(StoreInst* storeInst, Value* val) {
   llvm::ConstantMemberPointer* memptr = dyn_cast<llvm::ConstantMemberPointer>(val);
 
   if (memptr) {
-    llvm::LLVMContext& C = storeInst->getContext();
-    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, memptr->getClassName()));
-    storeInst->setMetadata(SD_MD_MEMPTR, N);
+    std::string className = memptr->getClassName();
+    if (sd_isVtableName(className)) {
+      llvm::LLVMContext& C = storeInst->getContext();
+      llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
+      storeInst->setMetadata(SD_MD_MEMPTR, N);
+    }
   } else if (storeInst->getMetadata(SD_MD_MEMPTR)) {
     sd_print("HAS MD BUT NOT MEMPTR\n");
   }
@@ -3706,4 +3716,50 @@ ResumeInst *ResumeInst::clone_impl() const {
 UnreachableInst *UnreachableInst::clone_impl() const {
   LLVMContext &Context = getContext();
   return new UnreachableInst(Context);
+}
+
+//===----------------------------------------------------------------------===//
+//                        SelectInst Implementation
+// ... I moved these here from the header to break from recompiling codebase
+// when I change a SafeDispatch header file
+//===----------------------------------------------------------------------===//
+
+static void sd_handleSelectMethodPointer(llvm::SelectInst* storeInst,
+                                  llvm::Value* val1, llvm::Value* val2) {
+  llvm::ConstantMemberPointer* memptr1 = dyn_cast<llvm::ConstantMemberPointer>(val1);
+
+  if (memptr1) {
+    llvm::ConstantMemberPointer* memptr2 = dyn_cast<llvm::ConstantMemberPointer>(val2);
+    assert(memptr2);
+
+    std::string cn1 = memptr1->getClassName();
+    std::string cn2 = memptr2->getClassName();
+
+    bool cond1 = sd_isVtableName(cn1);
+    bool cond2 = sd_isVtableName(cn2);
+
+    if (cond1 || cond2) {
+      assert(cond1 && cond2);
+
+      llvm::LLVMContext& C = storeInst->getContext();
+      std::vector<llvm::Metadata*> tupleElements;
+
+      tupleElements.push_back(llvm::MDString::get(C, cn1));
+      tupleElements.push_back(llvm::MDString::get(C, cn2));
+      llvm::MDNode* mdNode = llvm::MDNode::get(C, tupleElements);
+
+      storeInst->setMetadata(SD_MD_MEMPTR2, mdNode);
+    }
+  } else if (storeInst->getMetadata(SD_MD_MEMPTR2)) {
+    sd_print("HAS MD BUT NOT MEMPTR\n");
+  }
+}
+
+void SelectInst::init(Value *C, Value *S1, Value *S2) {
+  assert(!areInvalidOperands(C, S1, S2) && "Invalid operands for select");
+  Op<0>() = C;
+  Op<1>() = S1;
+  Op<2>() = S2;
+
+  sd_handleSelectMethodPointer(this, S1, S2);
 }

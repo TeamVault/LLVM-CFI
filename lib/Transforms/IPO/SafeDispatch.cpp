@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 // you have to modify the following files for each additional LLVM pass
 // 1. IPO.h and IPO.cpp
@@ -46,12 +47,14 @@ namespace {
       unsigned vbaseMDId = module->getMDKindID(SD_MD_VBASE);
       unsigned memptrMDId = module->getMDKindID(SD_MD_MEMPTR);
       unsigned memptr2MDId = module->getMDKindID(SD_MD_MEMPTR2);
+      unsigned memptrOptMdId = module->getMDKindID(SD_MD_MEMPTR_OPT);
 
       llvm::MDNode* vfptrMDNode = NULL;
       llvm::MDNode* vcallMDNode = NULL;
       llvm::MDNode* vbaseMDNode = NULL;
       llvm::MDNode* memptrMDNode = NULL;
       llvm::MDNode* memptr2MDNode = NULL;
+      llvm::MDNode* memptrOptMDNode = NULL;
 
       std::vector<Instruction*> instructions;
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
@@ -65,15 +68,28 @@ namespace {
 
         // gep instruction
         if (opcode == GEP_OPCODE) {
+          GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+          assert(gepInst);
+
           if((vfptrMDNode = inst->getMetadata(classNameMDId))){
-            multVfptrIndexBy2(vfptrMDNode, inst);
+            multVfptrIndexBy2(vfptrMDNode, gepInst);
+
           } else if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
             int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
-
-            GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
-            assert(gepInst);
-
             sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+
+          } else if ((memptrOptMDNode = inst->getMetadata(memptrOptMdId))) {
+            ConstantInt* ci = dyn_cast<ConstantInt>(inst->getOperand(1));
+            if (ci) {
+              gepInst->dump();
+
+              // this happens when program is compiled with -O
+              // vtable index of the member pointer is put directly into the
+              // GEP instruction using constant folding
+
+              int64_t oldValue = ci->getSExtValue();
+              sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+            }
           }
         }
 
@@ -113,8 +129,7 @@ namespace {
       assert(gepInst);
 
       StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
-      if (! sd_isVTableName(className))
-        return;
+      assert(sd_isVtableName_ref(className));
 
       ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
       uint64_t indexVal = *(index->getValue().getRawData());
@@ -210,9 +225,6 @@ namespace {
       ConstantStruct* CS = dyn_cast<ConstantStruct>(storeInst->getOperand(0));
       assert(CS);
       replaceConstantStruct(CS, storeInst);
-
-      sd_print("Member pointer of class %s, inst: ", className.c_str());
-      inst->dump();
     }
 
     void handleSelectMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
@@ -229,10 +241,6 @@ namespace {
       ConstantStruct* CS2 = dyn_cast<ConstantStruct>(selectInst->getOperand(2));
       assert(CS2);
       replaceConstantStruct(CS2, selectInst);
-
-      sd_print("Member pointer of class %s and %s, inst: ",
-               className1.c_str(), className2.c_str());
-      inst->dump();
     }
 
     int64_t getMetadataConstant(llvm::MDNode* mdNode, unsigned operandNo) {
@@ -318,7 +326,8 @@ namespace {
         GlobalVariable* globalVar = itr;
         StringRef varName = globalVar->getName();
 
-        if (sd_isVTableName(varName)) {
+        if (sd_isVtableName_ref(varName)) {
+          sd_print("Changing vtable of %s\n", varName.bytes_begin());
           if(varName.startswith("_ZTV")){
             NamedMDNode* nmd = M.getNamedMetadata(SD_MD_CLASSINFO(varName));
             assert(nmd);
@@ -451,12 +460,6 @@ BasicBlockPass* llvm::createChangeConstantPass() {
 
 ModulePass* llvm::createSDModulePass() {
   return new SDModule();
-}
-
-bool llvm::sd_isVTableName(StringRef& name) {
-  return (name.startswith("_ZTC") || name.startswith("_ZTV")) && // is a vtable
-      (!name.startswith("_ZTVSt")) &&                            // but not from std namespace
-      (!name.startswith("_ZTVN10__cxxabiv"));                    // or from this one
 }
 
 bool llvm::sd_isVTTName(StringRef& name) {

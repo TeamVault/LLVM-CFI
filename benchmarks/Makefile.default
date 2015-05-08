@@ -1,9 +1,14 @@
+CC_OPT   = -O3
+CC_DBG   = -g
+
+CC_FLAGS = $(CC_DBG) $(CC_OPT)
+
 ifeq ($(NO_LTO),OK)
-#CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g
-CC   = g++ -g
+#CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ $(CCFLAGS)
+CC   = g++ $(CC_FLAGS)
 LD = $(CC)
 else
-CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ -g -flto
+CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ $(CC_FLAGS) -flto
 
 GOLD_PLUGIN = $(LLVM_BUILD_DIR)/Release+Asserts/lib/LLVMgold.so
 
