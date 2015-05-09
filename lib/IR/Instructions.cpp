@@ -28,6 +28,7 @@ using namespace llvm;
 
 #include "llvm/IR/Constants.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchTrace.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include <vector>

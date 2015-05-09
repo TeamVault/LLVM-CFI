@@ -1,5 +1,5 @@
-CC_OPT   = -O3
-CC_DBG   = -g
+#CC_OPT   = -O3
+#CC_DBG   = -g
 
 CC_FLAGS = $(CC_DBG) $(CC_OPT)
 

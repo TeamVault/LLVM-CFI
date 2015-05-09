@@ -81,8 +81,6 @@ namespace {
           } else if ((memptrOptMDNode = inst->getMetadata(memptrOptMdId))) {
             ConstantInt* ci = dyn_cast<ConstantInt>(inst->getOperand(1));
             if (ci) {
-              gepInst->dump();
-
               // this happens when program is compiled with -O
               // vtable index of the member pointer is put directly into the
               // GEP instruction using constant folding
@@ -327,15 +325,16 @@ namespace {
         StringRef varName = globalVar->getName();
 
         if (sd_isVtableName_ref(varName)) {
-          sd_print("Changing vtable of %s\n", varName.bytes_begin());
+//          sd_print("Changing vtable of %s\n", varName.bytes_begin());
           if(varName.startswith("_ZTV")){
             NamedMDNode* nmd = M.getNamedMetadata(SD_MD_CLASSINFO(varName));
             assert(nmd);
             MDNode* mdClassName = nmd->getOperand(0);
+            assert(dyn_cast<MDString>(mdClassName->getOperand(0)));
 
-            sd_print("NamedMDNode of %s: %s\n",
-                     varName.bytes_begin(),
-                     cast<MDString>(mdClassName->getOperand(0))->getString().bytes_begin());
+//            sd_print("NamedMDNode of %s: %s\n",
+//                     varName.bytes_begin(),
+//                     cast<MDString>(mdClassName->getOperand(0))->getString().bytes_begin());
           }
 
           expandVtableVariable(M, globalVar);
@@ -370,7 +369,7 @@ namespace {
       ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
       assert(vtable);
 
-      printVtable(globalVar);
+//      printVtable(globalVar);
 
       std::vector<Constant*> newVtableElems;
       for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {

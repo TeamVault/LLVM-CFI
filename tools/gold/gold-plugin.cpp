@@ -47,6 +47,10 @@
 #include <system_error>
 #include <vector>
 
+//#define USE_GOLD_PLUGIN_ORIGINAL_PASS
+
+#include "gold-helper-functions.h"
+
 #ifndef LDPO_PIE
 // FIXME: remove this declaration when we stop maintaining Ubuntu Quantal and
 // Precise and Debian Wheezy (binutils 2.23 is required)
@@ -719,21 +723,79 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   if (const DataLayout *DL = TM.getDataLayout())
     M.setDataLayout(*DL);
 
-  legacy::PassManager passes;
-  passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
-  passes.add(createSDModulePass());
-  passes.add(createChangeConstantPass());
+#ifdef USE_GOLD_PLUGIN_ORIGINAL_PASS
+
+    legacy::PassManager passes;
+    passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
+    passes.add(createSDModulePass());
+    passes.add(createChangeConstantPass());
+
+    PassManagerBuilder PMB;
+    PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
+    PMB.Inliner = createFunctionInliningPass();
+    PMB.VerifyInput = true;
+    PMB.VerifyOutput = true;
+    PMB.LoopVectorize = true;
+    PMB.SLPVectorize = true;
+    PMB.OptLevel = options::OptLevel;
+    PMB.populateLTOPassManager(passes);
+    passes.run(M);
+
+#else
+
+  // generate the pass & analysis DB first
+  fillPasses();
+
+  unsigned OptLevel = 3;
+  unsigned SizeLevel = 0;
 
   PassManagerBuilder PMB;
-  PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
-  PMB.Inliner = createFunctionInliningPass();
-  PMB.VerifyInput = true;
-  PMB.VerifyOutput = true;
-  PMB.LoopVectorize = true;
+  PMB.OptLevel = OptLevel;
+  PMB.SizeLevel = SizeLevel;
+  PMB.BBVectorize = true;
   PMB.SLPVectorize = true;
-  PMB.OptLevel = options::OptLevel;
-  PMB.populateLTOPassManager(passes);
-  passes.run(M);
+  PMB.LoopVectorize = true;
+
+  PMB.DisableTailCalls = false;
+  PMB.DisableUnitAtATime = false;
+  PMB.DisableUnrollLoops = false;
+  PMB.MergeFunctions = true;
+  PMB.RerollLoops = true;
+
+  PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
+                   addAddDiscriminatorsPass);
+
+  // Figure out TargetLibraryInfo.
+  //  Triple TargetTriple(TheModule->getTargetTriple());
+  //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
+  PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
+
+  PMB.Inliner = createFunctionInliningPass();
+
+  // Set up the per-function pass manager.
+  legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
+  PMB.populateFunctionPassManager(*FPM);
+
+  // Set up the per-module pass manager.
+  legacy::PassManager *PM = getPerModulePasses(TM);
+  //  PMB.populateModulePassManager(*MPM);
+
+  // run safedispatch passes first
+  legacy::PassManager *SD_PM = getSDPasses(TM);
+  SD_PM->run(M);
+
+  FPM->doInitialization();
+
+  for (Function &F : M) {
+    FPM->run(F);
+  }
+
+  FPM->doFinalization();
+
+  PMB.populateLTOPassManager(*PM);
+  PM->run(M);
+
+#endif
 }
 
 static void saveBCFile(StringRef Path, Module &M) {

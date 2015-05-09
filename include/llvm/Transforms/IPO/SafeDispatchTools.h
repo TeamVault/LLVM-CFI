@@ -5,13 +5,17 @@
 #include "llvm/ADT/StringRef.h"
 
 static bool sd_isVtableName_ref(llvm::StringRef& name) {
-  return (name.startswith("_ZTC") || name.startswith("_ZTV")) && // is a vtable
-      (!name.startswith("_ZTVSt")) &&                            // but not from std namespace
-      (!name.startswith("_ZTVNSt")) &&                           // but not from std namespace
-      (!name.startswith("_ZTVN10__cxxabiv")) &&                  // or from this one
-      (!name.startswith("_ZTCSt")) &&                            // but not from std namespace
-      (!name.startswith("_ZTCNSt")) &&                           // but not from std namespace
-      (!name.startswith("_ZTCN10__cxxabiv"));                    // or from this one
+  if (name.size() <= 4) {
+    // name is too short, cannot be a vtable name
+    return false;
+  } else if (name.startswith("_ZTV") || name.startswith("_ZTC")) {
+    llvm::StringRef rest = name.drop_front(4); // drop the _ZT(C|V) part
+
+    return  (! rest.startswith("S")) &&      // but not from std namespace
+        (! rest.startswith("N10__cxxabiv")); // or from __cxxabiv
+  }
+
+  return false;
 }
 
 static bool sd_isVtableName(std::string& className) {
