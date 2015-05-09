@@ -10,6 +10,8 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+
 #include <map>
 #include <string>
 
@@ -49,6 +51,7 @@ fillPasses() {
   SD_INSERT_ANALYSIS_MAP(analysisDB, "-branch-prob");
   SD_INSERT_ANALYSIS_MAP(analysisDB, "-domtree");
   SD_INSERT_ANALYSIS_MAP(analysisDB, "-inline-cost");
+  SD_INSERT_ANALYSIS_MAP(analysisDB, "-loops");
   SD_INSERT_ANALYSIS_MAP(analysisDB, "-loop-accesses");
   SD_INSERT_ANALYSIS_MAP(analysisDB, "-memdep");
   SD_INSERT_ANALYSIS_MAP(analysisDB, "-scalar-evolution");
@@ -60,7 +63,7 @@ fillPasses() {
   SD_INSERT_PASS_MAP(passDB, "-argpromotion", llvm::createArgumentPromotionPass);
   SD_INSERT_PASS_MAP(passDB, "-barrier", llvm::createBarrierNoopPass);
   SD_INSERT_PASS_MAP(passDB, "-basicaa", llvm::createBasicAliasAnalysisPass);
-  //SD_INSERT_PASS_MAP(passDB, "-basiccg", NULL); // yet to be written
+  SD_INSERT_PASS_MAP(passDB, "-basiccg", NULL); // yet to be written
   SD_INSERT_PASS_MAP(passDB, "-bdce", llvm::createBitTrackingDCEPass);
   SD_INSERT_PASS_MAP(passDB, "-constmerge", llvm::createConstantMergePass);
   SD_INSERT_PASS_MAP(passDB, "-correlated-propagation", llvm::createCorrelatedValuePropagationPass);
@@ -87,11 +90,14 @@ fillPasses() {
   SD_INSERT_PASS_MAP(passDB, "-loop-simplify", llvm::createLoopSimplifyPass);
   SD_INSERT_PASS_MAP(passDB, "-loop-unroll", llvm::createLoopUnrollPass);
   SD_INSERT_PASS_MAP(passDB, "-loop-unswitch", llvm::createLoopUnswitchPass);
+  SD_INSERT_PASS_MAP(passDB, "-loop-vectorize", llvm::createLoopVectorizePass);
   SD_INSERT_PASS_MAP(passDB, "-lower-expect", llvm::createLowerExpectIntrinsicPass);
   SD_INSERT_PASS_MAP(passDB, "-memcpyopt", llvm::createMemCpyOptPass);
   SD_INSERT_PASS_MAP(passDB, "-mergefunc", llvm::createMergeFunctionsPass);
+  SD_INSERT_PASS_MAP(passDB, "-mldst-motion", llvm::createMergedLoadStoreMotionPass);
   SD_INSERT_PASS_MAP(passDB, "-no-aa", llvm::createNoAAPass);
   SD_INSERT_PASS_MAP(passDB, "-prune-eh", llvm::createPruneEHPass);
+  SD_INSERT_PASS_MAP(passDB, "-reassociate", llvm::createReassociatePass);
   SD_INSERT_PASS_MAP(passDB, "-sccp", llvm::createSCCPPass);
   SD_INSERT_PASS_MAP(passDB, "-scev-aa", llvm::createScalarEvolutionAliasAnalysisPass);
   SD_INSERT_PASS_MAP(passDB, "-scoped-noalias", llvm::createScopedNoAliasAAPass);
@@ -174,11 +180,16 @@ getPerModulePasses(llvm::TargetMachine &TM) {
   for (unsigned i = 0; i < modulePassesLength; ++i) {
     const std::string* passName = &(modulePasses[i]);
 
-    if (analysisDB.find(*passName) == analysisDB.end())
+    if (analysisDB.find(*passName) != analysisDB.end()){
       continue; // this is an analysis pass, move on
+    } else if ((itr = passDB.find(*passName)) != passDB.end()) {
+      if (itr->second)
+        PM->add((itr->second)());
+    } else {
+      sd_print("Unknown transformation/analysis pass: %s\n", passName->c_str());
+      assert(false);
+    }
 
-    else if ((itr = passDB.find(*passName)) != passDB.end())
-      PM->add((itr->second)());
   }
 
   return PM;
