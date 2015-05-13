@@ -38,6 +38,7 @@
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
+#include "llvm/Transforms/IPO/GenVtableMD.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -1417,6 +1418,8 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
     EmitFundamentalRTTIDescriptors();
 
   CGM.EmitVTableBitSetEntries(VTable, VTLayout);
+
+  sd_insertVtableMD(&CGM, &VTLayout, RD, NULL);
 }
 
 llvm::Value *ItaniumCXXABI::getVTableAddressPointInStructor(

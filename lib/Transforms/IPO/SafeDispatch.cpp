@@ -329,8 +329,7 @@ namespace {
           if(varName.startswith("_ZTV")){
             NamedMDNode* nmd = M.getNamedMetadata(SD_MD_CLASSINFO(varName));
             assert(nmd);
-            MDNode* mdClassName = nmd->getOperand(0);
-            assert(dyn_cast<MDString>(mdClassName->getOperand(0)));
+            nmd->dump();
 
 //            sd_print("NamedMDNode of %s: %s\n",
 //                     varName.bytes_begin(),

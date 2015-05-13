@@ -32,6 +32,7 @@
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
+#include "llvm/Transforms/IPO/GenVtableMD.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -707,6 +708,8 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
   
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
 
+  sd_insertVtableMD(&CGM, VTLayout.get(), RD, &Base);
+
   return VTable;
 }
 
@@ -807,16 +810,6 @@ CodeGenVTables::GenerateClassData(const CXXRecordDecl *RD) {
     CGM.getCXXABI().emitVirtualInheritanceTables(RD);
 
   CGM.getCXXABI().emitVTableDefinitions(*this, RD);
-
-  // burayi sil
-  std::string className = CGM.getCXXABI().GetClassMangledName(RD);
-  llvm::NamedMDNode* classInfo =
-      CGM.getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO(className));
-
-  llvm::LLVMContext& C = CGM.getLLVMContext();
-  llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
-
-  classInfo->addOperand(N);
 }
 
 /// At this point in the translation unit, does it appear that can we
