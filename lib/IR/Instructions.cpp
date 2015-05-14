@@ -28,7 +28,6 @@ using namespace llvm;
 
 #include "llvm/IR/Constants.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
-#include "llvm/Transforms/IPO/SafeDispatchTrace.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include <vector>
@@ -1091,14 +1090,6 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile, unsigned Align,
                      BasicBlock *InsertAtEnd)
     : StoreInst(val, addr, isVolatile, Align, NotAtomic, CrossThread,
                 InsertAtEnd) {}
-
-static void
-handleMethodPointerValue(StoreInst* storeInst, Value* val) {
-  llvm::ConstantStruct* cs = dyn_cast<llvm::ConstantStruct>(val);
-  if (cs) {
-    storeInst->dump();
-  }
-}
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
                      unsigned Align, AtomicOrdering Order,

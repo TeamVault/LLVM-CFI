@@ -27,7 +27,7 @@ LD_LIB_FOLDERS = -L/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER) \
 -L/home/gokhan/libs/llvm3.7/llvm-build/Release+Asserts/bin/../lib \
 -L/lib -L/usr/lib -L$(SD_DIR)/libdyncast
 
-LD_PLUGIN = -plugin $(GOLD_PLUGIN) -plugin-opt=mcpu=x86-64
+LD_PLUGIN = -plugin $(GOLD_PLUGIN) -plugin-opt=mcpu=x86-64 -plugin-opt=save-temps
 
 LD_LIBS = -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc -ldyncast \
 /usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/crtend.o \

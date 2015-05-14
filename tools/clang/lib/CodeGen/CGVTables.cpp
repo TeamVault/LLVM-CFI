@@ -30,9 +30,8 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
-#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
-#include "llvm/Transforms/IPO/GenVtableMD.h"
+#include "llvm/Transforms/IPO/SafeDispatchVtblMD.h"
 
 using namespace clang;
 using namespace CodeGen;

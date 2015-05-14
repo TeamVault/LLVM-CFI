@@ -18,7 +18,7 @@
 #define SD_MD_MEMPTR2    "sd.memptr2"
 #define SD_MD_MEMPTR_OPT "sd.memptr3"
 
-#define SD_MD_CLASSINFO(NAME) ("sd.info." + NAME)
+#define SD_MD_CLASSINFO  "sd.info."
 
 #endif
 

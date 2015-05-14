@@ -24,5 +24,9 @@ static bool sd_isVtableName(std::string& className) {
   return sd_isVtableName_ref(name);
 }
 
+static bool sd_isVTTName(std::string& name) {
+  return name.find("_ZTT") == 0;
+}
+
 #endif
 

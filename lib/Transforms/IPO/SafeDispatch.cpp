@@ -12,10 +12,13 @@
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/CallSite.h"
-#include <vector>
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
+
+#include <vector>
+#include <set>
+#include <map>
 
 // you have to modify the following files for each additional LLVM pass
 // 1. IPO.h and IPO.cpp
@@ -308,50 +311,102 @@ namespace {
   /**
    * Module pass for the SafeDispatch Gold Plugin
    */
-  struct SDModule : public ModulePass {
+  class SDModule : public ModulePass {
+  public:
     static char ID; // Pass identification, replacement for typeid
-    std::vector<GlobalVariable*> vtablesToDelete;
 
     SDModule() : ModulePass(ID) {
       initializeSDModulePass(*PassRegistry::getPassRegistry());
     }
 
+    typedef std::string                                  vtbl_name_t;
+    typedef std::pair<vtbl_name_t, uint64_t>             vtbl_t;
+    typedef std::map<vtbl_t, std::vector<vtbl_t>>        cloud_map_t;
+    typedef std::set<vtbl_name_t>                        roots_t;
+    typedef std::map<vtbl_name_t, std::vector<uint64_t>> addrpt_map_t;
+    typedef addrpt_map_t                                 range_map_t;
+    typedef std::map<vtbl_t, vtbl_name_t>                ancestor_map_t;
+    typedef std::map<vtbl_t, std::vector<uint64_t>>      new_layout_inds_t;
+
+    cloud_map_t cloudMap;
+    roots_t roots;
+    addrpt_map_t addrPtMap;
+    range_map_t rangeMap;
+    ancestor_map_t ancestorMap;
+    new_layout_inds_t newLayoutInds;
+
+    /**
+     * 1. a. Iterate NamedMDNodes to build CHA forest F.
+     *       => map<pair<vtbl,ind>, vector<pair<vtbl,ind>>>
+     *    b. Take note of the roots of the forest.
+     *       => set<vtbl>
+     *    c. Keep the original address point map
+     *       => map<vtbl, vector<int>>
+     *    d. Keep the original sub-vtable ranges
+     *       => map<vtbl, vector<int>>
+     *    e. Calculate which sub-vtable belongs to which cloud.
+     *       => map<pair<vtbl,ind>, vtbl>
+     *
+     * 2. For each cloud:
+     *    a. Interleave the clouds
+     *    b. Calculate the new layout indices map.
+     *       => map<pair<vtbl,ind>, vector<int>>
+     *    c. Create a GlobalVariable for each cloud
+     */
     bool runOnModule(Module &M) {
       sd_print("Started safedispatch analysis\n");
 
-      for (Module::global_iterator itr = M.getGlobalList().begin();
-           itr != M.getGlobalList().end(); itr++ ) {
-        GlobalVariable* globalVar = itr;
-        StringRef varName = globalVar->getName();
+      buildClouds(M);      // part 1
+      interleaveClouds(M); // part 2
 
-        if (sd_isVtableName_ref(varName)) {
-//          sd_print("Changing vtable of %s\n", varName.bytes_begin());
-          if(varName.startswith("_ZTV")){
-            NamedMDNode* nmd = M.getNamedMetadata(SD_MD_CLASSINFO(varName));
-            assert(nmd);
-            nmd->dump();
-
-//            sd_print("NamedMDNode of %s: %s\n",
-//                     varName.bytes_begin(),
-//                     cast<MDString>(mdClassName->getOperand(0))->getString().bytes_begin());
-          }
-
-          expandVtableVariable(M, globalVar);
-          isChanged = true;
-        }
-
-        // TODO: do we need to handle VTT's ?
-      }
-
-      for(unsigned i=0; i<vtablesToDelete.size(); i++) {
-        vtablesToDelete[i]->eraseFromParent();
-      }
-
-      return isChanged;
+      return true;
     }
 
+    struct nmd_sub_t {
+      uint64_t order;
+      vtbl_name_t parentName;
+      uint64_t start;
+      uint64_t end;
+      uint64_t addressPoint;
+    };
+
+    struct nmd_t {
+      vtbl_name_t className;
+      std::vector<nmd_sub_t> subVTables;
+    };
+
+
   private:
-    bool isChanged = false;
+    /**
+     * Reads the NamedMDNodes in the given module and creates the class hierarchy
+     */
+    void buildClouds(Module &M) {
+      for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
+        NamedMDNode* md = itr;
+        if(md->getName().startswith(SD_MD_CLASSINFO)) {
+          unpackMetadata(md);
+        }
+      }
+    }
+
+    nmd_t unpackMetadata(NamedMDNode* md);
+
+    /**
+     * Interleave the generated clouds and create a new global variable for each of them.
+     */
+    void interleaveClouds(Module &M) {
+      for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
+        vtbl_name_t vtbl = *itr;
+
+        interleaveCloud(M, vtbl);
+        calculateNewLayoutInds(vtbl);
+        createNewVTable(M, vtbl);
+      }
+    }
+
+    void interleaveCloud(Module& M, vtbl_name_t& vtbl);
+    void calculateNewLayoutInds(vtbl_name_t& vtbl);
+    void createNewVTable(Module& M, vtbl_name_t& vtbl);
 
     void expandVtableVariable(Module &M, GlobalVariable* globalVar) {
       StringRef varName = globalVar->getName();
@@ -409,8 +464,6 @@ namespace {
 
         userCE->replaceAllUsesWith(newConst);
       }
-
-      vtablesToDelete.push_back(globalVar);
     }
 
     void printVtable(GlobalVariable* globalVar) {
@@ -460,13 +513,71 @@ ModulePass* llvm::createSDModulePass() {
   return new SDModule();
 }
 
-bool llvm::sd_isVTTName(StringRef& name) {
-  return name.startswith("_ZTT");
+/// ----------------------------------------------------------------------------
+/// Analysis implementation
+/// ----------------------------------------------------------------------------
+
+void SDModule::interleaveCloud(Module& M, SDModule::vtbl_name_t& vtbl) {
+
+}
+void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
+
 }
 
-bool llvm::sd_isVTTName(StringRef& name) {
-  return name.startswith("_ZTT");
+void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
+
 }
+
+static inline uint64_t
+sd_getNumberFromMDTuple(const MDOperand& op) {
+  ConstantAsMetadata* cam = dyn_cast<ConstantAsMetadata>(op.get());
+  assert(cam);
+  ConstantInt* ci = dyn_cast<ConstantInt>(cam->getValue());
+  assert(ci);
+
+  return ci->getSExtValue();
+}
+
+static inline SDModule::vtbl_name_t
+sd_getStringFromMDTuple(const MDOperand& op) {
+  MDString* mds = dyn_cast<MDString>(op.get());
+  assert(mds);
+
+  return mds->getString().str();
+}
+
+SDModule::nmd_t SDModule::unpackMetadata(NamedMDNode* md) {
+  SDModule::nmd_t info;
+  info.className = (cast<MDString>(md->getOperand(0)->getOperand(0)))->getString().str();
+
+  errs() << info.className << ":\n";
+
+  for (unsigned i = 1; i < md->getNumOperands(); ++i) {
+    SDModule::nmd_sub_t subInfo;
+    llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i));
+    assert(tup && tup->getNumOperands() == 5);
+
+    subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));
+    subInfo.parentName = sd_getStringFromMDTuple(tup->getOperand(1));
+
+    subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(2));
+    subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(3));
+    subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(4));
+
+    errs() << subInfo.order << ": "
+           << (subInfo.parentName.size() > 0 ? subInfo.parentName + " " : "")
+           << "[" << subInfo.start << "," << subInfo.end << "] "
+           << subInfo.addressPoint << "\n";
+
+    info.subVTables.push_back(subInfo);
+  }
+
+  return info;
+}
+
+/// ----------------------------------------------------------------------------
+/// Helper functions
+/// ----------------------------------------------------------------------------
 
 bool llvm::sd_replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {
   assert(callInst && to && args.size() > 0);

@@ -10226,4 +10226,4 @@ Makefile
 Makefile.common
 Makefile.config.in
 Makefile.rules
-include/llvm/Transforms/IPO/GenVtableMD.h
+include/llvm/Transforms/IPO/SafeDispatchVtblMD.h

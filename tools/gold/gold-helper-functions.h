@@ -145,7 +145,7 @@ getSDPasses(llvm::TargetMachine &TM) {
   PM->add(createTTIPass(TM));
 
   PM->add(llvm::createSDModulePass());
-  PM->add(llvm::createChangeConstantPass());
+//  PM->add(llvm::createChangeConstantPass());
 
   PM->add(llvm::createVerifierPass());
 
