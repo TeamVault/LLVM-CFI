@@ -47,6 +47,8 @@
 #include <system_error>
 #include <vector>
 
+#include "gold-helper-functions.h"
+
 #ifndef LDPO_PIE
 // FIXME: remove this declaration when we stop maintaining Ubuntu Quantal and
 // Precise and Debian Wheezy (binutils 2.23 is required)
@@ -103,6 +105,8 @@ namespace options {
   // use only and will not be passed.
   static std::vector<const char *> extra;
 
+  static bool UseOrigLTOPasses = false;
+
   static void process_plugin_option(const char* opt_)
   {
     if (opt_ == nullptr)
@@ -121,6 +125,8 @@ namespace options {
       obj_path = opt.substr(strlen("obj-path="));
     } else if (opt == "emit-llvm") {
       TheOutputType = OT_BC_ONLY;
+    } else if (opt == "use-orig-lto-passes") {
+      UseOrigLTOPasses = true;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -715,14 +721,10 @@ getModuleForFile(LLVMContext &Context, claimed_file &F,
   return Obj.takeModule();
 }
 
-static void runLTOPasses(Module &M, TargetMachine &TM) {
-  if (const DataLayout *DL = TM.getDataLayout())
-    M.setDataLayout(*DL);
-
+void runOriginalLTOPasses(Module &M, TargetMachine &TM)
+{
   legacy::PassManager passes;
   passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
-  passes.add(createSDModulePass());
-  passes.add(createChangeConstantPass());
 
   PassManagerBuilder PMB;
   PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
@@ -734,6 +736,87 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
+}
+
+static void runLTOPasses(Module &M, TargetMachine &TM) {
+  if (const DataLayout *DL = TM.getDataLayout())
+    M.setDataLayout(*DL);
+
+  if (options::UseOrigLTOPasses) {
+    // run safedispatch passes first
+    legacy::PassManager *SD_PM = getSDPasses(TM);
+    SD_PM->run(M);
+    sd_print("Finished running SafeDispatch passes\n");
+
+    runOriginalLTOPasses(M, TM);
+    sd_print("Finished running LTO passes\n");
+  } else {
+    // generate the pass & analysis DB first
+    fillPasses();
+
+    unsigned OptLevel = 3;
+    unsigned SizeLevel = 0;
+
+    PassManagerBuilder PMB;
+    PMB.OptLevel = OptLevel;
+    PMB.SizeLevel = SizeLevel;
+    PMB.BBVectorize = true;
+    PMB.SLPVectorize = true;
+    PMB.LoopVectorize = true;
+
+    PMB.DisableTailCalls = false;
+    PMB.DisableUnitAtATime = false;
+    PMB.DisableUnrollLoops = false;
+    PMB.MergeFunctions = true;
+    PMB.RerollLoops = true;
+
+    PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
+                     addAddDiscriminatorsPass);
+
+    // Figure out TargetLibraryInfo.
+    //  Triple TargetTriple(TheModule->getTargetTriple());
+    //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
+    PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
+
+    PMB.Inliner = createFunctionInliningPass(PMB.OptLevel, PMB.SizeLevel);
+
+    // Set up the per-function pass manager.
+    // legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
+    llvm::legacy::FunctionPassManager* FPM = new legacy::FunctionPassManager(&M);
+    FPM->add(createTTIPass(TM));
+    PMB.populateFunctionPassManager(*FPM);
+
+    // Set up the per-module pass manager.
+    // legacy::PassManager *PM = getPerModulePasses(TM);
+    llvm::legacy::PassManager* PM = new legacy::PassManager();
+    PM->add(createTTIPass(TM));
+    PMB.populateModulePassManager(*PM);
+
+    // run safedispatch passes first
+    legacy::PassManager *SD_PM = getSDPasses(TM);
+    SD_PM->run(M);
+
+    sd_print("Finished running SafeDispatch passes\n");
+
+    // run function passes
+    FPM->doInitialization();
+    for (Function &F : M) {
+      FPM->run(F);
+    }
+    FPM->doFinalization();
+
+    sd_print("Finished running function passes\n");
+
+    // run module passes
+    PM->run(M);
+
+    sd_print("Finished running module passes\n");
+
+    // run LTO passes
+    runOriginalLTOPasses(M,TM);
+
+    sd_print("Finished running LTO passes\n");
+  }
 }
 
 static void saveBCFile(StringRef Path, Module &M) {

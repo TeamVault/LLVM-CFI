@@ -1,6 +1,10 @@
 #ifndef __CLASSES_H__
 #define __CLASSES_H__
 
+#define TEST_CASE
+
+#ifndef TEST_CASE
+
 struct A {
   virtual ~A();
   virtual void f ();
@@ -24,5 +28,27 @@ struct D: public virtual B {
   virtual void h ();
   virtual void g ();
 };
+
+#else
+
+struct A {
+  virtual ~A();
+  virtual void f ();
+};
+
+struct B: public virtual A {
+  virtual ~B();
+  virtual void f ();
+  virtual void g ();
+};
+
+struct C: public virtual B {
+  virtual ~C();
+  virtual void f ();
+  virtual void g ();
+  virtual void h ();
+};
+
+#endif
 
 #endif

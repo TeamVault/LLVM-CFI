@@ -11,10 +11,12 @@
 
 namespace llvm {
 
-#define STORE_OPCODE   28
-#define GEP_OPCODE     29
-#define BITCAST_OPCODE 44
-#define CALL_OPCODE    49
+#define STORE_OPCODE    28
+#define GEP_OPCODE      29
+#define INTTOPTR_OPCODE 43
+#define BITCAST_OPCODE  44
+#define CALL_OPCODE     49
+#define SELECT_OPCODE   50
 
   /**
    * Replaces each occurence of function "from" with function "to" inside the given module
@@ -27,7 +29,7 @@ namespace llvm {
    */
   void sd_changeGEPIndex(GetElementPtrInst* inst, unsigned operandNo, int64_t newIndex);
 
-  bool sd_isVTableName(StringRef& name);
+  bool sd_isVTTName(StringRef& name);
 
   bool sd_isVTTName(StringRef& name);
 

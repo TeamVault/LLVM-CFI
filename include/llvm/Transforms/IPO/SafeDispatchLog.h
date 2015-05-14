@@ -5,6 +5,7 @@
 #include <cstdio>
 #include "llvm/Support/raw_ostream.h"
 #include <execinfo.h>
+#include <stdarg.h>
 
 #define SD_DEBUG
 

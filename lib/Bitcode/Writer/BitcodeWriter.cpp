@@ -1509,7 +1509,7 @@ static void WriteConstants(unsigned FirstVal, unsigned LastVal,
         }
       }
     } else if (isa<ConstantArray>(C) || isa<ConstantStruct>(C) ||
-               isa<ConstantVector>(C)) {
+               isa<ConstantVector>(C) || isa<ConstantMemberPointer>(C)) {
       Code = bitc::CST_CODE_AGGREGATE;
       for (unsigned i = 0, e = C->getNumOperands(); i != e; ++i)
         Record.push_back(VE.getValueID(C->getOperand(i)));

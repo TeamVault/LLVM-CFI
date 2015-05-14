@@ -1623,12 +1623,7 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(CallInst, Value)
 /// SelectInst - This class represents the LLVM 'select' instruction.
 ///
 class SelectInst : public Instruction {
-  void init(Value *C, Value *S1, Value *S2) {
-    assert(!areInvalidOperands(C, S1, S2) && "Invalid operands for select");
-    Op<0>() = C;
-    Op<1>() = S1;
-    Op<2>() = S2;
-  }
+  void init(Value *C, Value *S1, Value *S2);
 
   SelectInst(Value *C, Value *S1, Value *S2, const Twine &NameStr,
              Instruction *InsertBefore)

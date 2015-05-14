@@ -3,6 +3,7 @@
 
 int main(int argc, char *argv[])
 {
+#ifndef TEST_CASE
   A* a = new A();
   B* b = new B();
   C* c = new C();
@@ -47,6 +48,31 @@ int main(int argc, char *argv[])
   delete a2;
   std::cout << "-----------------" << std::endl;
   delete a3;
+#else
+  A* a = new A();
+  B* b = new B();
+  C* c = new C();
+
+  a->f();
+
+  std::cout << "-----------------" << std::endl;
+
+  b->f();
+  b->g();
+
+  std::cout << "-----------------" << std::endl;
+
+  c->f();
+  c->g();
+  c->h();
+
+  std::cout << "-----------------" << std::endl;
+  delete a;
+  std::cout << "-----------------" << std::endl;
+  delete b;
+  std::cout << "-----------------" << std::endl;
+  delete c;
+#endif
 
   return 0;
 }

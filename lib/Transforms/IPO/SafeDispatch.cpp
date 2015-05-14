@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 // you have to modify the following files for each additional LLVM pass
 // 1. IPO.h and IPO.cpp
@@ -44,9 +45,16 @@ namespace {
       unsigned typeidMDId = module->getMDKindID(SD_MD_TYPEID);
       unsigned vcallMDId = module->getMDKindID(SD_MD_VCALL);
       unsigned vbaseMDId = module->getMDKindID(SD_MD_VBASE);
+      unsigned memptrMDId = module->getMDKindID(SD_MD_MEMPTR);
+      unsigned memptr2MDId = module->getMDKindID(SD_MD_MEMPTR2);
+      unsigned memptrOptMdId = module->getMDKindID(SD_MD_MEMPTR_OPT);
 
+      llvm::MDNode* vfptrMDNode = NULL;
       llvm::MDNode* vcallMDNode = NULL;
       llvm::MDNode* vbaseMDNode = NULL;
+      llvm::MDNode* memptrMDNode = NULL;
+      llvm::MDNode* memptr2MDNode = NULL;
+      llvm::MDNode* memptrOptMDNode = NULL;
 
       std::vector<Instruction*> instructions;
       for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
@@ -58,30 +66,55 @@ namespace {
         Instruction* inst = *instItr;
         unsigned opcode = inst->getOpcode();
 
+        // gep instruction
         if (opcode == GEP_OPCODE) {
-          multVfptrIndexBy2(classNameMDId, inst);
+          GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+          assert(gepInst);
+
+          if((vfptrMDNode = inst->getMetadata(classNameMDId))){
+            multVfptrIndexBy2(vfptrMDNode, gepInst);
+
+          } else if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
+            int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
+            sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+
+          } else if ((memptrOptMDNode = inst->getMetadata(memptrOptMdId))) {
+            ConstantInt* ci = dyn_cast<ConstantInt>(inst->getOperand(1));
+            if (ci) {
+              // this happens when program is compiled with -O
+              // vtable index of the member pointer is put directly into the
+              // GEP instruction using constant folding
+
+              int64_t oldValue = ci->getSExtValue();
+              sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+            }
+          }
         }
 
-        if (inst->getMetadata(castFromMDId)) {
+        // call instruction
+        else if (inst->getMetadata(castFromMDId)) {
           replaceDynamicCast(module, inst);
         }
 
-        if (inst->getMetadata(typeidMDId)) {
+        // load instruction
+        else if (inst->getMetadata(typeidMDId)) {
           multRTTIOffsetBy2(inst);
         }
 
-        if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
+        // bitcast instruction
+        else if ((vcallMDNode = inst->getMetadata(vcallMDId))) {
           int64_t oldValue = getMetadataConstant(vcallMDNode, 1);
           multVcallOffsetBy2(inst, oldValue);
         }
 
-        if ((vbaseMDNode = inst->getMetadata(vbaseMDId))) {
-          int64_t oldValue = getMetadataConstant(vbaseMDNode, 1);
+        // call instruction
+        else if ((memptrMDNode = inst->getMetadata(memptrMDId))) {
+          handleStoreMemberPointer(memptrMDNode, inst);
+        }
 
-          GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
-          assert(gepInst);
-
-          sd_changeGEPIndex(gepInst, 1, oldValue * 2);
+        // select instruction
+        else if (opcode == SELECT_OPCODE && (memptr2MDNode = inst->getMetadata(memptr2MDId))) {
+          handleSelectMemberPointer(memptr2MDNode, inst);
         }
       }
       return true;
@@ -89,23 +122,19 @@ namespace {
 
   private:
 
-    void multVfptrIndexBy2(unsigned classNameMDId, Instruction* inst) {
+    void multVfptrIndexBy2(llvm::MDNode* mdNode, Instruction* inst) {
       GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
       assert(gepInst);
-      llvm::MDNode* mdNode = gepInst->getMetadata(classNameMDId);
-      if (mdNode) {
-        StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
-        if (! sd_isVTableName(className))
-          return;
 
-        ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
-        uint64_t indexVal = *(index->getValue().getRawData());
-        uint64_t newIndexVal = indexVal * 2;
+      StringRef className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+      assert(sd_isVtableName_ref(className));
 
-        gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
-                                                newIndexVal,
-                                                false));
-      }
+      ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
+      uint64_t indexVal = *(index->getValue().getRawData());
+      uint64_t newIndexVal = indexVal * 2;
+
+      gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
+                          newIndexVal, false));
     }
 
     void replaceDynamicCast(Module* module, Instruction* inst) {
@@ -161,6 +190,55 @@ namespace {
       assert(gepInst2);
 
       sd_changeGEPIndex(gepInst2, 1, oldValue * 2);
+    }
+
+    void replaceConstantStruct(ConstantStruct* CS, Instruction* inst) {
+      std::vector<Constant*> V;
+      ConstantInt* ci = dyn_cast<ConstantInt>(CS->getOperand(0));
+      assert(ci);
+
+      V.push_back(ConstantInt::get(
+          Type::getInt64Ty(inst->getContext()),
+          ci->getSExtValue() * 2 - 1));
+
+      ci = dyn_cast<ConstantInt>(CS->getOperand(1));
+      assert(ci);
+
+      V.push_back(ConstantInt::get(
+          Type::getInt64Ty(inst->getContext()),
+          ci->getSExtValue()));
+
+      Constant* CSNew = ConstantStruct::getAnon(V);
+      assert(CSNew);
+
+      inst->replaceUsesOfWith(CS,CSNew);
+    }
+
+    void handleStoreMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
+      std::string className = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+
+      StoreInst* storeInst = dyn_cast<StoreInst>(inst);
+      assert(storeInst);
+
+      ConstantStruct* CS = dyn_cast<ConstantStruct>(storeInst->getOperand(0));
+      assert(CS);
+      replaceConstantStruct(CS, storeInst);
+    }
+
+    void handleSelectMemberPointer(llvm::MDNode* mdNode, Instruction* inst){
+      std::string className1 = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
+      std::string className2 = cast<llvm::MDString>(mdNode->getOperand(1))->getString();
+
+      SelectInst* selectInst = dyn_cast<SelectInst>(inst);
+      assert(selectInst);
+
+      ConstantStruct* CS1 = dyn_cast<ConstantStruct>(selectInst->getOperand(1));
+      assert(CS1);
+      replaceConstantStruct(CS1, selectInst);
+
+      ConstantStruct* CS2 = dyn_cast<ConstantStruct>(selectInst->getOperand(2));
+      assert(CS2);
+      replaceConstantStruct(CS2, selectInst);
     }
 
     int64_t getMetadataConstant(llvm::MDNode* mdNode, unsigned operandNo) {
@@ -246,20 +324,27 @@ namespace {
         GlobalVariable* globalVar = itr;
         StringRef varName = globalVar->getName();
 
-        if (sd_isVTableName(varName)) {
+        if (sd_isVtableName_ref(varName)) {
+//          sd_print("Changing vtable of %s\n", varName.bytes_begin());
+          if(varName.startswith("_ZTV")){
+            NamedMDNode* nmd = M.getNamedMetadata(SD_MD_CLASSINFO(varName));
+            assert(nmd);
+            nmd->dump();
+
+//            sd_print("NamedMDNode of %s: %s\n",
+//                     varName.bytes_begin(),
+//                     cast<MDString>(mdClassName->getOperand(0))->getString().bytes_begin());
+          }
+
           expandVtableVariable(M, globalVar);
           isChanged = true;
         }
 
-        if (sd_isVTTName(varName)) {
-          handleVTT(M, globalVar);
-        }
+        // TODO: do we need to handle VTT's ?
       }
 
       for(unsigned i=0; i<vtablesToDelete.size(); i++) {
-        StringRef varName(vtablesToDelete[i]->getName());
         vtablesToDelete[i]->eraseFromParent();
-        sd_print("Successfully replaced %s with _SD%s\n", varName.bytes_begin(), varName.bytes_begin());
       }
 
       return isChanged;
@@ -282,6 +367,8 @@ namespace {
       assert(globalVar->hasInitializer());
       ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
       assert(vtable);
+
+//      printVtable(globalVar);
 
       std::vector<Constant*> newVtableElems;
       for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
@@ -326,10 +413,36 @@ namespace {
       vtablesToDelete.push_back(globalVar);
     }
 
-    void handleVTT(Module &M, GlobalVariable* globalVar) {
-      sd_print("VTT: %s\n", globalVar->getName().bytes_begin());
-      globalVar->dump();
+    void printVtable(GlobalVariable* globalVar) {
+      StringRef varName = globalVar->getName();
+      ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
+      assert(vtable);
+
+      ConstantExpr* ce = NULL;
+      ConstantInt* vtblInt = NULL;
+      unsigned opcode = 0;
+
+      sd_print("%s elements:\n", varName.bytes_begin());
+      for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
+        ce = dyn_cast<ConstantExpr>(vtable->getOperand(vtblInd));
+        opcode = ce ? ce->getOpcode() : 0;
+
+        switch (opcode) {
+          case BITCAST_OPCODE:
+            sd_print("%-2u %s\n", vtblInd, ce->getOperand(0)->getName().bytes_begin());
+            break;
+          case INTTOPTR_OPCODE:
+            vtblInt = dyn_cast<ConstantInt>(ce->getOperand(0));
+            assert(vtblInt);
+            sd_print("%-2u %ld\n", vtblInd, vtblInt->getSExtValue());
+            break;
+          default: // this must be a null value
+            sd_print("%-2u 0\n", vtblInd);
+            break;
+        }
+      }
     }
+
   };
 }
 
@@ -347,10 +460,8 @@ ModulePass* llvm::createSDModulePass() {
   return new SDModule();
 }
 
-bool llvm::sd_isVTableName(StringRef& name) {
-  return (name.startswith("_ZTC") || name.startswith("_ZTV")) && // is a vtable
-      (!name.startswith("_ZTVSt")) &&                            // but not from std namespace
-      (!name.startswith("_ZTVN10__cxxabiv"));                    // or from this one
+bool llvm::sd_isVTTName(StringRef& name) {
+  return name.startswith("_ZTT");
 }
 
 bool llvm::sd_isVTTName(StringRef& name) {

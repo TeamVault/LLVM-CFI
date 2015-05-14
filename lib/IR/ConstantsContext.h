@@ -333,6 +333,10 @@ template <> struct ConstantInfo<ConstantStruct> {
   typedef ConstantAggrKeyType<ConstantStruct> ValType;
   typedef StructType TypeClass;
 };
+template <> struct ConstantInfo<ConstantMemberPointer> {
+  typedef ConstantAggrKeyType<ConstantMemberPointer> ValType;
+  typedef StructType TypeClass;
+};
 template <> struct ConstantInfo<ConstantVector> {
   typedef ConstantAggrKeyType<ConstantVector> ValType;
   typedef VectorType TypeClass;
