@@ -324,6 +324,8 @@ namespace {
       std::cerr << "Deleted SDModule object" << std::endl;
     }
 
+    // variable definitions
+
     typedef std::string                                  vtbl_name_t;
     typedef std::pair<vtbl_name_t, uint64_t>             vtbl_t;
     typedef std::map<vtbl_t, std::set<vtbl_t>>           cloud_map_t;
@@ -335,17 +337,17 @@ namespace {
     typedef std::map<vtbl_t, std::vector<uint64_t>>      new_layout_inds_t;
     typedef std::pair<vtbl_t, uint64_t>       					 interleaving_t;
     typedef std::list<interleaving_t>                    interleaving_list_t;
-    typedef std::map<vtbl_name_t, interleaving_list_t>   new_vtbl_t;
+    typedef std::map<vtbl_name_t, interleaving_list_t>   interleaving_map_t;
     typedef std::vector<vtbl_t>                          order_t;
 
-    cloud_map_t cloudMap;
-    roots_t roots;
-    addrpt_map_t origAddrPtMap;
-    range_map_t rangeMap;
-    ancestor_map_t ancestorMap;
-    new_layout_inds_t newLayoutInds;
-    new_vtbl_t newVtbls;
-    std::map<vtbl_name_t, ConstantArray*> oldVTables;
+    cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
+    roots_t roots;                                     // set<vtbl>
+    addrpt_map_t addrPtMap;                            // vtbl -> [addr pt]
+    range_map_t rangeMap;                              // vtbl -> [(start,end)]
+    ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl (is this necessary?)
+    new_layout_inds_t newLayoutInds;                   // (vtbl,ind) -> [new ind inside interleaved vtbl]
+    interleaving_map_t interleavingMap;                // root -> new layouts map
+    std::map<vtbl_name_t, ConstantArray*> oldVTables;  // vtbl -> &[vtable element]
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
@@ -404,6 +406,13 @@ namespace {
         calculateNewLayoutInds(vtbl);
         createNewVTable(M, vtbl);
       }
+
+      // remove the old vtables
+      for (auto itr : oldVTables) {
+        GlobalVariable* var = M.getGlobalVariable(itr.first, true);
+        assert(var && var->use_empty());
+        var->eraseFromParent();
+      }
     }
 
     /**
@@ -444,94 +453,7 @@ namespace {
      */
     void fillVtablePart(interleaving_list_t& part, const order_t& order, bool positiveOff);
 
-    void expandVtableVariable(Module &M, GlobalVariable* globalVar) {
-      StringRef varName = globalVar->getName();
-
-      ArrayType* arrType = dyn_cast<ArrayType>(globalVar->getType()->getArrayElementType());
-      assert(arrType);
-
-      // assuming there are only 2 entries before vfunptrs
-      uint64_t newSize = arrType->getArrayNumElements() * 2;
-      PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), 8), 0);
-      ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
-
-      assert(globalVar->hasInitializer());
-      ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
-      assert(vtable);
-
-//      printVtable(globalVar);
-
-      std::vector<Constant*> newVtableElems;
-      for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
-        newVtableElems.push_back(vtable->getOperand(vtblInd));
-        newVtableElems.push_back(ConstantPointerNull::get(vtblElemType));
-      }
-
-      Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
-
-      GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true, globalVar->getLinkage(),
-                                                     nullptr, "_SD" + varName, nullptr,
-                                                     globalVar->getThreadLocalMode(),
-                                                     0,globalVar->isExternallyInitialized());
-      newVtable->setAlignment(8);
-      newVtable->setInitializer(newVtableInit);
-
-      // create the new vtable base offset
-      Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
-
-      for (GlobalVariable::user_iterator userItr = globalVar->user_begin();
-           userItr != globalVar->user_end(); userItr++) {
-        // this should be a getelementptr
-        User* user = *userItr;
-        ConstantExpr* userCE = dyn_cast<ConstantExpr>(user);
-        assert(userCE && userCE->getOpcode() == GEP_OPCODE);
-
-        ConstantInt* oldConst = dyn_cast<ConstantInt>(userCE->getOperand(2));
-        assert(oldConst);
-
-        int64_t oldOffset = oldConst->getSExtValue();
-        Constant* newOffset  = ConstantInt::getSigned(Type::getInt64Ty(M.getContext()), oldOffset * 2);
-
-        std::vector<Constant*> indices;
-        indices.push_back(zero);
-        indices.push_back(newOffset);
-
-        Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
-
-        userCE->replaceAllUsesWith(newConst);
-      }
-    }
-
-    void printVtable(GlobalVariable* globalVar) {
-      StringRef varName = globalVar->getName();
-      ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
-      assert(vtable);
-
-      ConstantExpr* ce = NULL;
-      ConstantInt* vtblInt = NULL;
-      unsigned opcode = 0;
-
-      sd_print("%s elements:\n", varName.bytes_begin());
-      for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
-        ce = dyn_cast<ConstantExpr>(vtable->getOperand(vtblInd));
-        opcode = ce ? ce->getOpcode() : 0;
-
-        switch (opcode) {
-          case BITCAST_OPCODE:
-            sd_print("%-2u %s\n", vtblInd, ce->getOperand(0)->getName().bytes_begin());
-            break;
-          case INTTOPTR_OPCODE:
-            vtblInt = dyn_cast<ConstantInt>(ce->getOperand(0));
-            assert(vtblInt);
-            sd_print("%-2u %ld\n", vtblInd, vtblInt->getSExtValue());
-            break;
-          default: // this must be a null value
-            sd_print("%-2u 0\n", vtblInd);
-            break;
-        }
-      }
-    }
-
+    void printVtable(GlobalVariable* globalVar);
   };
 }
 
@@ -563,21 +485,21 @@ void SDModule::interleaveCloud(SDModule::vtbl_name_t& vtbl) {
   order_t pre = preorder(root);
 
   // initialize the cloud's interleaving list
-  newVtbls[vtbl] = interleaving_list_t();
+  interleavingMap[vtbl] = interleaving_list_t();
 
   // fill both parts
-  fillVtablePart(newVtbls[vtbl], pre, false);
+  fillVtablePart(interleavingMap[vtbl], pre, false);
   fillVtablePart(positivePart, pre, true);
 
   // append positive part to the negative
-  newVtbls[vtbl].insert(newVtbls[vtbl].end(), positivePart.begin(), positivePart.end());
+  interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positivePart.begin(), positivePart.end());
 }
 
 void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
-  assert(newVtbls.find(vtbl) != newVtbls.end());
+  assert(interleavingMap.find(vtbl) != interleavingMap.end());
 
   uint64_t currentIndex = 0;
-  for (const interleaving_t& ivtbl : newVtbls[vtbl]) {
+  for (const interleaving_t& ivtbl : interleavingMap[vtbl]) {
     // record which cloud the current sub-vtable belong to
     if (ancestorMap.find(ivtbl.first) == ancestorMap.end()) {
       ancestorMap[ivtbl.first] = vtbl;
@@ -589,27 +511,89 @@ void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
 }
 
 void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
-  interleaving_list_t& newVtbl = newVtbls[vtbl];
+  // get the interleaved order
+  interleaving_list_t& newVtbl = interleavingMap[vtbl];
 
+  // calculate the global variable type
   uint64_t newSize = newVtbl.size();
   PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), 8), 0);
   ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
 
+  // fill the interleaved vtable element list
   std::vector<Constant*> newVtableElems;
   for (const interleaving_t& ivtbl : newVtbl) {
     ConstantArray* vtable = oldVTables[ivtbl.first.first];
     newVtableElems.push_back(vtable->getOperand(ivtbl.second));
   }
 
+  // create the constant initializer
   Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
 
+  // create the global variable
   GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
                                                  GlobalVariable::ExternalLinkage,
                                                  nullptr, "_SD" + vtbl);
   newVtable->setAlignment(8);
   newVtable->setInitializer(newVtableInit);
 
-  newVtable->dump();
+  // to start changing the original uses of the vtables, first get all the classes in the cloud
+  order_t cloud;
+  vtbl_t root(vtbl,0);
+  preorderHelper(cloud, root);
+
+  Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
+  for (const vtbl_t& v : cloud) {
+    // find the original vtable
+    GlobalVariable* globalVar = M.getGlobalVariable(v.first, true);
+    assert(globalVar);
+
+    // replace the uses of the original vtables
+    for (GlobalVariable::user_iterator userItr = globalVar->user_begin();
+         userItr != globalVar->user_end(); userItr++) {
+      // this should be a getelementptr
+      User* user = *userItr;
+      ConstantExpr* userCE = dyn_cast<ConstantExpr>(user);
+      assert(userCE && userCE->getOpcode() == GEP_OPCODE);
+
+      // get the address pointer from the instruction
+      ConstantInt* oldConst = dyn_cast<ConstantInt>(userCE->getOperand(2));
+      assert(oldConst);
+      uint64_t oldAddrPt = oldConst->getSExtValue();
+
+      // find which part of the vtable the constructor uses
+      uint64_t order = 0;
+      std::vector<uint64_t>& addrPts = addrPtMap[v.first];
+      for(; order < addrPts.size() && addrPts[order] != oldAddrPt; order++);
+      assert(order != addrPts.size());
+
+      // if this is not referring to the current part, continue
+      if (order != v.second)
+        continue;
+
+      // find the offset relative to the sub-vtable start
+      int addrInsideBlock = oldAddrPt - rangeMap[v.first][order].first;
+
+      // find the new offset corresponding to the relative offset
+      // inside the interleaved vtable
+      int64_t newAddrPt = newLayoutInds[v][addrInsideBlock];
+
+      Constant* newOffsetCons  = ConstantInt::getSigned(Type::getInt64Ty(M.getContext()), newAddrPt);
+
+      std::vector<Constant*> indices;
+      indices.push_back(zero);
+      indices.push_back(newOffsetCons);
+
+      Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
+
+      // replace the constant expression with the one that uses the new vtable
+      userCE->replaceAllUsesWith(newConst);
+      // and then remove it
+      userCE->destroyConstant();
+
+      sd_print("changed vtbl use: %s %ld ==> %s %ld\n",
+               v.first.c_str(), oldAddrPt, vtbl.c_str(), newAddrPt);
+    }
+  }
 }
 
 static bool sd_isLE(int64_t lhs, int64_t rhs) { return lhs <= rhs; }
@@ -620,7 +604,7 @@ void SDModule::fillVtablePart(SDModule::interleaving_list_t& vtblPart, const SDM
   std::map<vtbl_t, int64_t> lastPosMap; // last possible position
 
   for(const vtbl_t& n : order) {
-    uint64_t addrPt = origAddrPtMap[n.first][n.second];  // get the address point of the vtable
+    uint64_t addrPt = addrPtMap[n.first][n.second];  // get the address point of the vtable
     posMap[n]     = positiveOff ? addrPt : (addrPt - 1); // start interleaving from that address
     lastPosMap[n] = positiveOff ? (rangeMap[n.first][n.second].second) :
                                   (rangeMap[n.first][n.second].first);
@@ -641,6 +625,8 @@ void SDModule::fillVtablePart(SDModule::interleaving_list_t& vtblPart, const SDM
         posMap[n] += increment;
       }
     }
+
+    // TODO (rkici) : add a check to make sure that the interleaved functions are OK
 
     if (current.size() == 0)
       break;
@@ -726,7 +712,7 @@ void SDModule::buildClouds(Module &M) {
       }
 
       // record the original address points
-      origAddrPtMap[info.className].push_back(subInfo->addressPoint);
+      addrPtMap[info.className].push_back(subInfo->addressPoint);
 
       // record the sub-vtable ends
       rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
@@ -766,6 +752,37 @@ SDModule::nmd_t SDModule::extractMetadata(NamedMDNode* md) {
 /// Helper functions
 /// ----------------------------------------------------------------------------
 
+void SDModule::printVtable(GlobalVariable* globalVar) {
+  StringRef varName = globalVar->getName();
+  ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
+  assert(vtable);
+
+  ConstantExpr* ce = NULL;
+  ConstantInt* vtblInt = NULL;
+  unsigned opcode = 0;
+
+  sd_print("%s elements:\n", varName.bytes_begin());
+  for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
+    ce = dyn_cast<ConstantExpr>(vtable->getOperand(vtblInd));
+    opcode = ce ? ce->getOpcode() : 0;
+
+    switch (opcode) {
+      case BITCAST_OPCODE:
+        sd_print("%-2u %s\n", vtblInd, ce->getOperand(0)->getName().bytes_begin());
+        break;
+      case INTTOPTR_OPCODE:
+        vtblInt = dyn_cast<ConstantInt>(ce->getOperand(0));
+        assert(vtblInt);
+        sd_print("%-2u %ld\n", vtblInd, vtblInt->getSExtValue());
+        break;
+      default: // this must be a null value
+        sd_print("%-2u 0\n", vtblInd);
+        break;
+    }
+  }
+}
+
+
 bool llvm::sd_replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {
   assert(callInst && to && args.size() > 0);
 
@@ -786,3 +803,5 @@ void llvm::sd_changeGEPIndex(GetElementPtrInst* inst, unsigned operandNo, int64_
   Value *idx = ConstantInt::getSigned(Type::getInt64Ty(inst->getContext()), newIndex);
   inst->setOperand(operandNo, idx);
 }
+
+// lower_bound with start addresses
