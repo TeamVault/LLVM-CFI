@@ -16,6 +16,7 @@
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
+#include <list>
 #include <vector>
 #include <set>
 #include <map>
@@ -319,21 +320,45 @@ namespace {
       initializeSDModulePass(*PassRegistry::getPassRegistry());
     }
 
+    virtual ~SDModule() {
+      std::cerr << "Deleted SDModule object" << std::endl;
+    }
+
     typedef std::string                                  vtbl_name_t;
     typedef std::pair<vtbl_name_t, uint64_t>             vtbl_t;
-    typedef std::map<vtbl_t, std::vector<vtbl_t>>        cloud_map_t;
+    typedef std::map<vtbl_t, std::set<vtbl_t>>           cloud_map_t;
     typedef std::set<vtbl_name_t>                        roots_t;
     typedef std::map<vtbl_name_t, std::vector<uint64_t>> addrpt_map_t;
-    typedef addrpt_map_t                                 range_map_t;
+    typedef std::pair<uint64_t, uint64_t>                range_t;
+    typedef std::map<vtbl_name_t, std::vector<range_t>>  range_map_t;
     typedef std::map<vtbl_t, vtbl_name_t>                ancestor_map_t;
     typedef std::map<vtbl_t, std::vector<uint64_t>>      new_layout_inds_t;
+    typedef std::pair<vtbl_t, uint64_t>       					 interleaving_t;
+    typedef std::list<interleaving_t>                    interleaving_list_t;
+    typedef std::map<vtbl_name_t, interleaving_list_t>   new_vtbl_t;
+    typedef std::vector<vtbl_t>                          order_t;
 
     cloud_map_t cloudMap;
     roots_t roots;
-    addrpt_map_t addrPtMap;
+    addrpt_map_t origAddrPtMap;
     range_map_t rangeMap;
     ancestor_map_t ancestorMap;
     new_layout_inds_t newLayoutInds;
+    new_vtbl_t newVtbls;
+    std::map<vtbl_name_t, ConstantArray*> oldVTables;
+
+    // these should match the structs defined at SafeDispatchVtblMD.h
+    struct nmd_sub_t {
+      uint64_t order;
+      vtbl_name_t parentName;
+      uint64_t start;
+      uint64_t end;
+      uint64_t addressPoint;
+    };
+    struct nmd_t {
+      vtbl_name_t className;
+      std::vector<nmd_sub_t> subVTables;
+    };
 
     /**
      * 1. a. Iterate NamedMDNodes to build CHA forest F.
@@ -362,34 +387,11 @@ namespace {
       return true;
     }
 
-    struct nmd_sub_t {
-      uint64_t order;
-      vtbl_name_t parentName;
-      uint64_t start;
-      uint64_t end;
-      uint64_t addressPoint;
-    };
-
-    struct nmd_t {
-      vtbl_name_t className;
-      std::vector<nmd_sub_t> subVTables;
-    };
-
-
   private:
     /**
      * Reads the NamedMDNodes in the given module and creates the class hierarchy
      */
-    void buildClouds(Module &M) {
-      for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
-        NamedMDNode* md = itr;
-        if(md->getName().startswith(SD_MD_CLASSINFO)) {
-          unpackMetadata(md);
-        }
-      }
-    }
-
-    nmd_t unpackMetadata(NamedMDNode* md);
+    void buildClouds(Module &M);
 
     /**
      * Interleave the generated clouds and create a new global variable for each of them.
@@ -398,15 +400,49 @@ namespace {
       for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
         vtbl_name_t vtbl = *itr;
 
-        interleaveCloud(M, vtbl);
+        interleaveCloud(vtbl);
         calculateNewLayoutInds(vtbl);
         createNewVTable(M, vtbl);
       }
     }
 
-    void interleaveCloud(Module& M, vtbl_name_t& vtbl);
+    /**
+     * Extract the vtable info from the metadata and put it into a struct
+     */
+    nmd_t extractMetadata(NamedMDNode* md);
+
+    /**
+     * Interleave the cloud given by the root element.
+     */
+    void interleaveCloud(vtbl_name_t& vtbl);
+
+    /**
+     * Calculate the new layout indices for each vtable inside the given cloud
+     */
     void calculateNewLayoutInds(vtbl_name_t& vtbl);
+
+    /**
+     * Interleave the actual vtable elements inside the cloud and
+     * create a new global variable
+     */
     void createNewVTable(Module& M, vtbl_name_t& vtbl);
+
+    /**
+     * Return a list that contains the preorder traversal of the tree
+     * starting from the given node
+     */
+    order_t preorder(vtbl_t& root);
+    void preorderHelper(order_t& nodes, const vtbl_t& root);
+
+    /**
+     * This method is used for filling the both (negative and positive) parts of an
+     * interleaved vtable of a cloud.
+     *
+     * @param part        : A list reference to record the <vtbl_t, element index> pairs
+     * @param order       : A list that contains the preorder traversal
+     * @param positiveOff : true if we're filling the positive (function pointers) part
+     */
+    void fillVtablePart(interleaving_list_t& part, const order_t& order, bool positiveOff);
 
     void expandVtableVariable(Module &M, GlobalVariable* globalVar) {
       StringRef varName = globalVar->getName();
@@ -517,15 +553,122 @@ ModulePass* llvm::createSDModulePass() {
 /// Analysis implementation
 /// ----------------------------------------------------------------------------
 
-void SDModule::interleaveCloud(Module& M, SDModule::vtbl_name_t& vtbl) {
+void SDModule::interleaveCloud(SDModule::vtbl_name_t& vtbl) {
+  assert(roots.find(vtbl) != roots.end());
 
+  // create a temporary list for the positive part
+  interleaving_list_t positivePart;
+
+  vtbl_t root(vtbl,0);
+  order_t pre = preorder(root);
+
+  // initialize the cloud's interleaving list
+  newVtbls[vtbl] = interleaving_list_t();
+
+  // fill both parts
+  fillVtablePart(newVtbls[vtbl], pre, false);
+  fillVtablePart(positivePart, pre, true);
+
+  // append positive part to the negative
+  newVtbls[vtbl].insert(newVtbls[vtbl].end(), positivePart.begin(), positivePart.end());
 }
-void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
 
+void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
+  assert(newVtbls.find(vtbl) != newVtbls.end());
+
+  uint64_t currentIndex = 0;
+  for (const interleaving_t& ivtbl : newVtbls[vtbl]) {
+    // record which cloud the current sub-vtable belong to
+    if (ancestorMap.find(ivtbl.first) == ancestorMap.end()) {
+      ancestorMap[ivtbl.first] = vtbl;
+    }
+
+    // record the new index of the vtable element coming from the current vtable
+    newLayoutInds[ivtbl.first].push_back(currentIndex++);
+  }
 }
 
 void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
+  interleaving_list_t& newVtbl = newVtbls[vtbl];
 
+  uint64_t newSize = newVtbl.size();
+  PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), 8), 0);
+  ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
+
+  std::vector<Constant*> newVtableElems;
+  for (const interleaving_t& ivtbl : newVtbl) {
+    ConstantArray* vtable = oldVTables[ivtbl.first.first];
+    newVtableElems.push_back(vtable->getOperand(ivtbl.second));
+  }
+
+  Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
+
+  GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
+                                                 GlobalVariable::ExternalLinkage,
+                                                 nullptr, "_SD" + vtbl);
+  newVtable->setAlignment(8);
+  newVtable->setInitializer(newVtableInit);
+
+  newVtable->dump();
+}
+
+static bool sd_isLE(int64_t lhs, int64_t rhs) { return lhs <= rhs; }
+static bool sd_isGE(int64_t lhs, int64_t rhs) { return lhs >= rhs; }
+
+void SDModule::fillVtablePart(SDModule::interleaving_list_t& vtblPart, const SDModule::order_t& order, bool positiveOff) {
+  std::map<vtbl_t, int64_t> posMap;     // current position
+  std::map<vtbl_t, int64_t> lastPosMap; // last possible position
+
+  for(const vtbl_t& n : order) {
+    uint64_t addrPt = origAddrPtMap[n.first][n.second];  // get the address point of the vtable
+    posMap[n]     = positiveOff ? addrPt : (addrPt - 1); // start interleaving from that address
+    lastPosMap[n] = positiveOff ? (rangeMap[n.first][n.second].second) :
+                                  (rangeMap[n.first][n.second].first);
+  }
+
+  interleaving_list_t current; // interleaving of one element
+  bool (*check)(int64_t,int64_t) = positiveOff ? sd_isLE : sd_isGE;
+  int increment = positiveOff ? 1 : -1;
+  int64_t pos;
+
+  // while we have an element to insert to the vtable, continue looping
+  while(true) {
+    // do a preorder traversal and add the remaining elements
+    for (const vtbl_t& n : order) {
+      pos = posMap[n];
+      if (check(pos, lastPosMap[n])) {
+        current.push_back(interleaving_t(n, pos));
+        posMap[n] += increment;
+      }
+    }
+
+    if (current.size() == 0)
+      break;
+
+    // for positive offset, append the current interleaved part to the end
+    // otherwise, insert to the front
+    interleaving_list_t::iterator itr =
+        positiveOff ? vtblPart.end() : vtblPart.begin();
+
+    vtblPart.insert(itr, current.begin(), current.end());
+
+    current.clear();
+  }
+}
+
+void SDModule::preorderHelper(std::vector<SDModule::vtbl_t>& nodes, const SDModule::vtbl_t& root){
+  nodes.push_back(root);
+  if (cloudMap.find(root) != cloudMap.end()) {
+    for (const SDModule::vtbl_t& n : cloudMap[root]) {
+      preorderHelper(nodes, n);
+    }
+  }
+}
+
+std::vector<SDModule::vtbl_t> SDModule::preorder(vtbl_t& root) {
+  order_t nodes;
+  preorderHelper(nodes, root);
+  return nodes;
 }
 
 static inline uint64_t
@@ -546,11 +689,56 @@ sd_getStringFromMDTuple(const MDOperand& op) {
   return mds->getString().str();
 }
 
-SDModule::nmd_t SDModule::unpackMetadata(NamedMDNode* md) {
+void SDModule::buildClouds(Module &M) {
+  for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
+    NamedMDNode* md = itr;
+
+    // check if this is a metadata that we've added
+    if(! md->getName().startswith(SD_MD_CLASSINFO))
+      continue;
+
+    nmd_t info = extractMetadata(md);
+
+    // record the old vtable array
+    GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
+    assert(oldVtable);
+    ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
+    assert(vtable);
+    oldVTables[info.className] = vtable;
+
+    for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
+      nmd_sub_t* subInfo = & info.subVTables[ind];
+      vtbl_t name(info.className, ind);
+
+      if (subInfo->parentName != "") {
+        // add the current class to the parent's children set
+        cloudMap[vtbl_t(subInfo->parentName,0)].insert(name);
+      } else {
+        assert(ind == 0); // make sure secondary vtables have a direct parent
+
+        if (cloudMap.find(name) == cloudMap.end()){
+          // make sure the root is added to the cloud
+          cloudMap[name] = std::set<vtbl_t>();
+        }
+
+        // add the class to the root set
+        roots.insert(info.className);
+      }
+
+      // record the original address points
+      origAddrPtMap[info.className].push_back(subInfo->addressPoint);
+
+      // record the sub-vtable ends
+      rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
+    }
+  }
+}
+
+SDModule::nmd_t SDModule::extractMetadata(NamedMDNode* md) {
   SDModule::nmd_t info;
   info.className = (cast<MDString>(md->getOperand(0)->getOperand(0)))->getString().str();
 
-  errs() << info.className << ":\n";
+  sd_print("%s:\n", info.className.c_str());
 
   for (unsigned i = 1; i < md->getNumOperands(); ++i) {
     SDModule::nmd_sub_t subInfo;
@@ -564,10 +752,9 @@ SDModule::nmd_t SDModule::unpackMetadata(NamedMDNode* md) {
     subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(3));
     subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(4));
 
-    errs() << subInfo.order << ": "
-           << (subInfo.parentName.size() > 0 ? subInfo.parentName + " " : "")
-           << "[" << subInfo.start << "," << subInfo.end << "] "
-           << subInfo.addressPoint << "\n";
+    sd_print("%lu: %s[%lu,%lu] %lu\n",subInfo.order,
+             (subInfo.parentName.size() > 0 ? (subInfo.parentName + " ").c_str() : ""),
+             subInfo.start, subInfo.end, subInfo.addressPoint);
 
     info.subVTables.push_back(subInfo);
   }

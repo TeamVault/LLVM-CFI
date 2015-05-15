@@ -13,7 +13,6 @@ void test_B(B* b) {
 
 void test_C(C* c) {
   test_A(c);
-  test_B(c);
 
   std::cout << "c----------------" << std::endl;
   c->f();
@@ -22,12 +21,23 @@ void test_C(C* c) {
 }
 
 void test_D(D* d) {
-  test_C(d);
+  test_B(d);
 
   std::cout << "D----------------" << std::endl;
   d->f();
   d->g();
   d->h();
+}
+
+void test_E(E* e) {
+  test_C(e);
+  test_D(e);
+
+  std::cout << "D----------------" << std::endl;
+  e->f();
+  e->g();
+  e->h();
+  e->i();
 }
 
 int main(int argc, char *argv[])
@@ -36,11 +46,13 @@ int main(int argc, char *argv[])
   B* b = new B();
   C* c = new C();
   D* d = new D();
+  E* e = new E();
 
   test_A(a);
   test_B(b);
   test_C(c);
   test_D(d);
+  test_E(e);
 
   std::cout << "--- Deleting ----" << std::endl;
   delete a;
@@ -50,6 +62,8 @@ int main(int argc, char *argv[])
   delete c;
   std::cout << "-----------------" << std::endl;
   delete d;
+  std::cout << "-----------------" << std::endl;
+  delete e;
 
   return 0;
 }
