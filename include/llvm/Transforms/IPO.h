@@ -204,8 +204,7 @@ ModulePass *createBarrierNoopPass();
 ModulePass *createLowerBitSetsPass();
 
 // safedispatch additions
-class BasicBlockPass;
-BasicBlockPass* createChangeConstantPass();
+ModulePass* createSDChangeIndicesPass();
 ModulePass* createSDModulePass();
 
 } // End llvm namespace

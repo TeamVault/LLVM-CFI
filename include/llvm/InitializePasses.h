@@ -300,8 +300,8 @@ void initializeFloat2IntPass(PassRegistry&);
 
 // safedispatch additions
 void initializeSafeDispatch(PassRegistry&);
-void initializeChangeConstantPass(PassRegistry&);
 void initializeSDModulePass(PassRegistry&);
+void initializeSDChangeIndicesPass(PassRegistry&);
 }
 
 #endif

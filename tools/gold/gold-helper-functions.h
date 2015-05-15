@@ -144,8 +144,8 @@ getSDPasses(llvm::TargetMachine &TM) {
   llvm::legacy::PassManager* PM = new llvm::legacy::PassManager();
   PM->add(createTTIPass(TM));
 
-  PM->add(llvm::createSDModulePass());
-//  PM->add(llvm::createChangeConstantPass());
+  // this adds SDModule pass as a dependency
+  PM->add(llvm::createSDChangeIndicesPass());
 
   PM->add(llvm::createVerifierPass());
 

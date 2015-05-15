@@ -185,7 +185,7 @@ namespace {
       (void) llvm::AreStatisticsEnabled();
       (void) llvm::sys::RunningOnValgrind();
 
-      (void) llvm::createChangeConstantPass();
+      (void) llvm::createSDChangeIndicesPass();
       (void) llvm::createSDModulePass();
     }
   } ForcePassLinking; // Force link by creating a global definition.
