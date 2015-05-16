@@ -6,6 +6,7 @@
 #include "clang/AST/VTableBuilder.h"
 #include "llvm/Support/Casting.h"
 
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 
@@ -58,6 +59,13 @@ namespace {
       tuple.push_back(sd_getMDNumber(C, addressPoint));
 
       return llvm::MDNode::get(C, tuple);
+    }
+
+    void dump(std::ostream& out) {
+      out << order << ", "
+          << parentName << ", "
+          << "[" << start << "," << end << "], "
+          << addressPoint;
     }
   };
 }
@@ -134,7 +142,6 @@ sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayou
 
   std::string className = ABI->GetClassMangledName(RD);
 
-
   // order the sub-vtables according to their address points
   for (auto &&AP : VTLayout->getAddressPoints()) {
     const clang::BaseSubobject* subObj = &(AP.first);
@@ -174,6 +181,8 @@ sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayou
   uint64_t end     = 0; // end of the current vtable
   uint64_t prevVal = 0; // previous address point (for verify that std::map sorts the keys)
 
+  uint64_t numComponents = VTLayout->getNumVTableComponents();
+
   // calculate the subvtable regions
   for (auto a_itr = addrPtMap.begin(); a_itr != addrPtMap.end(); a_itr++) {
     uint64_t addrPt  = a_itr->first;
@@ -184,14 +193,24 @@ sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayou
     const std::string* parentName = &(*(addrPtMap[addrPt].begin()));
 
     end = addrPt;
+    assert(end < numComponents);
+    clang::VTableComponent::Kind kind = VTLayout->vtable_component_begin()[end].getKind();
 
-    clang::VTableComponent::Kind kind =
-        VTLayout->vtable_component_begin()[end+1].getKind();
-    while (kind == clang::VTableComponent::CK_FunctionPointer ||
+    assert(kind == clang::VTableComponent::CK_FunctionPointer ||
            kind == clang::VTableComponent::CK_UnusedFunctionPointer ||
            kind == clang::VTableComponent::CK_CompleteDtorPointer ||
-           kind == clang::VTableComponent::CK_DeletingDtorPointer) {
-      kind = VTLayout->vtable_component_begin()[(++end) + 1].getKind();
+           kind == clang::VTableComponent::CK_DeletingDtorPointer);
+
+    while (end + 1 < numComponents) {
+      kind = VTLayout->vtable_component_begin()[end+1].getKind();
+      if (kind == clang::VTableComponent::CK_FunctionPointer ||
+          kind == clang::VTableComponent::CK_UnusedFunctionPointer ||
+          kind == clang::VTableComponent::CK_CompleteDtorPointer ||
+          kind == clang::VTableComponent::CK_DeletingDtorPointer) {
+        end++;
+      } else {
+        break;
+      }
     }
 
     if (*parentName == className) {
@@ -205,7 +224,10 @@ sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayou
     prevVal = addrPt;
   }
 
-  assert(start == VTLayout->getNumVTableComponents());
+  if (start != VTLayout->getNumVTableComponents()) {
+    sd_print("class:%s, start:%ld, total:%ld\n", className.c_str(), start, VTLayout->getNumVTableComponents());
+    assert(false);
+  }
 
   return subVtables;
 }
@@ -220,8 +242,6 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI* ABI = & CGM->getCXXABI();
-  std::vector<SD_VtableMD> subVtables = sd_generateSubvtableInfo(ABI, VTLayout, RD, Base);
-
   std::string className = sd_getClassName(ABI,RD,Base);
 
   // don't mess with C++ library classes, etc.
@@ -229,11 +249,18 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
     return;
   }
 
+  std::vector<SD_VtableMD> subVtables = sd_generateSubvtableInfo(ABI, VTLayout, RD, Base);
+
+  // if we didn't produce anything, return ?
+  if (subVtables.size() == 0) {
+    return;
+  }
+
   llvm::NamedMDNode* classInfo =
       CGM->getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO + className);
 
   if (classInfo->getNumOperands() > 0) {
-    // we already filled this metadata
+    assert(classInfo->getNumOperands() == (2 + subVtables.size()));
     return;
   }
 
@@ -241,6 +268,16 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
 
   // first put the class name
   classInfo->addOperand(llvm::MDNode::get(C, sd_getMDString(C, className)));
+
+  if (className == "_ZTVN11xercesc_2_510XMLDeleterE") {
+    std::cerr << "subvtbl count: " << subVtables.size() << std::endl;
+    for (unsigned i = 0; i < subVtables.size(); ++i) {
+      subVtables[i].dump(std::cerr);
+      std::cerr << std::endl;
+    }
+  }
+
+  classInfo->addOperand(llvm::MDNode::get(C, sd_getMDNumber(C, subVtables.size())));
 
   // then add md for each sub-vtable
   for (unsigned i = 0; i < subVtables.size(); ++i) {
