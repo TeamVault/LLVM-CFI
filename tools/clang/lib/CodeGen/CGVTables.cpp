@@ -57,6 +57,8 @@ sd_vtableThunkIndex(CodeGenModule& CGM, const CXXMethodDecl *MD, const ThunkInfo
 
   std::vector<unsigned> foundIndices;
 
+  int64_t firstNullMethodInd = -1;
+
   for (unsigned vtblInd = 0; vtblInd != NumComponents; ++vtblInd) {
     const VTableComponent& Component = Components[vtblInd];
 
@@ -88,10 +90,13 @@ sd_vtableThunkIndex(CodeGenModule& CGM, const CXXMethodDecl *MD, const ThunkInfo
             VTableThunks[NextVTableThunkIndex].first == vtblInd) {
           const ThunkInfo &Thunk = VTableThunks[NextVTableThunkIndex].second;
 
-          if (Thunk.Method == myThunk->Method &&
-              Thunk.Return == myThunk->Return &&
-              Thunk.This   == myThunk->This) {
+          if (Thunk == *myThunk) {
             foundIndices.push_back(vtblInd);
+          } else if (Thunk.Method == NULL &&
+//                     Thunk.Return == myThunk->Return &&
+//                     Thunk.This   == myThunk->This &&
+                     firstNullMethodInd < 0) {
+            firstNullMethodInd = vtblInd;
           }
 
           NextVTableThunkIndex++;
@@ -104,12 +109,32 @@ sd_vtableThunkIndex(CodeGenModule& CGM, const CXXMethodDecl *MD, const ThunkInfo
     }
   }
 
-  assert(foundIndices.size() > 0 && "couldn't find the thunk inside the given class' vtable !");
-
-  std::vector<uint64_t> addrPoints;
+  std::set<uint64_t> _addrPoints;
   for (auto &&AP : VTLayout.getAddressPoints()) {
     uint64_t addrPt = AP.second;
+    _addrPoints.insert(addrPt);
+  }
+
+  std::vector<uint64_t> addrPoints;
+  for (uint64_t addrPt : _addrPoints) {
     addrPoints.push_back(addrPt);
+  }
+
+  if (foundIndices.size() == 0) {
+    if (addrPoints.size() == 1) {
+      return 0;
+    } else if (firstNullMethodInd >= 0) {
+      // damn it, try this and pray
+      // FIXME (rkici) : probably won't work
+      sd_print("sd_vtableThunkIndex: returning %ld\n", firstNullMethodInd);
+      foundIndices.push_back(firstNullMethodInd);
+    } else {
+      sd_print("couldn't find the given vthunk inside the class %s\n",
+               CGM.getCXXABI().GetClassMangledName(RD).c_str());
+      sd_print("addr ptr count: %lu, num vtbl elements: %lu\n",
+               addrPoints.size(), VTLayout.getNumVTableComponents());
+      assert(false);
+    }
   }
 
   uint64_t order = std::upper_bound(addrPoints.begin(),
@@ -136,7 +161,8 @@ sd_vtableThunkIndex(CodeGenModule& CGM, const CXXMethodDecl *MD, const ThunkInfo
     }
   }
 
-  return order;
+  // since upper_bound returns the next index that is higher, return order - 1
+  return order - 1;
 }
 
 /**
@@ -160,7 +186,14 @@ addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalD
     sd_print("class: %s, function: %s, vtbl order: %ld, vcalloffset: %ld\n",
              className.c_str(), MD->getNameAsString().c_str(), vtblOrd, vcallOffset);
 
+    // metadata information:
+    // 1. class name
+    // 2. class' sub-vtable order
+    // 3. vcall offset
     tupleElements.push_back(llvm::MDString::get(C, className));
+    tupleElements.push_back(llvm::ConstantAsMetadata::get(
+                              llvm::ConstantInt::getSigned(
+                                llvm::Type::getInt64Ty(bcInst->getContext()), vtblOrd)));
     tupleElements.push_back(llvm::ConstantAsMetadata::get(
                               llvm::ConstantInt::getSigned(
                                 llvm::Type::getInt64Ty(bcInst->getContext()), vcallOffset)));
@@ -311,8 +344,6 @@ void CodeGenFunction::GenerateVarArgsThunk(
       CGM.getCXXABI().performThisAdjustment(*this, ThisPtr, Thunk.This);
   ThisStore->setOperand(0, AdjustedThisPtr);
 
-  addVcallMetadata(CGM, AdjustedThisPtr, GD, MD, &Thunk, true);
-
   if (!Thunk.Return.isEmpty()) {
     // Fix up the returned value, if necessary.
     for (llvm::Function::iterator I = Fn->begin(), E = Fn->end(); I != E; I++) {
@@ -327,6 +358,8 @@ void CodeGenFunction::GenerateVarArgsThunk(
       }
     }
   }
+
+  addVcallMetadata(CGM, AdjustedThisPtr, GD, MD, &Thunk, true);
 }
 
 void CodeGenFunction::StartThunk(llvm::Function *Fn, GlobalDecl GD,
@@ -374,8 +407,6 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
   llvm::Value *AdjustedThisPtr = Thunk ? CGM.getCXXABI().performThisAdjustment(
                                              *this, LoadCXXThis(), Thunk->This)
                                        : LoadCXXThis();
-
-  addVcallMetadata(CGM, AdjustedThisPtr, CurGD, MD, Thunk, false);
 
   if (CurFnInfo->usesInAlloca()) {
     // We don't handle return adjusting thunks, because they require us to call
@@ -449,6 +480,8 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
   AutoreleaseResult = false;
 
   FinishFunction();
+
+  addVcallMetadata(CGM, AdjustedThisPtr, CurGD, MD, Thunk, false);
 }
 
 void CodeGenFunction::EmitMustTailThunk(const CXXMethodDecl *MD,

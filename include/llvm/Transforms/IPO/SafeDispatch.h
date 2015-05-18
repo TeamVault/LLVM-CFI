@@ -11,6 +11,7 @@
 
 namespace llvm {
 
+#define LOAD_OPCODE     27
 #define STORE_OPCODE    28
 #define GEP_OPCODE      29
 #define INTTOPTR_OPCODE 43

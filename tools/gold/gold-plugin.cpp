@@ -731,6 +731,8 @@ void runOriginalLTOPasses(Module &M, TargetMachine &TM)
   PMB.Inliner = createFunctionInliningPass();
   PMB.VerifyInput = true;
   PMB.VerifyOutput = true;
+//  PMB.VerifyInput = false;
+//  PMB.VerifyOutput = false;
   PMB.LoopVectorize = true;
   PMB.SLPVectorize = true;
   PMB.OptLevel = options::OptLevel;
