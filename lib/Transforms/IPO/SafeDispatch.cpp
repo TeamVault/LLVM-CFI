@@ -720,28 +720,9 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
     // i don't know if works for negative offsets too
     assert(isRelative && offset >= 0);
 
-    cloud_map_t::iterator itr = cloudMap.find(name);
-    if (itr == cloudMap.end()) {
-      // FIXME (rkici) : don't know what to do
-      return offset;
-    }
-
-    // find the children of the class
-    cloud_map_children_t& children = itr->second;
-    assert(children.size() > 0);
-
-    // change the vtable name to one of its children
-    cloud_map_children_t::iterator ch_itr;
-    sd_print("parent: (%s, %lu)\n", name.first.c_str(), name.second);
-    for(ch_itr = children.begin(); ch_itr != children.end(); ch_itr++) {
-      name = *ch_itr;
-      sd_print("children: (%s, %lu)\n", name.first.c_str(), name.second);
-      if (newLayoutInds.find(name) != newLayoutInds.end()) {
-        break;
-      }
-    }
-
-    assert(ch_itr != children.end());
+    // FIXME (rkici) : so weird, don't know what to do
+    assert(cloudMap.find(name) == cloudMap.end());
+    return offset;
   }
 
   return oldIndexToNew2(name, offset, isRelative);
