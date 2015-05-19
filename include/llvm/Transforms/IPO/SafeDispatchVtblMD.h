@@ -259,8 +259,13 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
   llvm::NamedMDNode* classInfo =
       CGM->getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO + className);
 
+  // don't produce any duplicate md
   if (classInfo->getNumOperands() > 0) {
-    assert(classInfo->getNumOperands() == (2 + subVtables.size()));
+    std::set<uint64_t> aps;
+    for (auto &&AP : VTLayout->getAddressPoints()) {
+      aps.insert(AP.second);
+    }
+    assert(classInfo->getNumOperands() == (2 + aps.size()));
     return;
   }
 
@@ -282,6 +287,17 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
   // then add md for each sub-vtable
   for (unsigned i = 0; i < subVtables.size(); ++i) {
     classInfo->addOperand(subVtables[i].getMDNode(C));
+  }
+
+  // make sure parent class' metadata is added too
+  for (auto &&AP : VTLayout->getAddressPoints()) {
+    const clang::BaseSubobject* subObj = &(AP.first);
+    const clang::CXXRecordDecl* subRD = subObj->getBase();
+
+    if (subRD != RD) {
+      sd_insertVtableMD(CGM, &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
+                        subRD, NULL);
+    }
   }
 }
 

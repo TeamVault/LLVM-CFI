@@ -69,6 +69,7 @@ namespace {
     interleaving_map_t interleavingMap;                // root -> new layouts map
     std::map<vtbl_name_t, ConstantArray*> oldVTables;  // vtbl -> &[vtable element]
     std::map<vtbl_name_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
+    std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
@@ -139,9 +140,6 @@ namespace {
       // remove the old vtables
       for (auto itr : oldVTables) {
         GlobalVariable* var = M.getGlobalVariable(itr.first, true);
-        if (var->getName() == "_ZTVN11xercesc_2_515SecurityManagerE") {
-          sd_print("!!!!!!!!!!!!!! sildim, oynamiyorum !!!!!!!!!!!!!!!!\n");
-        }
         assert(var && var->use_empty());
         var->eraseFromParent();
       }
@@ -183,6 +181,8 @@ namespace {
      * primary vtable
      */
     uint32_t calculateChildrenCounts(const vtbl_t& vtbl);
+
+    void handleUndefinedVtables(std::set<vtbl_name_t>& undefVtbls);
 
   public:
 
@@ -393,11 +393,19 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
   PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), WORD_WIDTH), 0);
   ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
 
+  LLVMContext& C = M.getContext();
+
   // fill the interleaved vtable element list
   std::vector<Constant*> newVtableElems;
   for (const interleaving_t& ivtbl : newVtbl) {
-    ConstantArray* vtable = oldVTables[ivtbl.first.first];
-    newVtableElems.push_back(vtable->getOperand(ivtbl.second));
+    if (undefinedVTables.find(ivtbl.first.first) != undefinedVTables.end()) {
+      newVtableElems.push_back(Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
+    } else {
+      assert(oldVTables.find(ivtbl.first.first) != oldVTables.end());
+
+      ConstantArray* vtable = oldVTables[ivtbl.first.first];
+      newVtableElems.push_back(vtable->getOperand(ivtbl.second));
+    }
   }
 
   // create the constant initializer
@@ -417,6 +425,9 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
   for (const vtbl_t& v : cloud) {
+    if (undefinedVTables.find(v.first) != undefinedVTables.end())
+      continue;
+
     // find the original vtable
     GlobalVariable* globalVar = M.getGlobalVariable(v.first, true);
     assert(globalVar);
@@ -554,6 +565,9 @@ sd_getStringFromMDTuple(const MDOperand& op) {
 }
 
 void SDModule::buildClouds(Module &M) {
+  // this set is used for checking if a parent class is defined or not
+  std::set<vtbl_name_t> build_undefinedVtables;
+
   for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
     NamedMDNode* md = itr;
 
@@ -565,10 +579,18 @@ void SDModule::buildClouds(Module &M) {
 
     // record the old vtable array
     GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
-    assert(oldVtable);
-    ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
-    assert(vtable);
-    oldVTables[info.className] = vtable;
+
+    if (oldVtable && oldVtable->hasInitializer()) {
+      ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
+      assert(vtable);
+      oldVTables[info.className] = vtable;
+    } else {
+      undefinedVTables.insert(info.className);
+    }
+
+    // remove the root from undefined vtables
+    if (build_undefinedVtables.find(info.className) != build_undefinedVtables.end())
+      build_undefinedVtables.erase(info.className);
 
     for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
       nmd_sub_t* subInfo = & info.subVTables[ind];
@@ -577,6 +599,11 @@ void SDModule::buildClouds(Module &M) {
       if (subInfo->parentName != "") {
         // add the current class to the parent's children set
         cloudMap[vtbl_t(subInfo->parentName,0)].insert(name);
+
+        // if the parent class is not defined yet, add it to the
+        // undefined vtable set
+        if (cloudMap.find(vtbl_t(subInfo->parentName,0)) == cloudMap.end())
+          build_undefinedVtables.insert(subInfo->parentName);
       } else {
         assert(ind == 0); // make sure secondary vtables have a direct parent
 
@@ -595,6 +622,20 @@ void SDModule::buildClouds(Module &M) {
       // record the sub-vtable ends
       rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
     }
+  }
+
+  assert(build_undefinedVtables.size() == 0);
+}
+
+void SDModule::handleUndefinedVtables(std::set<SDModule::vtbl_name_t>& undefVtbls) {
+//  for (roots_t::iterator r_itr = roots.begin(); r_itr != roots.end(); r_itr++) {
+//    for (vtbl_t& vtbl : preorder(*r_itr)) {
+//      if (undefVtbls.find(vtbl.first) != undefVtbls.end()) {
+//      }
+//    }
+//  }
+  for (const vtbl_name_t& vtbl : undefVtbls) {
+    sd_print("undefined vtable: %s\n", vtbl.c_str());
   }
 }
 
@@ -621,6 +662,10 @@ SDModule::nmd_t SDModule::extractMetadata(NamedMDNode* md) {
     subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(2));
     subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(3));
     subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(4));
+
+    assert(subInfo.start <= subInfo.addressPoint &&
+           subInfo.addressPoint <= subInfo.end);
+    assert(i == 0 || (--info.subVTables.end())->end < subInfo.start);
 
 //    sd_print("%lu: %s[%lu,%lu] %lu\n",subInfo.order,
 //             (subInfo.parentName.size() > 0 ? (subInfo.parentName + " ").c_str() : ""),
@@ -663,6 +708,12 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
                                 bool isRelative = true) {
   vtbl_t name(vtbl,0);
 
+  if (newLayoutInds.find(name) == newLayoutInds.end()) {
+    sd_print("couldn't find %s in newLayoutInds\n", vtbl.c_str());
+    if (addrPtMap.find(vtbl) == addrPtMap.end())
+      sd_print("couldn't find it inside addrPtMap either\n");
+  }
+
   // if the class doesn't have any vtable defined,
   // use one of its children to calculate function ptr offset
   if (newLayoutInds.find(name) == newLayoutInds.end()) {
@@ -680,10 +731,19 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
     assert(children.size() > 0);
 
     // change the vtable name to one of its children
-    name = *(children.begin());
-    vtbl = name.first;
+    cloud_map_children_t::iterator ch_itr;
+    sd_print("parent: (%s, %lu)\n", name.first.c_str(), name.second);
+    for(ch_itr = children.begin(); ch_itr != children.end(); ch_itr++) {
+      name = *ch_itr;
+      sd_print("children: (%s, %lu)\n", name.first.c_str(), name.second);
+      if (newLayoutInds.find(name) != newLayoutInds.end()) {
+        break;
+      }
+    }
 
+    assert(ch_itr != children.end());
   }
+
   return oldIndexToNew2(name, offset, isRelative);
 }
 
