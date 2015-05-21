@@ -39,137 +39,10 @@ using namespace clang;
 using namespace CodeGen;
 
 /**
- * Given the thunk and the method information, it returns the index of the sub-vtable
- * that contains the given thunk
- */
-static uint64_t
-sd_vtableThunkIndex(CodeGenModule& CGM, const CXXMethodDecl *MD, const ThunkInfo *myThunk) {
-  const CXXRecordDecl* RD = MD->getParent();
-  const VTableLayout& VTLayout = CGM.getVTables().getItaniumVTableContext().getVTableLayout(RD);
-
-  const VTableComponent *Components = VTLayout.vtable_component_begin();
-  const VTableLayout::VTableThunkTy *VTableThunks = VTLayout.vtable_thunk_begin();
-
-  uint64_t NumComponents = VTLayout.getNumVTableComponents();
-  uint64_t NumVTableThunks = VTLayout.getNumVTableThunks();
-
-  unsigned NextVTableThunkIndex = 0;
-
-  std::vector<unsigned> foundIndices;
-
-  int64_t firstNullMethodInd = -1;
-
-  for (unsigned vtblInd = 0; vtblInd != NumComponents; ++vtblInd) {
-    const VTableComponent& Component = Components[vtblInd];
-
-    switch (Component.getKind()) {
-    case VTableComponent::CK_FunctionPointer:
-    case VTableComponent::CK_CompleteDtorPointer:
-    case VTableComponent::CK_DeletingDtorPointer: {
-      GlobalDecl GD;
-
-      // Get the right global decl.
-      switch (Component.getKind()) {
-      default:
-        llvm_unreachable("Unexpected vtable component kind");
-      case VTableComponent::CK_FunctionPointer:
-        GD = Component.getFunctionDecl();
-        break;
-      case VTableComponent::CK_CompleteDtorPointer:
-        GD = GlobalDecl(Component.getDestructorDecl(), Dtor_Complete);
-        break;
-      case VTableComponent::CK_DeletingDtorPointer:
-        GD = GlobalDecl(Component.getDestructorDecl(), Dtor_Deleting);
-        break;
-      }
-
-      if (! cast<CXXMethodDecl>(GD.getDecl())->isPure() &&
-          ! cast<CXXMethodDecl>(GD.getDecl())->isDeleted()) {
-        // Check if we should use a thunk.
-        if (NextVTableThunkIndex < NumVTableThunks &&
-            VTableThunks[NextVTableThunkIndex].first == vtblInd) {
-          const ThunkInfo &Thunk = VTableThunks[NextVTableThunkIndex].second;
-
-          if (Thunk == *myThunk) {
-            foundIndices.push_back(vtblInd);
-          } else if (Thunk.Method == NULL &&
-//                     Thunk.Return == myThunk->Return &&
-//                     Thunk.This   == myThunk->This &&
-                     firstNullMethodInd < 0) {
-            firstNullMethodInd = vtblInd;
-          }
-
-          NextVTableThunkIndex++;
-        }
-      }
-      break;
-    }
-    default:
-      break;
-    }
-  }
-
-  std::set<uint64_t> _addrPoints;
-  for (auto &&AP : VTLayout.getAddressPoints()) {
-    uint64_t addrPt = AP.second;
-    _addrPoints.insert(addrPt);
-  }
-
-  std::vector<uint64_t> addrPoints;
-  for (uint64_t addrPt : _addrPoints) {
-    addrPoints.push_back(addrPt);
-  }
-
-  if (foundIndices.size() == 0) {
-    if (addrPoints.size() == 1) {
-      return 0;
-    } else if (firstNullMethodInd >= 0) {
-      // damn it, try this and pray
-      // FIXME (rkici) : probably won't work
-      sd_print("sd_vtableThunkIndex: returning %ld\n", firstNullMethodInd);
-      foundIndices.push_back(firstNullMethodInd);
-    } else {
-      sd_print("couldn't find the given vthunk inside the class %s\n",
-               CGM.getCXXABI().GetClassMangledName(RD).c_str());
-      sd_print("addr ptr count: %lu, num vtbl elements: %lu\n",
-               addrPoints.size(), VTLayout.getNumVTableComponents());
-      assert(false);
-    }
-  }
-
-  uint64_t order = std::upper_bound(addrPoints.begin(),
-                                    addrPoints.end(), foundIndices[0]) - addrPoints.begin();
-
-  for (unsigned i=1; i < foundIndices.size(); i++) {
-    uint64_t newOrder = std::upper_bound(addrPoints.begin(),
-                                         addrPoints.end(), foundIndices[i]) - addrPoints.begin();
-    if (newOrder != order) {
-      std::cerr << "address points: ";
-      for (uint64_t ind : addrPoints) {
-        std::cerr << ind << ", ";
-      }
-      std::cerr << std::endl;
-
-      std::cerr << "found indices: ";
-      for (uint64_t ind : foundIndices) {
-        std::cerr << ind << ", ";
-      }
-      std::cerr << std::endl;
-
-      sd_print("%s, %lu vs %lu\n", CGM.getCXXABI().GetClassMangledName(RD).c_str(), order, newOrder);
-      assert(false && "found the given thunk in different sub-vtables !");
-    }
-  }
-
-  // since upper_bound returns the next index that is higher, return order - 1
-  return order - 1;
-}
-
-/**
  * Adds the metadata to the vcall access inside the function
  */
 static void
-addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalDecl& GD,
+sd_addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalDecl& GD,
                  const CXXMethodDecl *MD, const ThunkInfo *Thunk, bool isVarArgs = false) {
   std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
 
@@ -177,29 +50,10 @@ addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalD
     // this is a bitcast instruction with a gep inside
     llvm::BitCastInst* bcInst = dyn_cast<llvm::BitCastInst>(adjustedThisPtr);
     assert(bcInst);
-    int64_t vcallOffset = Thunk->This.Virtual.Itanium.VCallOffsetOffset;
 
     llvm::LLVMContext& C = bcInst->getContext();
-    std::vector<llvm::Metadata*> tupleElements;
-
-    uint64_t vtblOrd = sd_vtableThunkIndex(CGM, MD, Thunk);
-    sd_print("class: %s, function: %s, vtbl order: %ld, vcalloffset: %ld\n",
-             className.c_str(), MD->getNameAsString().c_str(), vtblOrd, vcallOffset);
-
-    // metadata information:
-    // 1. class name
-    // 2. class' sub-vtable order
-    // 3. vcall offset
-    tupleElements.push_back(llvm::MDString::get(C, className));
-    tupleElements.push_back(llvm::ConstantAsMetadata::get(
-                              llvm::ConstantInt::getSigned(
-                                llvm::Type::getInt64Ty(bcInst->getContext()), vtblOrd)));
-    tupleElements.push_back(llvm::ConstantAsMetadata::get(
-                              llvm::ConstantInt::getSigned(
-                                llvm::Type::getInt64Ty(bcInst->getContext()), vcallOffset)));
-
-    llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
-    bcInst->setMetadata(SD_MD_VCALL, mdTuple);
+    llvm::MDNode* mdNode = llvm::MDNode::get(C, NULL);
+    bcInst->setMetadata(SD_MD_VCALL, mdNode);
   }
 }
 
@@ -359,7 +213,7 @@ void CodeGenFunction::GenerateVarArgsThunk(
     }
   }
 
-  addVcallMetadata(CGM, AdjustedThisPtr, GD, MD, &Thunk, true);
+  sd_addVcallMetadata(CGM, AdjustedThisPtr, GD, MD, &Thunk, true);
 }
 
 void CodeGenFunction::StartThunk(llvm::Function *Fn, GlobalDecl GD,
@@ -481,7 +335,7 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
 
   FinishFunction();
 
-  addVcallMetadata(CGM, AdjustedThisPtr, CurGD, MD, Thunk, false);
+  sd_addVcallMetadata(CGM, AdjustedThisPtr, CurGD, MD, Thunk, false);
 }
 
 void CodeGenFunction::EmitMustTailThunk(const CXXMethodDecl *MD,

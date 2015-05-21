@@ -16,10 +16,14 @@
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
+#include "llvm/Transforms/Utils/ValueMapper.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+
 #include <list>
 #include <vector>
 #include <set>
 #include <map>
+#include <algorithm>
 
 // you have to modify the following files for each additional LLVM pass
 // 1. IPO.h and IPO.cpp
@@ -30,6 +34,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "cc"
 #define WORD_WIDTH 8
+
+#define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
 
 namespace {
   /**
@@ -45,29 +51,32 @@ namespace {
 
     // variable definitions
 
-    typedef std::string                                  vtbl_name_t;
-    typedef std::pair<vtbl_name_t, uint64_t>             vtbl_t;
-    typedef std::set<vtbl_t>                             cloud_map_children_t;
-    typedef std::map<vtbl_t, cloud_map_children_t>       cloud_map_t;
-    typedef std::set<vtbl_name_t>                        roots_t;
-    typedef std::map<vtbl_name_t, std::vector<uint64_t>> addrpt_map_t;
-    typedef std::pair<uint64_t, uint64_t>                range_t;
-    typedef std::map<vtbl_name_t, std::vector<range_t>>  range_map_t;
-    typedef std::map<vtbl_t, vtbl_name_t>                ancestor_map_t;
-    typedef std::map<vtbl_t, std::vector<uint64_t>>      new_layout_inds_t;
-    typedef std::pair<vtbl_t, uint64_t>       					 interleaving_t;
-    typedef std::list<interleaving_t>                    interleaving_list_t;
-    typedef std::map<vtbl_name_t, interleaving_list_t>   interleaving_map_t;
-    typedef std::vector<vtbl_t>                          order_t;
+    typedef std::string                                     vtbl_name_t;
+    typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;
+    typedef std::set<vtbl_t>                                cloud_map_children_t;
+    typedef std::map<vtbl_t, cloud_map_children_t>          cloud_map_t;
+    typedef std::set<vtbl_name_t>                           roots_t;
+    typedef std::map<vtbl_name_t, std::vector<uint64_t>>    addrpt_map_t;
+    typedef std::pair<uint64_t, uint64_t>                   range_t;
+    typedef std::map<vtbl_name_t, std::vector<range_t>>     range_map_t;
+    typedef std::map<vtbl_t, vtbl_name_t>                   ancestor_map_t;
+    typedef std::map<vtbl_t, std::vector<uint64_t>>         new_layout_inds_t;
+    typedef std::pair<vtbl_t, uint64_t>       					    interleaving_t;
+    typedef std::list<interleaving_t>                       interleaving_list_t;
+    typedef std::map<vtbl_name_t, interleaving_list_t>      interleaving_map_t;
+    typedef std::vector<vtbl_t>                             order_t;
+    typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
+    typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
 
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
     roots_t roots;                                     // set<vtbl>
+    subvtbl_map_t subObjNameMap;                       // vtbl -> [vtbl]
     addrpt_map_t addrPtMap;                            // vtbl -> [addr pt]
     range_map_t rangeMap;                              // vtbl -> [(start,end)]
     ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl (is this necessary?)
     new_layout_inds_t newLayoutInds;                   // (vtbl,ind) -> [new ind inside interleaved vtbl]
     interleaving_map_t interleavingMap;                // root -> new layouts map
-    std::map<vtbl_name_t, ConstantArray*> oldVTables;  // vtbl -> &[vtable element]
+    oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
     std::map<vtbl_name_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
 
@@ -106,13 +115,27 @@ namespace {
     bool runOnModule(Module &M) {
       sd_print("Started safedispatch analysis\n");
 
-      buildClouds(M);      // part 1
-      interleaveClouds(M); // part 2
+      vcallMDId = M.getMDKindID(SD_MD_VCALL);
+
+      buildClouds(M);          // part 1
+      interleaveClouds(M);     // part 2
 
       return roots.size() > 0;
     }
 
     void clearAnalysisResults();
+
+    /**
+     * Calculates the vtable order number given the index relative to
+     * the beginning of the vtable
+     */
+    unsigned getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
+      assert(addrPtMap.find(vtbl) != addrPtMap.end());
+
+      std::vector<uint64_t>& arr = addrPtMap[vtbl];
+      std::vector<uint64_t>::iterator itr = std::upper_bound(arr.begin(), arr.end(), ind);
+      return (itr - arr.begin() - 1);
+    }
 
   private:
 
@@ -130,6 +153,9 @@ namespace {
 
         interleaveCloud(vtbl);
         calculateNewLayoutInds(vtbl);
+
+        createThunkFunctions(M);
+
         createNewVTable(M, vtbl);
 
         // exploit this loop to calculate the sizes of all possible subgraphs
@@ -142,6 +168,27 @@ namespace {
         GlobalVariable* var = M.getGlobalVariable(itr.first, true);
         assert(var && var->use_empty());
         var->eraseFromParent();
+      }
+
+      // remove all original thunks from the module
+      while (! vthunksToRemove.empty()) {
+        Function* f = * vthunksToRemove.begin();
+        vthunksToRemove.erase(f);
+        f->eraseFromParent();
+      }
+
+      for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
+           itr != M.getFunctionList().end(); itr++){
+        if (itr->getName().startswith("_ZTv")) {
+          vthunksToRemove.insert(itr);
+        }
+      }
+
+      // remove all original thunks from the module
+      while (! vthunksToRemove.empty()) {
+        Function* f = * vthunksToRemove.begin();
+        vthunksToRemove.erase(f);
+        f->eraseFromParent();
       }
     }
 
@@ -183,6 +230,12 @@ namespace {
     uint32_t calculateChildrenCounts(const vtbl_t& vtbl);
 
     void handleUndefinedVtables(std::set<vtbl_name_t>& undefVtbls);
+
+    unsigned vcallMDId;
+    void createThunkFunctions(Module&);
+    void updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order);
+    Function* getVthunkFunction(Constant* vtblElement);
+    std::set<Function*> vthunksToRemove;
 
   public:
 
@@ -292,12 +345,6 @@ namespace {
     void updateRTTIOffset(Instruction* inst, llvm::MDNode* mdNode);
 
     /**
-     * Update the vcall offset in the use link:
-     * *GEP* -> BitCast -> Load -> GEP -> BitCast
-     */
-    void updateVcallOffset(Instruction* inst, llvm::MDNode* mdNode);
-
-    /**
      * Replace the constant struct that holds the virtual member pointer
      * inside the instruction
      */
@@ -348,6 +395,103 @@ ModulePass* llvm::createSDModulePass() {
 /// ----------------------------------------------------------------------------
 /// Analysis implementation
 /// ----------------------------------------------------------------------------
+Function* SDModule::getVthunkFunction(Constant* vtblElement) {
+  ConstantExpr* bcExpr = NULL;
+
+  // if this a constant bitcast expression, this might be a vthunk
+  if ((bcExpr = dyn_cast<ConstantExpr>(vtblElement)) && bcExpr->getOpcode() == BITCAST_OPCODE) {
+    Constant* operand = bcExpr->getOperand(0);
+
+    // this is a vthunk
+    if (operand->getName().startswith("_ZTv")) {
+      Function* thunkF = dyn_cast<Function>(operand);
+      assert(thunkF);
+      return thunkF;
+    }
+  }
+
+  return NULL;
+}
+
+void SDModule::updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order) {
+  BitCastInst* bcInst = dyn_cast<BitCastInst>(inst);
+  assert(bcInst);
+  GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(bcInst->getOperand(0));
+  assert(gepInst);
+  LoadInst* loadInst = dyn_cast<LoadInst>(gepInst->getOperand(1));
+  assert(loadInst);
+  BitCastInst* bcInst2 = dyn_cast<BitCastInst>(loadInst->getOperand(0));
+  assert(bcInst2);
+  GetElementPtrInst* gepInst2 = dyn_cast<GetElementPtrInst>(bcInst2->getOperand(0));
+  assert(gepInst2);
+
+  unsigned vcallOffsetOperandNo = 1;
+
+  ConstantInt* oldVal = dyn_cast<ConstantInt>(gepInst2->getOperand(vcallOffsetOperandNo));
+  assert(oldVal);
+
+  // extract the old index
+  int64_t oldIndex = oldVal->getSExtValue() / WORD_WIDTH;
+
+  // calculate the new one
+  int64_t newIndex = oldIndexToNew2(vtbl_t(className,order), oldIndex, true);
+
+  // update the value
+  sd_changeGEPIndex(gepInst2, vcallOffsetOperandNo, newIndex * WORD_WIDTH);
+
+  // remove the metadata, doesn't mess with in the 2nd pass
+  inst->setMetadata(vcallMDId, NULL);
+}
+
+void SDModule::createThunkFunctions(Module& M) {
+  // for all defined vtables
+  for (oldvtbl_map_t::iterator itr = oldVTables.begin(); itr != oldVTables.end(); itr++) {
+    const vtbl_name_t& vtbl = itr->first;
+    ConstantArray* vtableArr = itr->second;
+
+    // iterate over the vtable elements
+    for (unsigned vtblInd = 0; vtblInd < vtableArr->getNumOperands(); ++vtblInd) {
+      Constant* c = vtableArr->getOperand(vtblInd);
+      Function* thunkF = getVthunkFunction(c);
+      if (! thunkF)
+        continue;
+
+      // find the index of the sub-vtable inside the whole
+      unsigned order = getVTableOrder(vtbl, vtblInd);
+
+      // this should have a parent
+      assert(subObjNameMap.count(vtbl) && subObjNameMap[vtbl].size() > order);
+      std::string& parentClass = subObjNameMap[vtbl][order];
+
+      if (M.getFunction(NEW_VTHUNK_NAME(thunkF, parentClass))) {
+        // we already created such function, will use that later
+        continue;
+      }
+
+      // duplicate the function and rename it
+      ValueToValueMapTy VMap;
+      Function *newThunkF = llvm::CloneFunction(thunkF, VMap, false);
+      newThunkF->setName(NEW_VTHUNK_NAME(thunkF, parentClass));
+      M.getFunctionList().push_back(newThunkF);
+
+      bool foundMD = false;
+
+      // go over its instructions and replace the one with the metadata
+      for(Function:: iterator bb_itr = newThunkF->begin(); bb_itr != newThunkF->end(); bb_itr++) {
+        for(BasicBlock:: iterator i_itr = bb_itr->begin(); i_itr != bb_itr->end(); i_itr++) {
+          Instruction* inst = i_itr;
+          if ((inst->getMetadata(vcallMDId))) {
+            updateVcallOffset(inst, vtbl, order);
+            foundMD = true;
+          }
+        }
+      }
+
+      // this function should have a metadata
+      assert(foundMD);
+    }
+  }
+}
 
 void SDModule::interleaveCloud(SDModule::vtbl_name_t& vtbl) {
   assert(roots.find(vtbl) != roots.end());
@@ -404,7 +548,20 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
       assert(oldVTables.find(ivtbl.first.first) != oldVTables.end());
 
       ConstantArray* vtable = oldVTables[ivtbl.first.first];
-      newVtableElems.push_back(vtable->getOperand(ivtbl.second));
+      Constant* c = vtable->getOperand(ivtbl.second);
+      Function* thunk = getVthunkFunction(c);
+
+      if (thunk) {
+        Function* newThunk = M.getFunction(
+              NEW_VTHUNK_NAME(thunk, subObjNameMap[ivtbl.first.first][ivtbl.first.second]));
+        assert(newThunk);
+
+        Constant* newC = ConstantExpr::getBitCast(newThunk, IntegerType::getInt8PtrTy(C));
+        newVtableElems.push_back(newC);
+        vthunksToRemove.insert(thunk);
+      } else {
+        newVtableElems.push_back(c);
+      }
     }
   }
 
@@ -621,6 +778,9 @@ void SDModule::buildClouds(Module &M) {
 
       // record the sub-vtable ends
       rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
+
+      // record the class name of the sub-object
+      subObjNameMap[info.className].push_back(subInfo->parentName);
     }
   }
 
@@ -628,12 +788,6 @@ void SDModule::buildClouds(Module &M) {
 }
 
 void SDModule::handleUndefinedVtables(std::set<SDModule::vtbl_name_t>& undefVtbls) {
-//  for (roots_t::iterator r_itr = roots.begin(); r_itr != roots.end(); r_itr++) {
-//    for (vtbl_t& vtbl : preorder(*r_itr)) {
-//      if (undefVtbls.find(vtbl.first) != undefVtbls.end()) {
-//      }
-//    }
-//  }
   for (const vtbl_name_t& vtbl : undefVtbls) {
     sd_print("undefined vtable: %s\n", vtbl.c_str());
   }
@@ -707,12 +861,6 @@ int64_t SDModule::oldIndexToNew2(SDModule::vtbl_t name, int64_t offset,
 int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
                                 bool isRelative = true) {
   vtbl_t name(vtbl,0);
-
-  if (newLayoutInds.find(name) == newLayoutInds.end()) {
-    sd_print("couldn't find %s in newLayoutInds\n", vtbl.c_str());
-    if (addrPtMap.find(vtbl) == addrPtMap.end())
-      sd_print("couldn't find it inside addrPtMap either\n");
-  }
 
   // if the class doesn't have any vtable defined,
   // use one of its children to calculate function ptr offset
@@ -844,8 +992,8 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
 
     // bitcast instruction
     else if ((mdNode = inst->getMetadata(vcallMDId))) {
-      assert(opcode == BITCAST_OPCODE);
-      updateVcallOffset(inst, mdNode);
+      sd_print("inside the function %s\n", inst->getParent()->getParent()->getName().bytes_begin());
+      assert(false && "hey, this vcall metadata shouldn't exist !!!");
     }
 
     // store instruction
@@ -939,34 +1087,6 @@ void SDChangeIndices::updateRTTIOffset(Instruction *inst, llvm::MDNode* mdNode) 
 
   sanityCheck1(gepInst);
   sd_changeGEPIndex(gepInst, 1, newRttiOff);
-}
-
-void SDChangeIndices::updateVcallOffset(Instruction *inst, llvm::MDNode* mdNode) {
-  int64_t oldValue = getMetadataConstant(mdNode, 2);
-  int64_t oldIndex = oldValue / WORD_WIDTH;
-
-  std::string className = sd_getStringFromMDTuple(mdNode->getOperand(0));
-
-  BitCastInst* bcInst = dyn_cast<BitCastInst>(inst);
-  assert(bcInst);
-  GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(bcInst->getOperand(0));
-  assert(gepInst);
-  LoadInst* loadInst = dyn_cast<LoadInst>(gepInst->getOperand(1));
-  assert(loadInst);
-  BitCastInst* bcInst2 = dyn_cast<BitCastInst>(loadInst->getOperand(0));
-  assert(bcInst2);
-  GetElementPtrInst* gepInst2 = dyn_cast<GetElementPtrInst>(bcInst2->getOperand(0));
-  assert(gepInst2);
-
-  sd_print("vcall: %s %ld\n", className.c_str(), oldIndex);
-
-  int64_t vtblOrder = getMetadataConstant(mdNode, 1);
-  int64_t newIndex = sdModule->oldIndexToNew2(SDModule::vtbl_t(className, vtblOrder),
-                                             oldIndex, true);
-
-  sanityCheck1(gepInst2);
-
-  sd_changeGEPIndex(gepInst2, 1, newIndex * WORD_WIDTH);
 }
 
 void SDChangeIndices::replaceConstantStruct(ConstantStruct *CS, Instruction *inst, std::string& className) {
