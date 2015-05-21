@@ -231,11 +231,16 @@ namespace {
 
     void handleUndefinedVtables(std::set<vtbl_name_t>& undefVtbls);
 
+    /**
+     * These functions and variables used to deal with duplication
+     * of the vthunks in the vtables
+     */
     unsigned vcallMDId;
+    std::set<Function*> vthunksToRemove;
+
     void createThunkFunctions(Module&);
     void updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order);
     Function* getVthunkFunction(Constant* vtblElement);
-    std::set<Function*> vthunksToRemove;
 
   public:
 
@@ -463,15 +468,20 @@ void SDModule::createThunkFunctions(Module& M) {
       assert(subObjNameMap.count(vtbl) && subObjNameMap[vtbl].size() > order);
       std::string& parentClass = subObjNameMap[vtbl][order];
 
-      if (M.getFunction(NEW_VTHUNK_NAME(thunkF, parentClass))) {
+      std::string newThunkName(NEW_VTHUNK_NAME(thunkF, parentClass));
+
+      if (M.getFunction(newThunkName)) {
         // we already created such function, will use that later
         continue;
       }
 
+//      sd_print("generating (%s, %u) (sub: %s)\n",
+//               vtbl.c_str(), vtblInd, parentClass.c_str());
+
       // duplicate the function and rename it
       ValueToValueMapTy VMap;
       Function *newThunkF = llvm::CloneFunction(thunkF, VMap, false);
-      newThunkF->setName(NEW_VTHUNK_NAME(thunkF, parentClass));
+      newThunkF->setName(newThunkName);
       M.getFunctionList().push_back(newThunkF);
 
       bool foundMD = false;

@@ -263,6 +263,7 @@ class VTableExtractor(object):
         print "HEXDUMP for %s%s" % ("(cons) " if vtbl.isCons else "", fullname)
         print "0x%x to 0x%x" % (addr, addr + size)
 
+        lc = 0
         for line in hxdmp:
           cols = line.split()
           lineno = int(cols[0],16)
@@ -270,13 +271,14 @@ class VTableExtractor(object):
             for li in range(min(2,(addr+size-lineno)/8)):
               vtbl_elem = self._hexdump_to_int(cols[li*2+1:li*2+3])
               if vtbl_elem in self.symbols_addr:
-                print "%x: %s %s => %s" % (lineno+li*8, cols[li*2+1],\
+                print "%-3d: %x: %s %s => %s" % (lc, lineno+li*8, cols[li*2+1],\
                                            cols[li*2+2],\
                                            self.symbols_addr[vtbl_elem].name)
               else:
-                print "%x: %s %s => %s" % (lineno+li*8, cols[li*2+1],
+                print "%-3d: %x: %s %s => %s" % (lc, lineno+li*8, cols[li*2+1],
                                            cols[li*2+2],
                                            self._hex_to_str(vtbl_elem))
+              lc += 1
         print ""
 
   @staticmethod
