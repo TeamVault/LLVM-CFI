@@ -1,0 +1,16 @@
+HOST=$(shell hostname)
+
+ifeq ($(HOST),chromebuild) # on chromebuild ###
+LLVM_BUILD_DIR     = $(HOME)/rami/llvm3.7/llvm-build
+BINUTILS_BUILD_DIR = $(HOME)/rami/llvm3.7/binutils-build
+SD_DIR             = $(HOME)/rami/safedispatch-scripts
+MY_GCC_VER         = 4.7.3
+endif
+
+ifeq ($(HOST),gokhan-ativ9) # on chromebuild ###
+LLVM_BUILD_DIR     = $(HOME)/libs/llvm3.7/llvm-build
+BINUTILS_BUILD_DIR = $(HOME)/libs/llvm3.7/binutils-build
+SD_DIR             = $(HOME)/libs/safedispatch-scripts
+MY_GCC_VER         = 4.8.2
+endif
+
