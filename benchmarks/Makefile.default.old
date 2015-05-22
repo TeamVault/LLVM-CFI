@@ -1,0 +1,54 @@
+#CC_OPT   = -O3
+CC_DBG   = -g
+
+CC_FLAGS = $(CC_DBG) $(CC_OPT)
+
+ifeq ($(NO_LTO),OK)
+#CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ $(CCFLAGS)
+CC   = g++ $(CC_FLAGS)
+LD = $(CC)
+else
+CC   = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++ $(CC_FLAGS) -flto
+
+GOLD_PLUGIN = $(LLVM_BUILD_DIR)/Release+Asserts/lib/LLVMgold.so
+
+LD = $(BINUTILS_BUILD_DIR)/gold/ld-new
+
+LD_FLAGS = -z relro --hash-style=gnu --build-id --eh-frame-hdr -m elf_x86_64 -dynamic-linker /lib64/ld-linux-x86-64.so.2
+
+LD_OBJS = /usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/../../../x86_64-linux-gnu/crt1.o \
+/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/../../../x86_64-linux-gnu/crti.o \
+/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/crtbegin.o
+
+LD_LIB_FOLDERS = -L/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER) \
+-L/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/../../../x86_64-linux-gnu \
+-L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu \
+-L/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/../../.. \
+-L/home/gokhan/libs/llvm3.7/llvm-build/Release+Asserts/bin/../lib \
+-L/lib -L/usr/lib -L$(SD_DIR)/libdyncast
+
+LD_PLUGIN = -plugin $(GOLD_PLUGIN) -plugin-opt=mcpu=x86-64 -plugin-opt=save-temps
+
+LD_LIBS = -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc -ldyncast \
+/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/crtend.o \
+/usr/lib/gcc/x86_64-linux-gnu/$(MY_GCC_VER)/../../../x86_64-linux-gnu/crtn.o
+endif
+
+EXEC = main
+.PHONY: clean
+
+all: $(EXEC)
+
+main: main.o $(OBJS)
+	$(LD) $(LD_FLAGS) -o $@ $(LD_OBJS) $(LD_LIB_FOLDERS) $(LD_PLUGIN) $^ $(LD_LIBS)
+
+%.o: %.cpp
+	$(CC) -c $< -o $@
+
+clean:
+	@rm -f *.o *.sd.log *.o.orig *.symM *.ld.map *.png \
+	  *.newLayoutInds $(EXEC) \
+	  *.ll *.bc
+
+clean-all: clean
+	@rm -f *.ll *.bc output.txt
