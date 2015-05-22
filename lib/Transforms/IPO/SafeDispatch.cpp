@@ -35,6 +35,7 @@ using namespace llvm;
 #define DEBUG_TYPE "cc"
 #define WORD_WIDTH 8
 
+#define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 #define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
 
 namespace {
@@ -47,6 +48,10 @@ namespace {
 
     SDModule() : ModulePass(ID) {
       initializeSDModulePass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual ~SDModule() {
+      sd_print("deleting SDModule pass\n");
     }
 
     // variable definitions
@@ -73,7 +78,7 @@ namespace {
     subvtbl_map_t subObjNameMap;                       // vtbl -> [vtbl]
     addrpt_map_t addrPtMap;                            // vtbl -> [addr pt]
     range_map_t rangeMap;                              // vtbl -> [(start,end)]
-    ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl (is this necessary?)
+    ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl
     new_layout_inds_t newLayoutInds;                   // (vtbl,ind) -> [new ind inside interleaved vtbl]
     interleaving_map_t interleavingMap;                // root -> new layouts map
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
@@ -135,6 +140,62 @@ namespace {
       std::vector<uint64_t>& arr = addrPtMap[vtbl];
       std::vector<uint64_t>::iterator itr = std::upper_bound(arr.begin(), arr.end(), ind);
       return (itr - arr.begin() - 1);
+    }
+
+    /**
+     * New starting address point inside the interleaved vtable
+     */
+    uint64_t newVtblAddressPoint(const vtbl_name_t& name) {
+      vtbl_t vtbl(name,0);
+      assert(newLayoutInds.count(vtbl));
+      return newLayoutInds[vtbl][0];
+    }
+
+    /**
+     * Get the vtable address of the class in the interleaved scheme,
+     * and insert the necessary instructions before the given instruction
+     */
+    Value* newVtblAddress(Module& M, const vtbl_name_t& name, Instruction* inst) {
+      vtbl_t vtbl(name,0);
+
+      assert(ancestorMap.count(vtbl));
+      vtbl_name_t rootName = ancestorMap[vtbl];
+
+      // sanity checks
+      assert(roots.count(rootName));
+
+      // switch to the new vtable name
+      rootName = NEW_VTABLE_NAME(rootName);
+
+      // we should add the address point of the given class
+      // inside the new interleaved vtable to the start address
+      // of the vtable
+
+      // find which element is the address point
+      assert(addrPtMap.count(name));
+      unsigned addrPt = addrPtMap[name][0];
+
+      // now find its new index
+      assert(newLayoutInds.count(vtbl));
+      uint64_t addrPtOff = newLayoutInds[vtbl][addrPt];
+
+      // this should exist already
+      GlobalVariable* gv = M.getGlobalVariable(rootName);
+      assert(gv);
+
+      // create a builder to insert the add, etc. instructions
+      IRBuilder<> builder(inst);
+      builder.SetInsertPoint(inst);
+
+      LLVMContext& C = M.getContext();
+      IntegerType* type = IntegerType::getInt64Ty(C);
+
+      // add the offset to the beginning of the vtable
+      Value* vtableStart   = builder.CreatePtrToInt(gv, type);
+      Value* offsetVal     = ConstantInt::get(type, addrPtOff * WORD_WIDTH);
+      Value* vtableAddrPtr = builder.CreateAdd(vtableStart, offsetVal);
+
+      return vtableAddrPtr;
     }
 
   private:
@@ -275,6 +336,10 @@ namespace {
       initializeSDChangeIndicesPass(*PassRegistry::getPassRegistry());
     }
 
+    virtual ~SDChangeIndices() {
+      sd_print("deleting SDChangeIndices pass\n");
+    }
+
     bool runOnModule(Module &M) override {
       sdModule = &getAnalysis<SDModule>();
       assert(sdModule);
@@ -289,6 +354,7 @@ namespace {
       memptrMDId    = M.getMDKindID(SD_MD_MEMPTR);
       memptr2MDId   = M.getMDKindID(SD_MD_MEMPTR2);
       memptrOptMdId = M.getMDKindID(SD_MD_MEMPTR_OPT);
+      checkMdId     = M.getMDKindID(SD_MD_CHECK);
 
       bool isUpdate = false;
       for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
@@ -328,6 +394,7 @@ namespace {
     unsigned memptrMDId;
     unsigned memptr2MDId;
     unsigned memptrOptMdId;
+    unsigned checkMdId;
 
     /**
      * Change the instructions inside the given basic block
@@ -366,6 +433,11 @@ namespace {
      * inside a select instruction. Handle this special case separately.
      */
     void handleSelectMemberPointer(llvm::MDNode* mdNode, Instruction* inst);
+
+    /**
+     * Change the check range and start constant before the vfun call
+     */
+    void handleVtableCheck(Module* M, llvm::MDNode* mdNode, Instruction* inst);
 
     /**
      * Extract the constant from the given MDTuple at the given operand
@@ -504,7 +576,7 @@ void SDModule::createThunkFunctions(Module& M) {
 }
 
 void SDModule::interleaveCloud(SDModule::vtbl_name_t& vtbl) {
-  assert(roots.find(vtbl) != roots.end());
+  assert(roots.count(vtbl));
 
   // create a temporary list for the positive part
   interleaving_list_t positivePart;
@@ -581,7 +653,7 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
   // create the global variable
   GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
                                                  GlobalVariable::ExternalLinkage,
-                                                 nullptr, "_SD" + vtbl);
+                                                 nullptr, NEW_VTABLE_NAME(vtbl));
   newVtable->setAlignment(WORD_WIDTH);
   newVtable->setInitializer(newVtableInit);
 
@@ -1017,6 +1089,11 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
       assert(opcode == SELECT_OPCODE);
       handleSelectMemberPointer(mdNode, inst);
     }
+
+    else if ((mdNode = inst->getMetadata(checkMdId))) {
+      assert(opcode == ICMP_OPCODE);
+      handleVtableCheck(module, mdNode, inst);
+    }
   }
 
   return true;
@@ -1138,6 +1215,50 @@ void SDChangeIndices::handleStoreMemberPointer(MDNode *mdNode, Instruction *inst
   sanityCheck1(inst);
 
   replaceConstantStruct(CS, storeInst, className);
+}
+
+void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *inst){
+  sanityCheck1(inst);
+
+  std::string className = sd_getClassNameFromMD(mdNode);
+  SDModule::vtbl_t vtbl(className,0);
+
+  // %134 = icmp ult i64 %133, <count>, !dbg !874, !sd.check !751
+  ICmpInst* icmpInst = dyn_cast<ICmpInst>(inst);
+  assert(icmpInst);
+
+  // %133 = sub i64 %132, <vtbl address>, !dbg !874
+  SubOperator* subOp = dyn_cast<SubOperator>(icmpInst->getOperand(0));
+  assert(subOp);
+
+  // %132 = ptrtoint void (%class.A*)** %vtable90 to i64, !dbg !874
+  PtrToIntInst* ptiInst = dyn_cast<PtrToIntInst>(subOp->getOperand(0));
+  assert(ptiInst);
+
+  LLVMContext& C = M->getContext();
+
+  if (sdModule->cloudMap.count(vtbl) == 0 &&
+      sdModule->newLayoutInds.count(vtbl) == 0) {
+    // FIXME (rkici) : temporarily fix these weird classes by making it always check
+    Value* zero = ConstantInt::get(IntegerType::getInt64Ty(C), 0);
+    icmpInst->setOperand(1, zero);
+    subOp->setOperand(1, subOp->getOperand(0));
+
+    return;
+  }
+
+  // change the start address of the root class
+  Value* addrPt = sdModule->newVtblAddress(*M, className, ptiInst);
+  subOp->setOperand(1, addrPt);
+
+  assert(sdModule->cloudSizeMap.count(className));
+  uint32_t cloudSize = sdModule->cloudSizeMap[className];
+  cloudSize *= WORD_WIDTH;
+
+  Value* cloudSizeVal = ConstantInt::get(IntegerType::getInt64Ty(C), cloudSize);
+
+  // update the cloud range
+  icmpInst->setOperand(1, cloudSizeVal);
 }
 
 void SDChangeIndices::handleSelectMemberPointer(MDNode *mdNode, Instruction *inst){

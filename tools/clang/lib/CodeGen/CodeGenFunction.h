@@ -954,7 +954,19 @@ private:
   /// The last regular (non-return) debug location (breakpoint) in the function.
   SourceLocation LastStopPoint;
 
+  /// list of defferred vptr check fail blocks to be emitted in the function epilogue
+  struct DeferredVTableFailBlock {
+    llvm::BasicBlock *bb;
+  };
+
+  typedef SmallVector<struct DeferredVTableFailBlock, 16> DeferredVTableFailBlockV;
+  DeferredVTableFailBlockV DeferredVTableFailBlocks;
+
+  void EmitDeferredVTableFailBlocks();
 public:
+
+  void addDeferredVTableFailBlock(llvm::BasicBlock *bb);
+
   /// A scope within which we are constructing the fields of an object which
   /// might use a CXXDefaultInitExpr. This stashes away a 'this' value to use
   /// if we need to evaluate a CXXDefaultInitExpr within the evaluation.

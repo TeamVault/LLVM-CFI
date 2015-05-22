@@ -18,6 +18,8 @@
 #define SD_MD_MEMPTR2    "sd.memptr2"
 #define SD_MD_MEMPTR_OPT "sd.memptr3"
 
+#define SD_MD_CHECK      "sd.check"
+
 #define SD_MD_CLASSINFO  "sd.class_info."
 
 #endif

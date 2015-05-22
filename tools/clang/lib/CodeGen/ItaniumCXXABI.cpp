@@ -34,6 +34,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
 
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
@@ -1502,6 +1503,46 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   return VTable;
 }
 
+static llvm::Value*
+sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+  assert(MD && "Non-null method decl");
+  assert(MD->isInstance() && "Shouldn't see a static method");
+
+  llvm::LLVMContext& C = CGF.getLLVMContext();
+
+  // use some dummy values for the vtable address and the range
+  llvm::Value *rangeStart = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 424242);
+  llvm::Value *rangeSize = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 42);
+
+  // use vtable address as an integer
+  llvm::Value *VTableAPInt = CGF.Builder.CreatePtrToInt(VTableAP, rangeStart->getType());
+  // calculate the range
+  llvm::Value *relOff = CGF.Builder.CreateSub(VTableAPInt, rangeStart);
+
+  llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
+  llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
+
+  // check if vtbl is inside the range
+  llvm::Value *isInsideRange = CGF.Builder.CreateICmpULE(relOff, rangeSize);
+
+  // add the metadata
+  llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
+  assert(cmp);
+  llvm::Metadata* md = llvm::MDString::get(C, CGM.getCXXABI().GetClassMangledName(MD->getParent()));
+  cmp->setMetadata(SD_MD_CHECK, llvm::MDNode::get(C, md));
+
+  // do the branch
+  llvm::BranchInst *br = CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
+
+  CGF.addDeferredVTableFailBlock(checkFailed);
+
+  // Continue function emittance in the vtblCheck.success bb
+  CGF.EmitBlock(checkSuccess);
+
+  return VTableAP;
+}
+
+
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                       GlobalDecl GD,
                                                       llvm::Value *This,
@@ -1509,6 +1550,17 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   GD = GD.getCanonicalDecl();
   Ty = Ty->getPointerTo()->getPointerTo();
   llvm::Value *VTable = CGF.GetVTablePtr(This, Ty);
+
+  // rkici : insert vfunptr check here
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+
+  // put mangled vtable name into a string
+  const CXXRecordDecl* RD = MD->getParent();
+  std::string Name = this->GetClassMangledName(RD);
+
+  if (sd_isVtableName(Name)) {
+    VTable = sd_getCheckedVTable(CGM, CGF, MD, VTable);
+  }
 
   if (CGF.SanOpts.has(SanitizerKind::CFIVCall))
     CGF.EmitVTablePtrCheckForCall(cast<CXXMethodDecl>(GD.getDecl()), VTable);
@@ -1519,10 +1571,6 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
 
   llvm::GetElementPtrInst* gepInst = dyn_cast_or_null<llvm::GetElementPtrInst>(VFuncPtr);
   assert(gepInst);
-
-  // put mangled vtable name into a string
-  const CXXRecordDecl* RD = (cast<CXXMethodDecl>(GD.getDecl()))->getParent();
-  std::string Name = this->GetClassMangledName(RD);
 
   if (sd_isVtableName(Name)) {
     llvm::Instruction* inst = gepInst;

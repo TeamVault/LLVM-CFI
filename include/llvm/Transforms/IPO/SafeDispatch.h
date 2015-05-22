@@ -9,15 +9,16 @@
 #include <vector>
 #include "SafeDispatchMD.h"
 
-namespace llvm {
-
 #define LOAD_OPCODE     27
 #define STORE_OPCODE    28
 #define GEP_OPCODE      29
 #define INTTOPTR_OPCODE 43
 #define BITCAST_OPCODE  44
+#define ICMP_OPCODE     46
 #define CALL_OPCODE     49
 #define SELECT_OPCODE   50
+
+namespace llvm {
 
   /**
    * Replaces each occurence of function "from" with function "to" inside the given module
