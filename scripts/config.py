@@ -48,7 +48,7 @@ def read_config():
 
   elif is_on_rami_chrome(): # VM at goto
     folders = {
-      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-3.7-build",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/libs/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
       "MY_GCC_VER"         : "4.8.1"
