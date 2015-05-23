@@ -6,6 +6,9 @@ import subprocess
 import config
 from copy import copy
 
+bypassLTO = False
+#bypassLTO = True
+
 # check if this command is used for compiling the source code
 hasArgC = '-c' in sys.argv
 
@@ -60,8 +63,6 @@ def nicer_args(input_args):
 
   return new_args, flags
 
-args,flags = nicer_args(sys.argv[1:])
-
 def run(args, **env):
   new_env = copy(os.environ)
   for key in env:
@@ -73,6 +74,14 @@ def run(args, **env):
     print "FAILED: %s\n" % " ".join(args)
     sys.stderr.write(e.output)
     sys.exit(-1)
+
+if bypassLTO:
+  args = sys.argv
+  args[0] = conf["CXX"]
+  run(args)
+  sys.exit(0)
+
+args,flags = nicer_args(sys.argv[1:])
 
 # COMPILING : do nothing, just execute the given command
 if hasArgC:
