@@ -71,6 +71,7 @@ def read_config():
 
   folders.update({
     "CC"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
+    "AR"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/llvm-ar",
     "LD"              : folders["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : ["-z", "relro", "--hash-style=gnu", "--build-id", "--eh-frame-hdr",
                          "-m", "elf_x86_64", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2"],

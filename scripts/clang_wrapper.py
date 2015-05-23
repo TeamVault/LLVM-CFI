@@ -48,7 +48,7 @@ if hasArgC:
   if "-flto" not in args:
     args.insert(1,"-flto")
 
-  sys.stderr.write("CC: %s\n" % " ".join(args))
+  sys.stdout.write("CC: %s\n" % " ".join(args))
   run(args)
 
 # LINKING : construct the linking command and execute it
@@ -79,7 +79,7 @@ else:
              object_files + conf["LD_LIBS"] + static_libs
 
   # create an array to use in the subprocess
-  sys.stderr.write("LD: %s\n" % " ".join(new_args))
+  sys.stdout.write("LD: %s\n" % " ".join(new_args))
 
   # run the command
   run(new_args)
