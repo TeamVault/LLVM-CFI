@@ -39,7 +39,7 @@ def run(args, **env):
     res = subprocess.check_output(args, env=new_env, stderr=subprocess.STDOUT)
     sys.stderr.write(res)
   except subprocess.CalledProcessError, e:
-    print "FAILED: ", " ".join(args)
+    print "FAILED: %s\n" % " ".join(args)
     sys.stderr.write(e.output)
     sys.exit(-1)
 
