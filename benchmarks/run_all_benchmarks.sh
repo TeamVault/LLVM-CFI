@@ -55,6 +55,15 @@ run_benchmarks() {
           echo "Original vthunks remain !!!"
           return 1
         fi
+      else
+        if [[ `readelf -sW main | grep '_SD_ZTV' | wc -l` != "0" ]]; then
+          echo "Compiled without vtbl checks but has _SD_ZTV !!!"
+          return 1
+        fi
+        if [[ `readelf -sW main | grep '_SVT_ZTv' | wc -l` != "0" ]]; then
+          echo "Compiled without vtbl checks but has duplicated vthunks !!!"
+          return 1
+        fi
       fi
 
       popd > /dev/null

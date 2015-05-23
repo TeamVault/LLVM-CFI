@@ -105,7 +105,7 @@ namespace options {
   // use only and will not be passed.
   static std::vector<const char *> extra;
 
-  static bool UseOrigLTOPasses = true;
+  static bool RunSDPasses = false;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -126,7 +126,7 @@ namespace options {
     } else if (opt == "emit-llvm") {
       TheOutputType = OT_BC_ONLY;
     } else if (opt == "emit-vtbl-checks") {
-      UseOrigLTOPasses = false;
+      RunSDPasses = true;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -744,77 +744,74 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   if (const DataLayout *DL = TM.getDataLayout())
     M.setDataLayout(*DL);
 
-  if (options::UseOrigLTOPasses) {
-    runOriginalLTOPasses(M, TM);
-    sd_print("Finished running LTO passes\n");
-  } else {
-    // generate the pass & analysis DB first
-    fillPasses();
+  // generate the pass & analysis DB first
+  fillPasses();
 
-    unsigned OptLevel = 3;
-    unsigned SizeLevel = 0;
+  unsigned OptLevel = 3;
+  unsigned SizeLevel = 0;
 
-    PassManagerBuilder PMB;
-    PMB.OptLevel = OptLevel;
-    PMB.SizeLevel = SizeLevel;
-    PMB.BBVectorize = true;
-    PMB.SLPVectorize = true;
-    PMB.LoopVectorize = true;
+  PassManagerBuilder PMB;
+  PMB.OptLevel = OptLevel;
+  PMB.SizeLevel = SizeLevel;
+  PMB.BBVectorize = true;
+  PMB.SLPVectorize = true;
+  PMB.LoopVectorize = true;
 
-    PMB.DisableTailCalls = false;
-    PMB.DisableUnitAtATime = false;
-    PMB.DisableUnrollLoops = false;
-    PMB.MergeFunctions = true;
-    PMB.RerollLoops = true;
+  PMB.DisableTailCalls = false;
+  PMB.DisableUnitAtATime = false;
+  PMB.DisableUnrollLoops = false;
+  PMB.MergeFunctions = true;
+  PMB.RerollLoops = true;
 
-    PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
-                     addAddDiscriminatorsPass);
+  PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
+                   addAddDiscriminatorsPass);
 
-    // Figure out TargetLibraryInfo.
-    //  Triple TargetTriple(TheModule->getTargetTriple());
-    //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
-    PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
+  // Figure out TargetLibraryInfo.
+  //  Triple TargetTriple(TheModule->getTargetTriple());
+  //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
+  PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
 
-    PMB.Inliner = createFunctionInliningPass(PMB.OptLevel, PMB.SizeLevel);
+  PMB.Inliner = createFunctionInliningPass(PMB.OptLevel, PMB.SizeLevel);
 
-    // Set up the per-function pass manager.
-    // legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
-    llvm::legacy::FunctionPassManager* FPM = new legacy::FunctionPassManager(&M);
-    FPM->add(createTTIPass(TM));
-    PMB.populateFunctionPassManager(*FPM);
+  // Set up the per-function pass manager.
+  // legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
+  llvm::legacy::FunctionPassManager* FPM = new legacy::FunctionPassManager(&M);
+  FPM->add(createTTIPass(TM));
+  PMB.populateFunctionPassManager(*FPM);
 
-    // Set up the per-module pass manager.
-    // legacy::PassManager *PM = getPerModulePasses(TM);
-    llvm::legacy::PassManager* PM = new legacy::PassManager();
-    PM->add(createTTIPass(TM));
-    PMB.populateModulePassManager(*PM);
+  // Set up the per-module pass manager.
+  // legacy::PassManager *PM = getPerModulePasses(TM);
+  llvm::legacy::PassManager* PM = new legacy::PassManager();
+  PM->add(createTTIPass(TM));
+  PMB.populateModulePassManager(*PM);
 
+  if (options::RunSDPasses) {
     // run safedispatch passes first
     legacy::PassManager *SD_PM = getSDPasses(TM);
     SD_PM->run(M);
-
     sd_print("Finished running SafeDispatch passes\n");
-
-    // run function passes
-    FPM->doInitialization();
-    for (Function &F : M) {
-      FPM->run(F);
-    }
-    FPM->doFinalization();
-
-    sd_print("Finished running function passes\n");
-
-    // run module passes
-    PM->run(M);
-
-    sd_print("Finished running module passes\n");
-
-    // run LTO passes
-    runOriginalLTOPasses(M,TM);
-
-    sd_print("Finished running LTO passes\n");
   }
+
+  // run function passes
+  FPM->doInitialization();
+  for (Function &F : M) {
+    FPM->run(F);
+  }
+  FPM->doFinalization();
+
+  sd_print("Finished running function passes\n");
+
+  // run module passes
+  PM->run(M);
+
+  sd_print("Finished running module passes\n");
+
+  // run LTO passes
+  runOriginalLTOPasses(M,TM);
+
+  sd_print("Finished running LTO passes\n");
 }
+
 
 static void saveBCFile(StringRef Path, Module &M) {
   std::error_code EC;
