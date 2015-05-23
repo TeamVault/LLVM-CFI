@@ -1,5 +1,3 @@
-CLANG_WRAPPER = "$(LLVM_DIR)/scripts/clang_wrapper.py"
-AR_WRAPPER = "$(LLVM_DIR)/scripts/ar_wrapper.py"
 LIBS = $(patsubst lib%.a,-l%,$(LIB_NAMES))
 
 ifeq ($(NO_LTO),OK)
@@ -7,9 +5,9 @@ CC = g++
 LD = $(CC)
 AR = ar
 else
-CC = $(CLANG_WRAPPER)
+CC = "$(LLVM_SCRIPTS_DIR)/clang_wrapper.py"
 LD = $(CC)
-AR = $(AR_WRAPPER)
+AR = $(shell $(LLVM_SCRIPTS_DIR)/config.py AR)
 endif
 
 ALL_OBJS = $(OBJS) main.o

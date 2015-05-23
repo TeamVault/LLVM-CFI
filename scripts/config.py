@@ -1,8 +1,11 @@
+#!/usr/bin/env python
+
 import subprocess as sp
 import re
 import getpass
 import socket
 import os
+import sys
 
 ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 
@@ -40,6 +43,7 @@ def read_config():
 
   if is_on_rami_local(): # rami's laptop
     folders = {
+      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/libs/llvm3.7/llvm/scripts",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/libs/llvm3.7/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/libs/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/libs/safedispatch-scripts",
@@ -48,6 +52,7 @@ def read_config():
 
   elif is_on_rami_chrome(): # VM at goto
     folders = {
+      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/libs/chrome/cr33/src/third_party/llvm-3.7/scripts",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/libs/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
@@ -56,6 +61,7 @@ def read_config():
 
   elif is_on_rami_chromebuild(): # zoidberg
     folders = {
+      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/rami/llvm3.7/llvm/scripts",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/llvm3.7/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
@@ -71,7 +77,9 @@ def read_config():
 
   folders.update({
     "CC"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
-    "AR"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/llvm-ar",
+    "AR"              : folders["LLVM_SCRIPTS_DIR"] + "/ar",
+    "NM"              : folders["LLVM_SCRIPTS_DIR"] + "/nm",
+    "RANLIB"          : folders["LLVM_SCRIPTS_DIR"] + "/ranlib",
     "LD"              : folders["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : ["-z", "relro", "--hash-style=gnu", "--build-id", "--eh-frame-hdr",
                          "-m", "elf_x86_64", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2"],
@@ -92,7 +100,22 @@ def read_config():
                          "-plugin-opt=mcpu=x86-64"],
     "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc", "-ldyncast",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/crtend.o",
-                         "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crtn.o"]
+                         "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crtn.o"],
+    "LIBLTO_PLUGIN"   : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/lib/LLVMgold.so"
     })
 
   return folders
+
+if __name__ == '__main__':
+  if len(sys.argv) == 2:
+    d = read_config()
+    key = sys.argv[1].upper()
+
+    if key in d:
+      print d[key]
+
+    sys.exit(0)
+  else:
+    print "usage: %s <key>" % sys.argv[0]
+    sys.exit(1)
+

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+"$(${DIR}/config.py BINUTILS_BUILD_DIR)/binutils/nm-new" --plugin "$(${DIR}/config.py LIBLTO_PLUGIN)" $*

@@ -1,0 +1,8 @@
+#!/bin/bash
+
+command=$1
+shift
+
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+"$(${DIR}/config.py BINUTILS_BUILD_DIR)/binutils/ar" $command --plugin "$(${DIR}/config.py LIBLTO_PLUGIN)" $*
