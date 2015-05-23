@@ -105,7 +105,7 @@ namespace options {
   // use only and will not be passed.
   static std::vector<const char *> extra;
 
-  static bool UseOrigLTOPasses = false;
+  static bool UseOrigLTOPasses = true;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -125,8 +125,8 @@ namespace options {
       obj_path = opt.substr(strlen("obj-path="));
     } else if (opt == "emit-llvm") {
       TheOutputType = OT_BC_ONLY;
-    } else if (opt == "use-orig-lto-passes") {
-      UseOrigLTOPasses = true;
+    } else if (opt == "emit-vtbl-checks") {
+      UseOrigLTOPasses = false;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -745,11 +745,6 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
     M.setDataLayout(*DL);
 
   if (options::UseOrigLTOPasses) {
-    // run safedispatch passes first
-    legacy::PassManager *SD_PM = getSDPasses(TM);
-    SD_PM->run(M);
-    sd_print("Finished running SafeDispatch passes\n");
-
     runOriginalLTOPasses(M, TM);
     sd_print("Finished running LTO passes\n");
   } else {

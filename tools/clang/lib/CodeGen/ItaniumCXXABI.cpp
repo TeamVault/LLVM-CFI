@@ -1558,7 +1558,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   const CXXRecordDecl* RD = MD->getParent();
   std::string Name = this->GetClassMangledName(RD);
 
-  if (sd_isVtableName(Name)) {
+  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name)) {
     VTable = sd_getCheckedVTable(CGM, CGF, MD, VTable);
   }
 

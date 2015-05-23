@@ -643,6 +643,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                       Args.getAllArgValues(OPT_fsanitize_recover_EQ), Diags,
                       Opts.SanitizeRecover);
 
+  Opts.EmitVTBLChecks = Args.hasArg(OPT_femit_vtbl_checks);
+
   return Success;
 }
 

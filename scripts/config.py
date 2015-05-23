@@ -9,6 +9,9 @@ import sys
 
 ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 
+ENABLE_CHECKS = True
+# ENABLE_CHECKS = False
+
 def ld_version():
   out = sp.check_output(['ld','-v'])
   m = ldRe.match(out)
@@ -72,6 +75,7 @@ def read_config():
     return None
 
   folders.update({
+    "ENABLE_CHECKS"   : ENABLE_CHECKS,
     "GOLD_PLUGIN"     : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/lib/LLVMgold.so",
     })
 
@@ -82,6 +86,7 @@ def read_config():
     "NM"              : folders["LLVM_SCRIPTS_DIR"] + "/nm",
     "RANLIB"          : folders["LLVM_SCRIPTS_DIR"] + "/ranlib",
     "LD"              : folders["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
+    "CXX_FLAGS"       : ["-flto", "-femit-vtbl-checks"] if ENABLE_CHECKS else ["-flto"],
     "LD_FLAGS"        : ["-z", "relro", "--hash-style=gnu", "--build-id", "--eh-frame-hdr",
                          "-m", "elf_x86_64", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2"],
     "LD_OBJS"         : ["/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crt1.o",
@@ -98,6 +103,10 @@ def read_config():
                          "-L/usr/lib",
                          "-L" + folders["SD_DIR"] + "/libdyncast"],
     "LD_PLUGIN"       : ["-plugin", folders["GOLD_PLUGIN"],
+                         "-plugin-opt=mcpu=x86-64",
+                         "-plugin-opt=emit-vtbl-checks",
+                         "-plugin-opt=save-temps"] if ENABLE_CHECKS else
+                         ["-plugin", folders["GOLD_PLUGIN"],
                          "-plugin-opt=mcpu=x86-64",
                          "-plugin-opt=save-temps"],
     "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc", "-ldyncast",

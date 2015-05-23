@@ -30,6 +30,7 @@ def nicer_args(input_args):
 
   if hasArgC:
     new_args.append(conf["CXX"])
+    new_args.extend(conf["CXX_FLAGS"])
   else:
     new_args.append(conf["LD"])
 
@@ -85,9 +86,6 @@ args,flags = nicer_args(sys.argv[1:])
 
 # COMPILING : do nothing, just execute the given command
 if hasArgC:
-  if "-flto" not in args:
-    args.insert(1,"-flto")
-
   sys.stdout.write("CC: %s\n" % " ".join(args))
   run(args)
 

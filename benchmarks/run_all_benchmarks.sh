@@ -1,7 +1,9 @@
 #!/bin/bash
 
 run_benchmarks() {
-  declare -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt'
+  local CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+  local -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt'
   'my_ex1' 'abi_ex' 'single_template' 'member_ptr' 'md_test' 'static_lib')
 
   # if an argument is not given, run all the benchmarks
@@ -43,14 +45,16 @@ run_benchmarks() {
 
       rm -f /tmp/{normal,sd}_run.txt
 
-      if [[ `readelf -sW main | grep -vP ' _ZT(V|C)(S|N10__cxxabiv)' | grep -P ' _ZT(V|C)' | wc -l` != "0" ]]; then
-        echo "Original vtables remain !!!"
-        return 1
-      fi
+      if [[ $("$CUR_DIR/../scripts/config.py" ENABLE_CHECKS) == "True" ]]; then
+        if [[ `readelf -sW main | grep -vP ' _ZT(V|C)(S|N10__cxxabiv)' | grep -P ' _ZT(V|C)' | wc -l` != "0" ]]; then
+            echo "Original vtables remain !!!"
+            return 1
+          fi
 
-      if [[ `readelf -sW main | grep ' _ZTv' | wc -l` != "0" ]]; then
-        echo "Original vthunks remain !!!"
-        return 1
+        if [[ `readelf -sW main | grep ' _ZTv' | wc -l` != "0" ]]; then
+          echo "Original vthunks remain !!!"
+          return 1
+        fi
       fi
 
       popd > /dev/null
