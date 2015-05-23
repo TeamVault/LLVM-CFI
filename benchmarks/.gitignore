@@ -1,6 +1,7 @@
 main
 *.o
 *.so
+*.a
 
 *.creator.user
 *.config

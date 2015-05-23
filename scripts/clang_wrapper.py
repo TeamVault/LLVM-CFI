@@ -64,13 +64,19 @@ else:
   assert argOInd >= 0
 
   # extract the object files
-  object_files = list(set([obj for obj in args if obj.endswith(".o") or obj.endswith(".a")]))
+  object_files = list(set([obj for obj in args if obj.endswith(".o")]))
+
+  static_lib_folders = list(set([obj for obj in args if obj.startswith("-L")]))
+
+  static_libs = list(set([obj for obj in args if obj.startswith("-l")]))
 
   # construct the linking command:
   #   $(LD) $(LD_FLAGS) -o $@ $(LD_OBJS) $(LD_LIB_FOLDERS) $(LD_PLUGIN) $^ $(LD_LIBS)
   new_args = [conf["LD"]] + conf["LD_FLAGS"] + \
-             ["-o", args[argOInd]] + conf["LD_OBJS"] + conf["LD_LIB_FOLDERS"] + conf["LD_PLUGIN"] + \
-             object_files + conf["LD_LIBS"]
+             ["-o", args[argOInd]] + conf["LD_OBJS"] + \
+             conf["LD_LIB_FOLDERS"] + static_lib_folders + \
+             conf["LD_PLUGIN"] + \
+             object_files + conf["LD_LIBS"] + static_libs
 
   # create an array to use in the subprocess
   sys.stderr.write("LD: %s\n" % " ".join(new_args))
