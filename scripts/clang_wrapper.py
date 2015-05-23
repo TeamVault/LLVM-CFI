@@ -18,20 +18,18 @@ args[0] = conf["CC"]
 # check if this command is used for compiling the source code
 hasArgC = '-c' in args
 
-# check if this command is used for linking
-try:
-  argOInd = args.index('-o') + 1
-except ValueError:
-  argOInd = -1
-
 # remove the optimization flags
-for (i,a) in enumerate(args):
-  if a.startswith("-O"):
-    args.pop(i)
-    break
+isArgRemoved = True
+while isArgRemoved:
+  isArgRemoved = False
+  for (i,a) in enumerate(args):
+    if "-O" in a:
+      args.pop(i)
+      isArgRemoved = True
+      break
 
 for a in args:
-  assert not a.startswith("-O")
+  assert "-O" not in a
 
 def run(args, **env):
   new_env = copy(os.environ)
@@ -50,11 +48,19 @@ if hasArgC:
   if "-flto" not in args:
     args.insert(1,"-flto")
 
-  print "CC: %s" % " ".join(args)
+  sys.stderr.write("CC: %s\n" % " ".join(args))
   run(args)
 
 # LINKING : construct the linking command and execute it
 else:
+  # check if this command is used for linking
+  try:
+    argOInd = args.index('-o') + 1
+  except ValueError:
+    sys.stderr.write("couldn't find the -o parameter for the linking command!\n%s\n" %
+                     " ".join(args))
+    sys.exit(-1)
+
   assert argOInd >= 0
 
   # extract the object files
@@ -67,7 +73,7 @@ else:
              object_files + conf["LD_LIBS"]
 
   # create an array to use in the subprocess
-  print "LD: %s" % " ".join(args)
+  sys.stderr.write("LD: %s\n" % " ".join(new_args))
 
   # run the command
   run(new_args)
