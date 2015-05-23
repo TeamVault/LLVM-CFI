@@ -5,4 +5,4 @@ shift
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-"$(${DIR}/config.py BINUTILS_BUILD_DIR)/binutils/ranlib" $command --plugin "$(${DIR}/config.py LIBLTO_PLUGIN)" $*
+"$(${DIR}/config.py BINUTILS_BUILD_DIR)/binutils/ranlib" $command --plugin "$(${DIR}/config.py GOLD_PLUGIN)" $*

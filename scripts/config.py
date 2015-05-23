@@ -76,7 +76,8 @@ def read_config():
     })
 
   folders.update({
-    "CC"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
+    "CC"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang",
+    "CXX"             : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
     "AR"              : folders["LLVM_SCRIPTS_DIR"] + "/ar",
     "NM"              : folders["LLVM_SCRIPTS_DIR"] + "/nm",
     "RANLIB"          : folders["LLVM_SCRIPTS_DIR"] + "/ranlib",
@@ -101,7 +102,6 @@ def read_config():
     "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc", "-ldyncast",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/crtend.o",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crtn.o"],
-    "LIBLTO_PLUGIN"   : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/lib/LLVMgold.so"
     })
 
   return folders
