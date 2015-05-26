@@ -57,7 +57,6 @@ def nicer_args(input_args):
       groupEnd = len(new_args) - 1
 
     if isFlag and arg not in flag_blacklist:
-      print "|%s|" % arg
       flags.extend(arg.split())
 
     new_args.extend(arg.split())
@@ -86,6 +85,13 @@ args,flags = nicer_args(sys.argv[1:])
 
 # COMPILING : do nothing, just execute the given command
 if hasArgC:
+  argCInd = args.index("-c")
+
+  # fix for compiling C files with clang++
+  if (args[argCInd+1].endswith(".c")):
+    args.insert(argCInd, "-x")
+    args.insert(argCInd + 1, "c")
+
   sys.stdout.write("CC: %s\n" % " ".join(args))
   run(args)
 
@@ -111,13 +117,15 @@ else:
   new_args += conf["LD_FLAGS"]
   new_args += flags
   new_args += ["-o", args[argOInd]]
-  new_args += conf["LD_OBJS"]
   new_args += conf["LD_LIB_FOLDERS"]
   new_args += static_lib_folders
   new_args += conf["LD_PLUGIN"]
+  new_args += ["--start-group"]
+  new_args += conf["LD_OBJS"]
   new_args += object_files
   new_args += conf["LD_LIBS"]
   new_args += static_libs
+  new_args += ["--end-group"]
 
   # create an array to use in the subprocess
   sys.stdout.write("LD: %s\n" % " ".join(new_args))

@@ -10,7 +10,7 @@ import sys
 ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 
 ENABLE_CHECKS = True
-# ENABLE_CHECKS = False
+#ENABLE_CHECKS = False
 
 def ld_version():
   out = sp.check_output(['ld','-v'])
@@ -105,10 +105,12 @@ def read_config():
     "LD_PLUGIN"       : ["-plugin", folders["GOLD_PLUGIN"],
                          "-plugin-opt=mcpu=x86-64",
                          "-plugin-opt=emit-vtbl-checks",
-                         "-plugin-opt=save-temps"] if ENABLE_CHECKS else
-                         ["-plugin", folders["GOLD_PLUGIN"],
+                         #"-plugin-opt=emit-llvm"
+                        ] if ENABLE_CHECKS else [
+                          "-plugin", folders["GOLD_PLUGIN"],
                          "-plugin-opt=mcpu=x86-64",
-                         "-plugin-opt=save-temps"],
+                         #"-plugin-opt=emit-llvm"
+                        ],
     "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc", "-ldyncast",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/crtend.o",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crtn.o"],

@@ -9,4 +9,3 @@ echo "AR: $(${DIR}/config.py BINUTILS_BUILD_DIR)/binutils/ar $command --plugin $
 
 "$(${DIR}/config.py BINUTILS_BUILD_DIR)/binutils/ar" $command --plugin "$(${DIR}/config.py GOLD_PLUGIN)" $*
 
-#/usr/bin/ar $@
