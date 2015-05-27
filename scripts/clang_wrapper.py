@@ -80,7 +80,7 @@ def run(args, **env):
     res = subprocess.check_output(args, env=new_env, stderr=subprocess.STDOUT)
     sys.stderr.write(res)
   except subprocess.CalledProcessError, e:
-    print "FAILED: %s\n" % " ".join(args)
+    sys.stderr.write("FAILED: %s\n" % " ".join(args))
     sys.stderr.write(e.output)
     sys.exit(-1)
 
@@ -101,7 +101,7 @@ if hasArgC:
     args.insert(argCInd, "-x")
     args.insert(argCInd + 1, "c")
 
-  sys.stdout.write("CC: %s\n" % " ".join(args))
+  sys.stderr.write("CC: %s\n" % " ".join(args))
   run(args)
 
 # LINKING : construct the linking command and execute it
@@ -137,7 +137,7 @@ else:
   new_args += ["--end-group"]
 
   # create an array to use in the subprocess
-  sys.stdout.write("LD: %s\n" % " ".join(new_args))
+  sys.stderr.write("LD: %s\n" % " ".join(new_args))
 
   # run the command
   run(new_args)

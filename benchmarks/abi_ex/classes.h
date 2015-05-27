@@ -1,7 +1,8 @@
 #ifndef __CLASSES_H__
 #define __CLASSES_H__
 
-struct A {
+class A {
+public:
   virtual ~A();
   virtual void f ();
   virtual void g ();
@@ -9,33 +10,38 @@ struct A {
   int ia;
 };
 
-struct B: public virtual A {
+class B: public virtual A {
+public:
   virtual ~B();
   void f ();
   void h ();
   int ib;
 };
 
-struct C: public virtual A {
+class C: public virtual A {
+public:
   virtual ~C();
   void g ();
   void h ();
   int ic;
 };
 
-struct D: public B, public C {
+class D: public B, public C {
+public:
   virtual ~D();
   void h ();
   int id;
 };
 
-struct X {
+class X {
+public:
   virtual ~X();
   virtual void x();
   int ix;
 };
 
-struct E : X, D {
+class E : public X, public D {
+public:
   virtual ~E();
   void f();
   void h ();

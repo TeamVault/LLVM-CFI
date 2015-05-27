@@ -28,10 +28,11 @@ LLC="${LLVM_BIN_DIR}/llc"
 pushd $TMP_DIR > /dev/null
 
 # get the files inside the archive
-FILES=$($AR tP $LIB | awk '{if(NR>1)print}')
+FILES=$($AR tP $LIB)
 
 # lower each bitcode into machine code
 for obj in $FILES; do
+  >&2 echo "LLC: $obj"
   BN=$(basename $obj)
   $LLC -filetype=obj $obj -o=${BN}.sd.o
 done
