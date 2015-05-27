@@ -35,6 +35,9 @@ def nicer_args(input_args):
     new_args.append(conf["LD"])
 
   for i,arg in enumerate(input_args):
+    oldArg = arg
+    isLinkArg = oldArg.startswith("-Wl")
+
     arg = arg.replace(',', ' ').strip()
 
     if arg == "":
@@ -57,9 +60,15 @@ def nicer_args(input_args):
       groupEnd = len(new_args) - 1
 
     if isFlag and arg not in flag_blacklist:
-      flags.extend(arg.split())
+      if isLinkArg:
+        flags.extend(arg.split())
+      else:
+        flags.append(oldArg)
 
-    new_args.extend(arg.split())
+    if isLinkArg:
+      new_args.extend(arg.split())
+    else:
+      new_args.append(oldArg)
 
   return new_args, flags
 
