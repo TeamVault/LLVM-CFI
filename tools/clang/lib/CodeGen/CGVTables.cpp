@@ -49,7 +49,15 @@ sd_addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const Glob
   if (Thunk && ! Thunk->This.NonVirtual && sd_isVtableName(className)) {
     // this is a bitcast instruction with a gep inside
     llvm::BitCastInst* bcInst = dyn_cast<llvm::BitCastInst>(adjustedThisPtr);
-    assert(bcInst);
+
+    if (!bcInst) {
+      // if this is not a bitcast instruction, this should be a
+      // nonvirtual covariant return thunk
+      llvm::Instruction* inst = cast<llvm::Instruction>(adjustedThisPtr);
+      const llvm::Function* function = inst->getParent()->getParent();
+      assert(function->getName().startswith("_ZTch"));
+      return;
+    }
 
     llvm::LLVMContext& C = bcInst->getContext();
     llvm::MDNode* mdNode = llvm::MDNode::get(C, NULL);

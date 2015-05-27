@@ -1,17 +1,32 @@
 #!/bin/bash
 
+containsElement () {
+  local e
+  for e in "${@:2}"; do
+    [[ "$e" == "$1" ]] && return 0
+  done
+  return 1
+}
+
 run_benchmarks() {
   local CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
   local -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt'
-  'my_ex1' 'abi_ex' 'single_template' 'member_ptr' 'md_test' 'static_lib')
+  'my_ex1' 'abi_ex' 'single_template' 'member_ptr' 'md_test' 'static_lib'
+  'nonvirtual_covariant_thunks' 'virtual_covariant_thunks')
+
+  local -a neg_benchs=('bad_cast')
+
+  # add the negative benchmarks as well
+  local -a benchmarks=("${benchmarks[@]}" "${neg_benchs[@]}")
 
   # if an argument is not given, run all the benchmarks
   # otherwise run the given ones
   if [[ $# -gt 0 ]]; then
-    declare -a benchmarks=($@)
+    local -a benchmarks=($@)
   fi
 
+  local b
   for b in ${benchmarks[@]}; do
     if [[ -d $b ]]; then
       pushd $b > /dev/null
@@ -36,6 +51,15 @@ run_benchmarks() {
 
       echo "############################################################"
       echo "sd running $b"
+
+      containsElement "$b" "${neg_benchs[@]}"
+      local isNeg=$?
+      if [[ $isNeg -eq 0 ]]; then
+        ./main 2>&1 > /dev/null
+        if [[ $? -ne 255 ]]; then echo "neg bench $b should fail!"; return 1; fi
+        popd > /dev/null
+        continue
+      fi
 
       ./main 2>&1 > /tmp/sd_run.txt
       if [[ $? -ne 0 ]]; then echo "sd run fail"; return 1; fi

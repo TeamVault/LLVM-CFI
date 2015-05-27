@@ -123,6 +123,7 @@ namespace {
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
       buildClouds(M);          // part 1
+      printClouds();
       interleaveClouds(M);     // part 2
 
       return roots.size() > 0;
@@ -205,6 +206,8 @@ namespace {
      */
     void buildClouds(Module &M);
 
+    void printClouds();
+
     /**
      * Interleave the generated clouds and create a new global variable for each of them.
      */
@@ -212,12 +215,10 @@ namespace {
       for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
         vtbl_name_t vtbl = *itr;
 
-        interleaveCloud(vtbl);
-        calculateNewLayoutInds(vtbl);
-
-        createThunkFunctions(M);
-
-        createNewVTable(M, vtbl);
+        interleaveCloud(vtbl);         // interleave the cloud
+        calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
+        createThunkFunctions(M, vtbl); // replace the virtual thunks with the modified ones
+        createNewVTable(M, vtbl);      // finally, emit the global variable
 
         // exploit this loop to calculate the sizes of all possible subgraphs
         // that has a primary vtable as a root
@@ -299,7 +300,7 @@ namespace {
     unsigned vcallMDId;
     std::set<Function*> vthunksToRemove;
 
-    void createThunkFunctions(Module&);
+    void createThunkFunctions(Module&, const vtbl_name_t& rootName);
     void updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order);
     Function* getVthunkFunction(Constant* vtblElement);
 
@@ -480,7 +481,8 @@ Function* SDModule::getVthunkFunction(Constant* vtblElement) {
     Constant* operand = bcExpr->getOperand(0);
 
     // this is a vthunk
-    if (operand->getName().startswith("_ZTv")) {
+    if (operand->getName().startswith("_ZTv") ||   // virtual thunk
+        operand->getName().startswith("_ZTcv")) {  // covariant return thunk
       Function* thunkF = dyn_cast<Function>(operand);
       assert(thunkF);
       return thunkF;
@@ -520,11 +522,15 @@ void SDModule::updateVcallOffset(Instruction *inst, const vtbl_name_t& className
   inst->setMetadata(vcallMDId, NULL);
 }
 
-void SDModule::createThunkFunctions(Module& M) {
+void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
   // for all defined vtables
-  for (oldvtbl_map_t::iterator itr = oldVTables.begin(); itr != oldVTables.end(); itr++) {
-    const vtbl_name_t& vtbl = itr->first;
-    ConstantArray* vtableArr = itr->second;
+  vtbl_t root(rootName,0);
+  order_t vtbls = preorder(root);
+
+  for (unsigned i=0; i < vtbls.size(); i++) {
+    const vtbl_name_t& vtbl = vtbls[i].first;
+    assert(oldVTables.count(vtbl));
+    ConstantArray* vtableArr = oldVTables[vtbl];
 
     // iterate over the vtable elements
     for (unsigned vtblInd = 0; vtblInd < vtableArr->getNumOperands(); ++vtblInd) {
@@ -596,7 +602,7 @@ void SDModule::interleaveCloud(SDModule::vtbl_name_t& vtbl) {
 }
 
 void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
-  assert(interleavingMap.find(vtbl) != interleavingMap.end());
+  assert(interleavingMap.count(vtbl));
 
   uint64_t currentIndex = 0;
   for (const interleaving_t& ivtbl : interleavingMap[vtbl]) {
@@ -914,7 +920,7 @@ SDModule::nmd_t SDModule::extractMetadata(NamedMDNode* md) {
 }
 int64_t SDModule::oldIndexToNew2(SDModule::vtbl_t name, int64_t offset,
                                 bool isRelative = true) {
-  if (newLayoutInds.find(name) == newLayoutInds.end()) {
+  if (! newLayoutInds.count(name)) {
     sd_print("class: (%s, %lu) doesn't belong to newLayoutInds\n", name.first.c_str(), name.second);
     sd_print("%s has %u address points\n", name.first.c_str(), addrPtMap[name.first].size());
     assert(false);
@@ -1075,6 +1081,7 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
     // bitcast instruction
     else if ((mdNode = inst->getMetadata(vcallMDId))) {
       sd_print("inside the function %s\n", inst->getParent()->getParent()->getName().bytes_begin());
+      inst->getParent()->getParent()->dump();
       assert(false && "hey, this vcall metadata shouldn't exist !!!");
     }
 
@@ -1360,4 +1367,45 @@ void llvm::sd_changeGEPIndex(GetElementPtrInst* inst, unsigned operandNo, int64_
 
   Value *idx = ConstantInt::getSigned(Type::getInt64Ty(inst->getContext()), newIndex);
   inst->setOperand(operandNo, idx);
+}
+
+// folder creation
+#include <deque>
+
+void SDModule::printClouds() {
+  int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
+  assert(rc == 0);
+
+  for(const vtbl_name_t& rootName : roots) {
+    assert(rootName.length() <= 490);
+
+    char filename[512];
+    sprintf(filename, "/tmp/dot/%s.dot", rootName.data());
+
+    FILE* file = fopen(filename, "w");
+    assert(file);
+
+    fprintf(file, "digraph %s {\n", rootName.data());
+
+    vtbl_t root(rootName,0);
+
+    std::deque<vtbl_t> classes;
+    classes.push_back(root);
+
+    while(! classes.empty()) {
+      vtbl_t vtbl = classes.front();
+      fprintf(file, "\t \"(%s,%lu)\";\n", vtbl.first.data(), vtbl.second);
+      classes.pop_front();
+
+      for (const vtbl_t& child : cloudMap[vtbl]) {
+        fprintf(file, "\t \"(%s,%lu)\" -> \"(%s,%lu)\";\n",
+                vtbl.first.data(), vtbl.second,
+                child.first.data(), child.second);
+        classes.push_back(child);
+      }
+    }
+
+    fprintf(file, "}\n");
+    fclose(file);
+  }
 }
