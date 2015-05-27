@@ -5,7 +5,7 @@ CC = g++
 LD = $(CC)
 AR = ar
 else
-CC = "$(LLVM_SCRIPTS_DIR)/clang_wrapper.py"
+CC = "$(LLVM_SCRIPTS_DIR)/clang_wrapper.sh"
 LD = $(CC)
 AR = $(shell $(LLVM_SCRIPTS_DIR)/config.py AR)
 endif

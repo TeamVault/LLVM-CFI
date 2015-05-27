@@ -80,6 +80,14 @@ def read_config():
     })
 
   folders.update({
+    "SD_LIB_FOLDERS"  : ["-L" + folders["SD_DIR"] + "/libdyncast"],
+    "SD_LIBS"         : ["-ldyncast"],
+    "LD_PLUGIN"       : ["-plugin-opt=emit-vtbl-checks",
+                         #"-plugin-opt=emit-llvm"
+                        ] if ENABLE_CHECKS else [
+                         #"-plugin-opt=emit-llvm"
+                        ],
+
     "CC"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang",
     "CXX"             : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
     "AR"              : folders["LLVM_SCRIPTS_DIR"] + "/ar",
@@ -100,18 +108,8 @@ def read_config():
                          "-L/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../..",
                          "-L" + folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/../lib",
                          "-L/lib",
-                         "-L/usr/lib",
-                         "-L" + folders["SD_DIR"] + "/libdyncast"],
-    "LD_PLUGIN"       : ["-plugin", folders["GOLD_PLUGIN"],
-                         "-plugin-opt=mcpu=x86-64",
-                         "-plugin-opt=emit-vtbl-checks",
-                         #"-plugin-opt=emit-llvm"
-                        ] if ENABLE_CHECKS else [
-                          "-plugin", folders["GOLD_PLUGIN"],
-                         "-plugin-opt=mcpu=x86-64",
-                         #"-plugin-opt=emit-llvm"
-                        ],
-    "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc", "-ldyncast",
+                         "-L/usr/lib"],
+    "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/crtend.o",
                          "/usr/lib/gcc/x86_64-linux-gnu/" + folders["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crtn.o"],
     })
@@ -124,7 +122,11 @@ if __name__ == '__main__':
     key = sys.argv[1].upper()
 
     if key in d:
-      print d[key]
+      var = d[key]
+      if type(var) == list:
+        print " ".join(var)
+      else:
+        print var
 
     sys.exit(0)
   else:
