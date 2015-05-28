@@ -17,6 +17,7 @@ sd_print(const char* fmt, ...) {
   fprintf(stderr, "SD] ");
   vfprintf(stderr, fmt,args);
   va_end(args);
+  fflush(stderr);
 #endif
 }
 

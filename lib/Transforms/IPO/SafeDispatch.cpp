@@ -217,6 +217,11 @@ namespace {
 
         interleaveCloud(vtbl);         // interleave the cloud
         calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
+      }
+
+
+      for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
+        vtbl_name_t vtbl = *itr;
         createThunkFunctions(M, vtbl); // replace the virtual thunks with the modified ones
         createNewVTable(M, vtbl);      // finally, emit the global variable
 
@@ -241,7 +246,8 @@ namespace {
 
       for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
            itr != M.getFunctionList().end(); itr++){
-        if (itr->getName().startswith("_ZTv")) {
+        if (itr->getName().startswith("_ZTv") && 
+            (itr->user_begin() == itr->user_end())) {
           vthunksToRemove.insert(itr);
         }
       }
@@ -529,7 +535,10 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
 
   for (unsigned i=0; i < vtbls.size(); i++) {
     const vtbl_name_t& vtbl = vtbls[i].first;
-    assert(oldVTables.count(vtbl));
+    if (oldVTables.count(vtbl) == 0) {
+      assert(undefinedVTables.count(vtbl));
+      continue;
+    }
     ConstantArray* vtableArr = oldVTables[vtbl];
 
     // iterate over the vtable elements
