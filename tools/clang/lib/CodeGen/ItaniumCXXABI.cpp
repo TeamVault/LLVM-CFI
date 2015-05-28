@@ -1418,7 +1418,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
 
   CGM.EmitVTableBitSetEntries(VTable, VTLayout);
 
-  sd_insertVtableMD(&CGM, &VTLayout, RD, NULL);
+  sd_insertVtableMD(&CGM, VTable, &VTLayout, RD, NULL);
 }
 
 llvm::Value *ItaniumCXXABI::getVTableAddressPointInStructor(

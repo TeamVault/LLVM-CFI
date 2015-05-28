@@ -122,6 +122,12 @@ namespace {
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
+//      for (const GlobalVariable& gv : M.getGlobalList()) {
+//        if (gv.getName().startswith("_ZTV")) {
+//          sd_print("GOT GV: %s\n", gv.getName().data());
+//        }
+//      }
+
       buildClouds(M);          // part 1
       printClouds();
       interleaveClouds(M);     // part 2
@@ -219,7 +225,6 @@ namespace {
         calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
       }
 
-
       for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
         vtbl_name_t vtbl = *itr;
         createThunkFunctions(M, vtbl); // replace the virtual thunks with the modified ones
@@ -263,7 +268,7 @@ namespace {
     /**
      * Extract the vtable info from the metadata and put it into a struct
      */
-    nmd_t extractMetadata(NamedMDNode* md);
+    std::vector<nmd_t> extractMetadata(NamedMDNode* md);
 
     /**
      * Interleave the cloud given by the root element.
@@ -829,55 +834,59 @@ void SDModule::buildClouds(Module &M) {
     if(! md->getName().startswith(SD_MD_CLASSINFO))
       continue;
 
-    nmd_t info = extractMetadata(md);
+//    sd_print("GOT METADATA: %s\n", md->getName().data());
 
-    // record the old vtable array
-    GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
+    std::vector<nmd_t> infoVec = extractMetadata(md);
 
-    if (oldVtable && oldVtable->hasInitializer()) {
-      ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
-      assert(vtable);
-      oldVTables[info.className] = vtable;
-    } else {
-      undefinedVTables.insert(info.className);
-    }
+    for (const nmd_t& info : infoVec) {
+      // record the old vtable array
+      GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
-    // remove the root from undefined vtables
-    if (build_undefinedVtables.find(info.className) != build_undefinedVtables.end())
-      build_undefinedVtables.erase(info.className);
-
-    for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
-      nmd_sub_t* subInfo = & info.subVTables[ind];
-      vtbl_t name(info.className, ind);
-
-      if (subInfo->parentName != "") {
-        // add the current class to the parent's children set
-        cloudMap[vtbl_t(subInfo->parentName,0)].insert(name);
-
-        // if the parent class is not defined yet, add it to the
-        // undefined vtable set
-        if (cloudMap.find(vtbl_t(subInfo->parentName,0)) == cloudMap.end())
-          build_undefinedVtables.insert(subInfo->parentName);
+      if (oldVtable && oldVtable->hasInitializer()) {
+        ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
+        assert(vtable);
+        oldVTables[info.className] = vtable;
       } else {
-        assert(ind == 0); // make sure secondary vtables have a direct parent
-
-        if (cloudMap.find(name) == cloudMap.end()){
-          // make sure the root is added to the cloud
-          cloudMap[name] = std::set<vtbl_t>();
-        }
-
-        // add the class to the root set
-        roots.insert(info.className);
+        undefinedVTables.insert(info.className);
       }
 
-      // record the original address points
-      addrPtMap[info.className].push_back(subInfo->addressPoint);
+      // remove the root from undefined vtables
+      if (build_undefinedVtables.find(info.className) != build_undefinedVtables.end())
+        build_undefinedVtables.erase(info.className);
 
-      // record the sub-vtable ends
-      rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
+      for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
+        const nmd_sub_t* subInfo = & info.subVTables[ind];
+        vtbl_t name(info.className, ind);
 
-      // record the class name of the sub-object
-      subObjNameMap[info.className].push_back(subInfo->parentName);
+        if (subInfo->parentName != "") {
+          // add the current class to the parent's children set
+          cloudMap[vtbl_t(subInfo->parentName,0)].insert(name);
+
+          // if the parent class is not defined yet, add it to the
+          // undefined vtable set
+          if (cloudMap.find(vtbl_t(subInfo->parentName,0)) == cloudMap.end())
+            build_undefinedVtables.insert(subInfo->parentName);
+        } else {
+          assert(ind == 0); // make sure secondary vtables have a direct parent
+
+          if (cloudMap.find(name) == cloudMap.end()){
+            // make sure the root is added to the cloud
+            cloudMap[name] = std::set<vtbl_t>();
+          }
+
+          // add the class to the root set
+          roots.insert(info.className);
+        }
+
+        // record the original address points
+        addrPtMap[info.className].push_back(subInfo->addressPoint);
+
+        // record the sub-vtable ends
+        rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
+
+        // record the class name of the sub-object
+        subObjNameMap[info.className].push_back(subInfo->parentName);
+      }
     }
   }
 
@@ -890,43 +899,90 @@ void SDModule::handleUndefinedVtables(std::set<SDModule::vtbl_name_t>& undefVtbl
   }
 }
 
-SDModule::nmd_t SDModule::extractMetadata(NamedMDNode* md) {
-  SDModule::nmd_t info;
-  info.className = (cast<MDString>(md->getOperand(0)->getOperand(0)))->getString().str();
+static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
+  llvm::MDNode* mdNode = dyn_cast<llvm::MDNode>(vtblMd);
+  assert(mdNode);
+  Metadata* md = mdNode->getOperand(0).get();
 
-  unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(1)->getOperand(0));
-
-  for (unsigned i = 0; i < numOperands; ++i) {
-    SDModule::nmd_sub_t subInfo;
-    llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i + 2));
-    assert(tup);
-    if (tup->getNumOperands() != 5) {
-      sd_print("node operand count: %u\n", md->getNumOperands());
-      sd_print("tuple operand count: %u\n", tup->getNumOperands());
-      tup->dump();
-      assert(tup->getNumOperands() == 5);
-    }
-
-    subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));
-    subInfo.parentName = sd_getStringFromMDTuple(tup->getOperand(1));
-
-    subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(2));
-    subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(3));
-    subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(4));
-
-    assert(subInfo.start <= subInfo.addressPoint &&
-           subInfo.addressPoint <= subInfo.end);
-    assert(i == 0 || (--info.subVTables.end())->end < subInfo.start);
-
-//    sd_print("%lu: %s[%lu,%lu] %lu\n",subInfo.order,
-//             (subInfo.parentName.size() > 0 ? (subInfo.parentName + " ").c_str() : ""),
-//             subInfo.start, subInfo.end, subInfo.addressPoint);
-
-    info.subVTables.push_back(subInfo);
+  if(dyn_cast<llvm::MDString>(md)) {
+    return NULL;
   }
 
-  return info;
+  llvm::ConstantAsMetadata* vtblCAM = dyn_cast<ConstantAsMetadata>(md);
+  if(! vtblCAM) {
+    md->dump();
+    assert(false);
+  }
+  Constant* vtblC = vtblCAM->getValue();
+  GlobalVariable* vtblGV = dyn_cast<GlobalVariable>(vtblC);
+  assert(vtblGV);
+  return vtblGV;
 }
+
+std::vector<SDModule::nmd_t>
+SDModule::extractMetadata(NamedMDNode* md) {
+  std::set<vtbl_name_t> classes;
+  std::vector<SDModule::nmd_t> infoVec;
+
+  unsigned op = 0;
+
+  do {
+    SDModule::nmd_t info;
+    info.className = (cast<MDString>(md->getOperand(op++)->getOperand(0)))->getString().str();
+    GlobalVariable* classVtbl = sd_mdnodeToGV(md->getOperand(op++));
+
+    if (classVtbl) {
+      info.className = classVtbl->getName();
+    }
+//    sd_print("class: %s\n", info.className.c_str());
+
+    unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(op++)->getOperand(0));
+//    sd_print("operandNo : %u\n", numOperands);
+
+    for (unsigned i = op; i < op + numOperands; ++i) {
+      SDModule::nmd_sub_t subInfo;
+      llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(op));
+      assert(tup);
+      if (tup->getNumOperands() != 6) {
+        sd_print("node operand count: %u\n", md->getNumOperands());
+        sd_print("tuple operand count: %u\n", tup->getNumOperands());
+        tup->dump();
+        assert(false);
+      }
+
+      subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));
+      subInfo.parentName = sd_getStringFromMDTuple(tup->getOperand(1));
+
+      GlobalVariable* parentVtable = sd_mdnodeToGV(tup->getOperand(2).get());
+
+      if(parentVtable) {
+        subInfo.parentName = parentVtable->getName();
+      }
+
+      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(3));
+      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(4));
+      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(5));
+
+//      sd_print("%lu %s %lu %lu %lu\n", subInfo.order, subInfo.parentName.c_str(),
+//               subInfo.start, subInfo.end, subInfo.addressPoint);
+
+      assert(subInfo.start <= subInfo.addressPoint &&
+             subInfo.addressPoint <= subInfo.end);
+      assert(i == op || (--info.subVTables.end())->end < subInfo.start);
+
+      info.subVTables.push_back(subInfo);
+    }
+    op += numOperands;
+
+    if (classes.count(info.className) == 0) {
+      classes.insert(info.className);
+      infoVec.push_back(info);
+    }
+  } while (op < md->getNumOperands());
+
+  return infoVec;
+}
+
 int64_t SDModule::oldIndexToNew2(SDModule::vtbl_t name, int64_t offset,
                                 bool isRelative = true) {
   if (! newLayoutInds.count(name)) {
@@ -1050,7 +1106,7 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
         int64_t oldValue = getMetadataConstant(mdNode, 1);
         int64_t oldInd = oldValue / WORD_WIDTH;
 
-        sd_print("vbase: class: %s, old: %d\n", className.c_str(), oldInd);
+//        sd_print("vbase: class: %s, old: %d\n", className.c_str(), oldInd);
         int64_t newInd = sdModule->oldIndexToNew(className,oldInd,true);
         int64_t newValue = newInd * WORD_WIDTH;
 
@@ -1066,7 +1122,7 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
           // GEP instruction using constant folding
           int64_t oldValue = ci->getSExtValue();
 
-          sd_print("memptr opt: class: %s, old: %d\n", className.c_str(), oldValue);
+//          sd_print("memptr opt: class: %s, old: %d\n", className.c_str(), oldValue);
           int64_t newValue = sdModule->oldIndexToNew(className,oldValue,true);
 
           sanityCheck1(gepInst);
@@ -1164,7 +1220,7 @@ void SDChangeIndices::replaceDynamicCast(Module *module, Instruction *inst, llvm
     arguments.push_back(callInst->getArgOperand(argNo));
   }
 
-  sd_print("dyncast: %s (-1 & -2) \n", className.c_str());
+//  sd_print("dyncast: %s (-1 & -2) \n", className.c_str());
   int64_t newOTTOff  = sdModule->oldIndexToNew(className, -2, true);
   int64_t newRTTIOff = sdModule->oldIndexToNew(className, -1, true);
 
@@ -1180,7 +1236,7 @@ void SDChangeIndices::replaceDynamicCast(Module *module, Instruction *inst, llvm
 void SDChangeIndices::updateRTTIOffset(Instruction *inst, llvm::MDNode* mdNode) {
   std::string className = sd_getClassNameFromMD(mdNode);
 
-  sd_print("rtti: %s -1\n", className.c_str());
+//  sd_print("rtti: %s -1\n", className.c_str());
   int64_t newRttiOff = sdModule->oldIndexToNew(className, -1, true);
 
   LoadInst* loadInst = dyn_cast<LoadInst>(inst);
@@ -1199,7 +1255,7 @@ void SDChangeIndices::replaceConstantStruct(ConstantStruct *CS, Instruction *ins
 
   int64_t oldValue = (ci->getSExtValue() - 1) / WORD_WIDTH;
 
-  sd_print("ConsStruct: %s %ld\n", className.c_str(), oldValue);
+//  sd_print("ConsStruct: %s %ld\n", className.c_str(), oldValue);
   int64_t newValue = sdModule->oldIndexToNew(className, oldValue, true);
 
   V.push_back(ConstantInt::get(

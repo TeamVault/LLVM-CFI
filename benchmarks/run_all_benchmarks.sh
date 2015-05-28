@@ -13,7 +13,8 @@ run_benchmarks() {
 
   local -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt'
   'my_ex1' 'abi_ex' 'single_template' 'member_ptr' 'md_test' 'static_lib'
-  'nonvirtual_covariant_thunks' 'virtual_covariant_thunks')
+  'nonvirtual_covariant_thunks' 'virtual_covariant_thunks'
+  'namespace_1' 'namespace_2')
 
   local -a neg_benchs=('bad_cast')
 

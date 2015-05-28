@@ -83,9 +83,11 @@ def read_config():
     "SD_LIB_FOLDERS"  : ["-L" + folders["SD_DIR"] + "/libdyncast"],
     "SD_LIBS"         : ["-ldyncast"],
     "LD_PLUGIN"       : ["-plugin-opt=emit-vtbl-checks",
-                         #"-plugin-opt=emit-llvm"
+                         "-plugin-opt=save-temps",
+                         #"-plugin-opt=emit-llvm",
                         ] if ENABLE_CHECKS else [
-                         #"-plugin-opt=emit-llvm"
+                         "-plugin-opt=save-temps",
+                         #"-plugin-opt=emit-llvm",
                         ],
 
     "CC"              : folders["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang",

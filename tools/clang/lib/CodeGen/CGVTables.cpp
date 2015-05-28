@@ -712,7 +712,7 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
 
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
 
-  sd_insertVtableMD(&CGM, VTLayout.get(), RD, &Base);
+  sd_insertVtableMD(&CGM, VTable, VTLayout.get(), RD, &Base);
 
   return VTable;
 }

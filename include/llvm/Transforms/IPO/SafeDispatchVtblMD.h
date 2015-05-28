@@ -50,10 +50,25 @@ namespace {
       order(_order), parentName(_parent), start(_start),
       end(_end), addressPoint(_addrPt) {}
 
-    llvm::MDNode* getMDNode(llvm::LLVMContext& C) {
+    llvm::MDNode* getMDNode(const llvm::Module& M, llvm::LLVMContext& C) {
       std::vector<llvm::Metadata*> tuple;
+
       tuple.push_back(sd_getMDNumber(C, order));
+
       tuple.push_back(sd_getMDString(C, parentName));
+
+      if (parentName.length() > 0) {
+        llvm::GlobalVariable* gv = M.getGlobalVariable(parentName,true);
+        if (gv) {
+          llvm::Metadata* gvMd = llvm::ConstantAsMetadata::get(gv);
+          tuple.push_back(llvm::MDNode::get(C,gvMd));
+        } else {
+          tuple.push_back(llvm::MDNode::get(C, sd_getMDString(C, "NO_VTABLE")));
+        }
+      } else {
+        tuple.push_back(llvm::MDNode::get(C, sd_getMDString(C, "NO_VTABLE")));
+      }
+
       tuple.push_back(sd_getMDNumber(C, start));
       tuple.push_back(sd_getMDNumber(C, end));
       tuple.push_back(sd_getMDNumber(C, addressPoint));
@@ -237,8 +252,9 @@ sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayou
  * vtable that is required for interleaving.
  */
 static void
-sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout* VTLayout,
-                    const clang::CXXRecordDecl *RD, const clang::BaseSubobject* Base = NULL) {
+sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, llvm::GlobalVariable* VTable,
+                  const clang::VTableLayout* VTLayout, const clang::CXXRecordDecl *RD,
+                  const clang::BaseSubobject* Base = NULL) {
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI* ABI = & CGM->getCXXABI();
@@ -265,28 +281,39 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
     for (auto &&AP : VTLayout->getAddressPoints()) {
       aps.insert(AP.second);
     }
-    assert(classInfo->getNumOperands() == (2 + aps.size()));
+    // last 1 is for class vtable
+    assert(classInfo->getNumOperands() == (2 + aps.size() + 1));
     return;
   }
 
   llvm::LLVMContext& C = CGM->getLLVMContext();
 
+  const llvm::Module& M = CGM->getModule();
+
   // first put the class name
   classInfo->addOperand(llvm::MDNode::get(C, sd_getMDString(C, className)));
 
-  if (className == "_ZTVN11xercesc_2_510XMLDeleterE") {
-    std::cerr << "subvtbl count: " << subVtables.size() << std::endl;
-    for (unsigned i = 0; i < subVtables.size(); ++i) {
-      subVtables[i].dump(std::cerr);
-      std::cerr << std::endl;
-    }
+  // second put the vtable global variable
+  llvm::GlobalVariable* gv = NULL;
+  if (VTable) {
+    gv = VTable;
+  } else {
+    gv = M.getGlobalVariable(className, true);
   }
 
+  if (gv == NULL) {
+    classInfo->addOperand(llvm::MDNode::get(C,sd_getMDString(C, "NO_VTABLE")));
+  } else {
+    llvm::Metadata* gvMd = llvm::ConstantAsMetadata::get(gv);
+    classInfo->addOperand(llvm::MDNode::get(C,gvMd));
+  }
+
+  // third put the size of the tuple
   classInfo->addOperand(llvm::MDNode::get(C, sd_getMDNumber(C, subVtables.size())));
 
   // then add md for each sub-vtable
   for (unsigned i = 0; i < subVtables.size(); ++i) {
-    classInfo->addOperand(subVtables[i].getMDNode(C));
+    classInfo->addOperand(subVtables[i].getMDNode(M,C));
   }
 
   // make sure parent class' metadata is added too
@@ -295,7 +322,7 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, const clang::VTableLayout*
     const clang::CXXRecordDecl* subRD = subObj->getBase();
 
     if (subRD != RD) {
-      sd_insertVtableMD(CGM, &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
+      sd_insertVtableMD(CGM, NULL, &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
                         subRD, NULL);
     }
   }
