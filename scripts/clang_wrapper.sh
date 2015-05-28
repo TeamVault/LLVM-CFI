@@ -37,10 +37,19 @@ run_link_command() {
   $LD $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN
 }
 
-IS_COMPILE=$(containsElement "-c" "${@}")
+declare -a sd_args=()
 
-if [[ "$IS_COMPILE" == "1" ]]; then
-  run_compile_command "${@}"
+# remove unwanted parameters
+for var in "$@"; do
+  if [[ $(substring $var "-O") == "true" ]]; then
+    continue
+  else
+    sd_args=("${sd_args[@]}" "$var")
+  fi
+done
+
+if [[ $(containsElement "-c" "${sd_args[@]}") == "1" ]]; then
+  run_compile_command "${sd_args[@]}"
 else
-  run_link_command "${@}"
+  run_link_command "${sd_args[@]}"
 fi

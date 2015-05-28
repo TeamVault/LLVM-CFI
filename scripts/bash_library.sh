@@ -33,3 +33,14 @@ endswith() {
       echo false
   fi
 }
+
+substring() {
+  local str="$1"
+  local suffix="$2"
+
+  if [[ "${str}" == *"${suffix}"* ]]; then
+    echo true
+  else
+    echo false
+  fi
+}
