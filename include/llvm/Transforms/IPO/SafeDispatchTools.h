@@ -28,5 +28,22 @@ static bool sd_isVTTName(std::string& name) {
   return name.find("_ZTT") == 0;
 }
 
+/**
+ * Helper function to create a metadata that contains the given integer
+ */
+static llvm::Metadata*
+sd_getMDNumber(llvm::LLVMContext& C, uint64_t val) {
+  return  llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(llvm::Type::getInt64Ty(C), val));
+}
+
+/**
+ * Helper function to create a metadata that contains the given string
+ */
+static llvm::Metadata*
+sd_getMDString(llvm::LLVMContext& C, const std::string& str) {
+  return llvm::MDString::get(C, str.c_str());
+}
+
 #endif
 

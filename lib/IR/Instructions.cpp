@@ -30,6 +30,7 @@ using namespace llvm;
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
+#include "llvm/Transforms/IPO/SafeDispatchGVMd.h"
 #include <vector>
 
 
@@ -44,9 +45,12 @@ sd_handleStoreMethodPointer(StoreInst* storeInst, Value* val) {
   if (memptr) {
     std::string className = memptr->getClassName();
     if (sd_isVtableName(className)) {
-      llvm::LLVMContext& C = storeInst->getContext();
-      llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
-      storeInst->setMetadata(SD_MD_MEMPTR, N);
+//      llvm::LLVMContext& C = storeInst->getContext();
+//      llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
+//      storeInst->setMetadata(SD_MD_MEMPTR, N);
+      storeInst->setMetadata(SD_MD_MEMPTR,
+                             sd_getClassNameMetadata(className,
+                                                     * storeInst->getParent()->getParent()->getParent()));
     }
   } else if (storeInst->getMetadata(SD_MD_MEMPTR)) {
     sd_print("HAS MD BUT NOT MEMPTR\n");
@@ -3745,7 +3749,13 @@ static void sd_handleSelectMethodPointer(llvm::SelectInst* storeInst,
       std::vector<llvm::Metadata*> tupleElements;
 
       tupleElements.push_back(llvm::MDString::get(C, cn1));
+      tupleElements.push_back(sd_getClassVtblGVMD(cn1,
+                                                  * storeInst->getParent()->getParent()->getParent()));
+
       tupleElements.push_back(llvm::MDString::get(C, cn2));
+      tupleElements.push_back(sd_getClassVtblGVMD(cn2,
+                                                  * storeInst->getParent()->getParent()->getParent()));
+
       llvm::MDNode* mdNode = llvm::MDNode::get(C, tupleElements);
 
       storeInst->setMetadata(SD_MD_MEMPTR2, mdNode);

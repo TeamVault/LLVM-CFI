@@ -9,28 +9,12 @@
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
+#include "llvm/Transforms/IPO/SafeDispatchGVMd.h"
 
 #include <iostream>
 #include <string>
 #include <vector>
 #include <map>
-
-/**
- * Helper function to create a metadata that contains the given integer
- */
-static llvm::Metadata*
-sd_getMDNumber(llvm::LLVMContext& C, uint64_t val) {
-  return  llvm::ConstantAsMetadata::get(
-        llvm::ConstantInt::get(llvm::Type::getInt64Ty(C), val));
-}
-
-/**
- * Helper function to create a metadata that contains the given string
- */
-static llvm::Metadata*
-sd_getMDString(llvm::LLVMContext& C, const std::string& str) {
-  return llvm::MDString::get(C, str.c_str());
-}
 
 namespace {
   /**
@@ -50,25 +34,12 @@ namespace {
       order(_order), parentName(_parent), start(_start),
       end(_end), addressPoint(_addrPt) {}
 
-    llvm::MDNode* getMDNode(const llvm::Module& M, llvm::LLVMContext& C) {
+    llvm::MDNode* getMDNode(llvm::Module& M, llvm::LLVMContext& C) {
       std::vector<llvm::Metadata*> tuple;
 
       tuple.push_back(sd_getMDNumber(C, order));
-
       tuple.push_back(sd_getMDString(C, parentName));
-
-      if (parentName.length() > 0) {
-        llvm::GlobalVariable* gv = M.getGlobalVariable(parentName,true);
-        if (gv) {
-          llvm::Metadata* gvMd = llvm::ConstantAsMetadata::get(gv);
-          tuple.push_back(llvm::MDNode::get(C,gvMd));
-        } else {
-          tuple.push_back(llvm::MDNode::get(C, sd_getMDString(C, "NO_VTABLE")));
-        }
-      } else {
-        tuple.push_back(llvm::MDNode::get(C, sd_getMDString(C, "NO_VTABLE")));
-      }
-
+      tuple.push_back(sd_getClassVtblGVMD(parentName, M));
       tuple.push_back(sd_getMDNumber(C, start));
       tuple.push_back(sd_getMDNumber(C, end));
       tuple.push_back(sd_getMDNumber(C, addressPoint));
@@ -288,25 +259,13 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, llvm::GlobalVariable* VTab
 
   llvm::LLVMContext& C = CGM->getLLVMContext();
 
-  const llvm::Module& M = CGM->getModule();
+  llvm::Module& M = CGM->getModule();
 
   // first put the class name
   classInfo->addOperand(llvm::MDNode::get(C, sd_getMDString(C, className)));
 
   // second put the vtable global variable
-  llvm::GlobalVariable* gv = NULL;
-  if (VTable) {
-    gv = VTable;
-  } else {
-    gv = M.getGlobalVariable(className, true);
-  }
-
-  if (gv == NULL) {
-    classInfo->addOperand(llvm::MDNode::get(C,sd_getMDString(C, "NO_VTABLE")));
-  } else {
-    llvm::Metadata* gvMd = llvm::ConstantAsMetadata::get(gv);
-    classInfo->addOperand(llvm::MDNode::get(C,gvMd));
-  }
+  classInfo->addOperand(sd_getClassVtblGVMD(className,M,VTable));
 
   // third put the size of the tuple
   classInfo->addOperand(llvm::MDNode::get(C, sd_getMDNumber(C, subVtables.size())));

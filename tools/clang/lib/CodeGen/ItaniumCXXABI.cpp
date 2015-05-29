@@ -39,6 +39,7 @@
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchVtblMD.h"
+#include <vector>
 
 using namespace clang;
 using namespace CodeGen;
@@ -475,9 +476,10 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
   if (sd_isVtableName(Name)) {
-    llvm::LLVMContext& C = vtableGepInst->getContext();
-    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
+//    llvm::LLVMContext& C = vtableGepInst->getContext();
+//    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+//    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
+    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, sd_getClassNameMetadata(Name, CGF.CGM.getModule()));
   }
 
   // Load the virtual function to call.
@@ -1109,9 +1111,10 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   std::string Name = CGM.getCXXABI().GetClassMangledName(SrcRecordTy->getAsCXXRecordDecl());
 
   if (sd_isVtableName(Name)) {
-    llvm::LLVMContext& C = loadInst->getContext();
-    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    loadInst->setMetadata(SD_MD_TYPEID, N);
+//    llvm::LLVMContext& C = loadInst->getContext();
+//    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+//    loadInst->setMetadata(SD_MD_TYPEID, N);
+    loadInst->setMetadata(SD_MD_TYPEID, sd_getClassNameMetadata(Name,CGM.getModule()));
   }
 
   return Value;
@@ -1155,9 +1158,11 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
   std::string Name = CGM.getCXXABI().GetClassMangledName(SrcDecl);
 
   if (sd_isVtableName(Name)) {
-    llvm::LLVMContext& C = cInst->getContext();
-    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    cInst->setMetadata(SD_MD_CAST_FROM, N);
+//    llvm::LLVMContext& C = cInst->getContext();
+//    llvm::MDString* classNameMD = llvm::MDString::get(C, Name);
+//    llvm::MDNode* N = llvm::MDNode::get(C, classNameMD);
+//    cInst->setMetadata(SD_MD_CAST_FROM, N);
+    cInst->setMetadata(SD_MD_CAST_FROM, sd_getClassNameMetadata(Name,CGM.getModule()));
   }
 
   Value = CGF.Builder.CreateBitCast(Value, DestLTy);
@@ -1233,6 +1238,7 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
     llvm::LLVMContext& C = gepInst->getContext();
     std::vector<llvm::Metadata*> tupleElements;
     tupleElements.push_back(llvm::MDString::get(C, className));
+    tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule()));
     tupleElements.push_back(llvm::ConstantAsMetadata::get(
                   llvm::ConstantInt::getSigned(
                     llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
@@ -1528,8 +1534,8 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   // add the metadata
   llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
   assert(cmp);
-  llvm::Metadata* md = llvm::MDString::get(C, CGM.getCXXABI().GetClassMangledName(MD->getParent()));
-  cmp->setMetadata(SD_MD_CHECK, llvm::MDNode::get(C, md));
+  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule()));
 
   // do the branch
   llvm::BranchInst *br = CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
@@ -1574,9 +1580,10 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
 
   if (sd_isVtableName(Name)) {
     llvm::Instruction* inst = gepInst;
-    llvm::LLVMContext& C = inst->getContext();
-    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    inst->setMetadata(SD_MD_CLASS_NAME, N);
+//    llvm::LLVMContext& C = inst->getContext();
+//    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
+    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule());
+    inst->setMetadata(SD_MD_CLASS_NAME, md);
   }
 
   return CGF.Builder.CreateLoad(VFuncPtr);
