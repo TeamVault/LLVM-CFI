@@ -38,6 +38,8 @@ using namespace llvm;
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 #define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
 
+llvm::Module* CURR_MODULE = NULL;
+
 namespace {
   /**
    * Module pass for the SafeDispatch Gold Plugin
@@ -118,6 +120,7 @@ namespace {
      *    c. Create a GlobalVariable for each cloud
      */
     bool runOnModule(Module &M) {
+      CURR_MODULE = &M;
       sd_print("Started safedispatch analysis\n");
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
@@ -353,6 +356,7 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
+      CURR_MODULE = &M;
       sdModule = &getAnalysis<SDModule>();
       assert(sdModule);
 
@@ -377,6 +381,8 @@ namespace {
       }
 
       sdModule->clearAnalysisResults();
+
+      sd_print("Finished running the 2nd pass...\n");
 
       return isUpdate;
     }
@@ -807,7 +813,9 @@ std::vector<SDModule::vtbl_t> SDModule::preorder(vtbl_t& root) {
 
 static inline uint64_t
 sd_getNumberFromMDTuple(const MDOperand& op) {
-  ConstantAsMetadata* cam = dyn_cast<ConstantAsMetadata>(op.get());
+  Metadata* md = op.get();
+  assert(md);
+  ConstantAsMetadata* cam = dyn_cast<ConstantAsMetadata>(md);
   assert(cam);
   ConstantInt* ci = dyn_cast<ConstantInt>(cam->getValue());
   assert(ci);
@@ -903,6 +911,7 @@ static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
   llvm::MDNode* mdNode = dyn_cast<llvm::MDNode>(vtblMd);
   assert(mdNode);
   Metadata* md = mdNode->getOperand(0).get();
+  assert(md);
 
   if(dyn_cast<llvm::MDString>(md)) {
     return NULL;
@@ -1063,16 +1072,54 @@ void SDModule::clearAnalysisResults() {
 /// SDChangeIndices implementation
 /// ----------------------------------------------------------------------------
 
-static std::string
-sd_getClassNameFromMD(llvm::MDNode* mdNode) {
-  assert(mdNode);
+#include "llvm/ADT/SmallString.h"
 
-  llvm::MDString* mdStr = dyn_cast<llvm::MDString>(mdNode->getOperand(0));
+static std::string
+sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
+  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
+  sd_print("tuple id: %u\n", mdTuple->getMetadataID());
+  mdTuple->dump(CURR_MODULE);
+  assert(mdTuple);
+
+  assert(mdTuple->getNumOperands() > operandNo + 1);
+
+  llvm::MDNode* nameMdNode = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
+  assert(nameMdNode);
+  sd_print("tuple[0] id: %u\n", nameMdNode->getMetadataID());
+  nameMdNode->dump(CURR_MODULE);
+
+  llvm::MDString* mdStr = dyn_cast<llvm::MDString>(nameMdNode->getOperand(0));
   assert(mdStr);
   StringRef strRef = mdStr->getString();
   assert(sd_isVtableName_ref(strRef));
 
-  return strRef.str();
+  llvm::MDNode* gvMd = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
+  sd_print("tuple[1] id: %u\n", gvMd->getMetadataID());
+  gvMd->dump(CURR_MODULE);
+
+  SmallString<256> OutName;
+  llvm::raw_svector_ostream Out(OutName);
+  gvMd->print(Out, CURR_MODULE);
+  Out.flush();
+  sd_print("print: %s\n", OutName.str().data());
+
+  llvm::ConstantAsMetadata* vtblConsMd = dyn_cast<ConstantAsMetadata>(gvMd->getOperand(0).get());
+  if (vtblConsMd == NULL) {
+    llvm::MDNode* tmpnode = dyn_cast<llvm::MDNode>(gvMd);
+    llvm::MDString* tmpstr = dyn_cast<llvm::MDString>(tmpnode->getOperand(0));
+    assert(tmpstr->getString() == "NO_VTABLE");
+
+    return strRef.str();
+  }
+
+  llvm::GlobalVariable* vtbl = dyn_cast<llvm::GlobalVariable>(vtblConsMd->getValue());
+  assert(vtbl);
+
+  StringRef vtblNameRef = vtbl->getName();
+  assert(vtblNameRef.startswith(strRef));
+
+  sd_print("GV IN MD\n");
+  return vtblNameRef.str();
 }
 
 bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
@@ -1103,7 +1150,7 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
 
       } else if ((mdNode = inst->getMetadata(vbaseMDId))) {
         std::string className = sd_getClassNameFromMD(mdNode);
-        int64_t oldValue = getMetadataConstant(mdNode, 1);
+        int64_t oldValue = getMetadataConstant(mdNode, 2);
         int64_t oldInd = oldValue / WORD_WIDTH;
 
 //        sd_print("vbase: class: %s, old: %d\n", className.c_str(), oldInd);
@@ -1295,6 +1342,9 @@ void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *
   std::string className = sd_getClassNameFromMD(mdNode);
   SDModule::vtbl_t vtbl(className,0);
 
+  sd_print("name: %s, function: %s\n", className.c_str(),
+           inst->getParent()->getParent()->getName().data());
+
   // %134 = icmp ult i64 %133, <count>, !dbg !874, !sd.check !751
   ICmpInst* icmpInst = dyn_cast<ICmpInst>(inst);
   assert(icmpInst);
@@ -1334,8 +1384,8 @@ void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *
 }
 
 void SDChangeIndices::handleSelectMemberPointer(MDNode *mdNode, Instruction *inst){
-  std::string className1 = cast<llvm::MDString>(mdNode->getOperand(0))->getString();
-  std::string className2 = cast<llvm::MDString>(mdNode->getOperand(1))->getString();
+  std::string className1 = sd_getClassNameFromMD(mdNode,0);
+  std::string className2 = sd_getClassNameFromMD(mdNode,2);
 
   SelectInst* selectInst = dyn_cast<SelectInst>(inst);
   assert(selectInst);
@@ -1351,7 +1401,7 @@ void SDChangeIndices::handleSelectMemberPointer(MDNode *mdNode, Instruction *ins
   replaceConstantStruct(CS2, selectInst, className2);
 }
 
-int64_t SDChangeIndices::getMetadataConstant(MDNode *mdNode, unsigned operandNo) {
+int64_t SDChangeIndices::getMetadataConstant(llvm::MDNode *mdNode, unsigned operandNo) {
   llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
   assert(mdTuple);
 

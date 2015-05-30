@@ -479,7 +479,8 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
 //    llvm::LLVMContext& C = vtableGepInst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
 //    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
-    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, sd_getClassNameMetadata(Name, CGF.CGM.getModule()));
+    llvm::GlobalVariable* VTable = this->getAddrOfVTable(RD,CharUnits());
+    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
   }
 
   // Load the virtual function to call.
@@ -1108,13 +1109,15 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   assert(loadInst);
 
   // put mangled vtable name into a string
-  std::string Name = CGM.getCXXABI().GetClassMangledName(SrcRecordTy->getAsCXXRecordDecl());
+  CXXRecordDecl* RD = SrcRecordTy->getAsCXXRecordDecl();
+  std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
   if (sd_isVtableName(Name)) {
 //    llvm::LLVMContext& C = loadInst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
 //    loadInst->setMetadata(SD_MD_TYPEID, N);
-    loadInst->setMetadata(SD_MD_TYPEID, sd_getClassNameMetadata(Name,CGM.getModule()));
+    llvm::GlobalVariable* VTable = this->getAddrOfVTable(RD,CharUnits());
+    loadInst->setMetadata(SD_MD_TYPEID, sd_getClassNameMetadata(Name,CGM.getModule(), VTable));
   }
 
   return Value;
@@ -1162,7 +1165,8 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
 //    llvm::MDString* classNameMD = llvm::MDString::get(C, Name);
 //    llvm::MDNode* N = llvm::MDNode::get(C, classNameMD);
 //    cInst->setMetadata(SD_MD_CAST_FROM, N);
-    cInst->setMetadata(SD_MD_CAST_FROM, sd_getClassNameMetadata(Name,CGM.getModule()));
+    llvm::GlobalVariable* VTable = this->getAddrOfVTable(SrcDecl, CharUnits());
+    cInst->setMetadata(SD_MD_CAST_FROM, sd_getClassNameMetadata(Name,CGM.getModule(), VTable));
   }
 
   Value = CGF.Builder.CreateBitCast(Value, DestLTy);
@@ -1234,11 +1238,12 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
 
   if (sd_isVtableName(className)) {
     int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
+    llvm::GlobalVariable* VTable = getAddrOfVTable(ClassDecl, CharUnits());
 
     llvm::LLVMContext& C = gepInst->getContext();
     std::vector<llvm::Metadata*> tupleElements;
     tupleElements.push_back(llvm::MDString::get(C, className));
-    tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule()));
+    tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule(), VTable));
     tupleElements.push_back(llvm::ConstantAsMetadata::get(
                   llvm::ConstantInt::getSigned(
                     llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
@@ -1535,10 +1540,13 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
   assert(cmp);
   std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
-  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule()));
+
+  const CXXRecordDecl* RD = MD->getParent();
+  llvm::GlobalVariable* VTable = CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
+  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
 
   // do the branch
-  llvm::BranchInst *br = CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
+  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
 
   CGF.addDeferredVTableFailBlock(checkFailed);
 
@@ -1582,7 +1590,8 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     llvm::Instruction* inst = gepInst;
 //    llvm::LLVMContext& C = inst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule());
+    llvm::GlobalVariable* VTable = getAddrOfVTable(RD, CharUnits());
+    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTable);
     inst->setMetadata(SD_MD_CLASS_NAME, md);
   }
 

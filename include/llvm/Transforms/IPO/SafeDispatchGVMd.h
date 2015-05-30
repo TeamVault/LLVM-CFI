@@ -6,6 +6,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/Support/Casting.h"
 
 #include "SafeDispatchTools.h"
 
@@ -14,19 +15,20 @@
  */
 static llvm::MDNode*
 sd_getClassVtblGVMD(const std::string& className, llvm::Module& M, llvm::GlobalVariable* VTable = NULL) {
+  llvm::LLVMContext& C = M.getContext();
   llvm::GlobalVariable* gv = NULL;
+
   if (VTable) {
     gv = VTable;
   } else {
     gv = M.getGlobalVariable(className, true);
   }
 
-  llvm::LLVMContext& C = M.getContext();
-
   if (gv == NULL) {
     return llvm::MDNode::get(C,sd_getMDString(C, "NO_VTABLE"));
   } else {
-    llvm::Metadata* gvMd = llvm::ConstantAsMetadata::get(gv);
+    llvm::Metadata* gvMd = llvm::ConstantAsMetadata::getConstant(gv);
+    assert(gvMd);
     return llvm::MDNode::get(C,gvMd);
   }
 }
