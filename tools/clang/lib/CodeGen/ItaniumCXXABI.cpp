@@ -1242,8 +1242,12 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
 
     llvm::LLVMContext& C = gepInst->getContext();
     std::vector<llvm::Metadata*> tupleElements;
-    tupleElements.push_back(llvm::MDString::get(C, className));
+
+    // class name and its vtable
+    tupleElements.push_back(llvm::MDNode::get(C, llvm::MDString::get(C, className)));
     tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule(), VTable));
+
+    // vbase offset
     tupleElements.push_back(llvm::ConstantAsMetadata::get(
                   llvm::ConstantInt::getSigned(
                     llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));

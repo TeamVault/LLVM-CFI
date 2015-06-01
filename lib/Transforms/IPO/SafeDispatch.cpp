@@ -135,6 +135,8 @@ namespace {
       printClouds();
       interleaveClouds(M);     // part 2
 
+      sd_print("Finished safedispatch analysis\n");
+
       return roots.size() > 0;
     }
 
@@ -208,6 +210,8 @@ namespace {
       return vtableAddrPtr;
     }
 
+    void removeVtablesAndThunks(Module &M);
+
   private:
 
     /**
@@ -236,35 +240,6 @@ namespace {
         // exploit this loop to calculate the sizes of all possible subgraphs
         // that has a primary vtable as a root
         calculateChildrenCounts(vtbl_t(vtbl,0));
-      }
-
-      // remove the old vtables
-      for (auto itr : oldVTables) {
-        GlobalVariable* var = M.getGlobalVariable(itr.first, true);
-        assert(var && var->use_empty());
-        var->eraseFromParent();
-      }
-
-      // remove all original thunks from the module
-      while (! vthunksToRemove.empty()) {
-        Function* f = * vthunksToRemove.begin();
-        vthunksToRemove.erase(f);
-        f->eraseFromParent();
-      }
-
-      for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
-           itr != M.getFunctionList().end(); itr++){
-        if (itr->getName().startswith("_ZTv") && 
-            (itr->user_begin() == itr->user_end())) {
-          vthunksToRemove.insert(itr);
-        }
-      }
-
-      // remove all original thunks from the module
-      while (! vthunksToRemove.empty()) {
-        Function* f = * vthunksToRemove.begin();
-        vthunksToRemove.erase(f);
-        f->eraseFromParent();
       }
     }
 
@@ -380,9 +355,13 @@ namespace {
         }
       }
 
+      sd_print("Finished running the 2nd pass...\n");
+
+      sdModule->removeVtablesAndThunks(M);
+
       sdModule->clearAnalysisResults();
 
-      sd_print("Finished running the 2nd pass...\n");
+      sd_print("removed thunks...\n");
 
       return isUpdate;
     }
@@ -850,6 +829,11 @@ void SDModule::buildClouds(Module &M) {
       // record the old vtable array
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
+      sd_print("oldvtables: %p, %d, class %s\n",
+               oldVtable,
+               oldVtable ? oldVtable->hasInitializer() : -1,
+               info.className.c_str());
+
       if (oldVtable && oldVtable->hasInitializer()) {
         ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
         assert(vtable);
@@ -943,14 +927,14 @@ SDModule::extractMetadata(NamedMDNode* md) {
     if (classVtbl) {
       info.className = classVtbl->getName();
     }
-//    sd_print("class: %s\n", info.className.c_str());
+    sd_print("class: %s\n", info.className.c_str());
 
     unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(op++)->getOperand(0));
-//    sd_print("operandNo : %u\n", numOperands);
+    sd_print("operandNo : %u\n", numOperands);
 
     for (unsigned i = op; i < op + numOperands; ++i) {
       SDModule::nmd_sub_t subInfo;
-      llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(op));
+      llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i));
       assert(tup);
       if (tup->getNumOperands() != 6) {
         sd_print("node operand count: %u\n", md->getNumOperands());
@@ -972,12 +956,15 @@ SDModule::extractMetadata(NamedMDNode* md) {
       subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(4));
       subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(5));
 
-//      sd_print("%lu %s %lu %lu %lu\n", subInfo.order, subInfo.parentName.c_str(),
-//               subInfo.start, subInfo.end, subInfo.addressPoint);
 
-      assert(subInfo.start <= subInfo.addressPoint &&
-             subInfo.addressPoint <= subInfo.end);
-      assert(i == op || (--info.subVTables.end())->end < subInfo.start);
+      bool check1 = (subInfo.start <= subInfo.addressPoint &&
+                     subInfo.addressPoint <= subInfo.end);
+      bool check2 = (i == op || (--info.subVTables.end())->end < subInfo.start);
+
+      sd_print("%lu, %s, %lu, %lu, %lu\n", subInfo.order, subInfo.parentName.c_str(),
+               subInfo.start, subInfo.end, subInfo.addressPoint);
+
+      assert(check1 && check2);
 
       info.subVTables.push_back(subInfo);
     }
@@ -1192,9 +1179,8 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
 
     // bitcast instruction
     else if ((mdNode = inst->getMetadata(vcallMDId))) {
-      sd_print("inside the function %s\n", inst->getParent()->getParent()->getName().bytes_begin());
-      inst->getParent()->getParent()->dump();
-      assert(false && "hey, this vcall metadata shouldn't exist !!!");
+      Function* f = inst->getParent()->getParent();
+      assert(f->getName().startswith("_ZTv"));
     }
 
     // store instruction
@@ -1522,5 +1508,37 @@ void SDModule::printClouds() {
 
     fprintf(file, "}\n");
     fclose(file);
+  }
+}
+
+
+void SDModule::removeVtablesAndThunks(Module &M) {
+  for (auto itr : oldVTables) {
+    GlobalVariable* var = M.getGlobalVariable(itr.first, true);
+    assert(var && var->use_empty());
+    sd_print("deleted vtbl: %s\n", var->getName().data());
+    var->eraseFromParent();
+  }
+
+  // remove all original thunks from the module
+  while (! vthunksToRemove.empty()) {
+    Function* f = * vthunksToRemove.begin();
+    vthunksToRemove.erase(f);
+    f->eraseFromParent();
+  }
+
+  for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
+       itr != M.getFunctionList().end(); itr++){
+    if (itr->getName().startswith("_ZTv") &&
+        (itr->user_begin() == itr->user_end())) {
+      vthunksToRemove.insert(itr);
+    }
+  }
+
+  // remove all original thunks from the module
+  while (! vthunksToRemove.empty()) {
+    Function* f = * vthunksToRemove.begin();
+    vthunksToRemove.erase(f);
+    f->eraseFromParent();
   }
 }

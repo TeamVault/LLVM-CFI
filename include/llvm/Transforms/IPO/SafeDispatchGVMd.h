@@ -7,6 +7,7 @@
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 
 #include "SafeDispatchTools.h"
 
@@ -14,7 +15,7 @@
  * Gets a class name and returns a md that contains the vtable global variable
  */
 static llvm::MDNode*
-sd_getClassVtblGVMD(const std::string& className, llvm::Module& M, llvm::GlobalVariable* VTable = NULL) {
+sd_getClassVtblGVMD(const std::string& className, const llvm::Module& M, llvm::GlobalVariable* VTable = NULL) {
   llvm::LLVMContext& C = M.getContext();
   llvm::GlobalVariable* gv = NULL;
 
@@ -24,10 +25,13 @@ sd_getClassVtblGVMD(const std::string& className, llvm::Module& M, llvm::GlobalV
     gv = M.getGlobalVariable(className, true);
   }
 
+//  if (gv == NULL ||
+//      (gv->getLinkage() != llvm::GlobalValue::InternalLinkage &&
+//       gv->getLinkage() != llvm::GlobalValue::PrivateLinkage)) {
   if (gv == NULL) {
     return llvm::MDNode::get(C,sd_getMDString(C, "NO_VTABLE"));
   } else {
-    llvm::Metadata* gvMd = llvm::ConstantAsMetadata::getConstant(gv);
+    llvm::Metadata* gvMd = llvm::ConstantAsMetadata::get(gv);
     assert(gvMd);
     return llvm::MDNode::get(C,gvMd);
   }
@@ -37,7 +41,7 @@ sd_getClassVtblGVMD(const std::string& className, llvm::Module& M, llvm::GlobalV
  * Gets a class name and returns a tuple that contains the name and the vtable global variable
  */
 static llvm::MDNode*
-sd_getClassNameMetadata(const std::string& className, llvm::Module& M, llvm::GlobalVariable* VTable = NULL) {
+sd_getClassNameMetadata(const std::string& className, const llvm::Module& M, llvm::GlobalVariable* VTable = NULL) {
   llvm::LLVMContext& C = M.getContext();
   llvm::MDNode* classNameMd = llvm::MDNode::get(C, llvm::MDString::get(C, className));
   llvm::MDNode* classVtblMd = sd_getClassVtblGVMD(className,M,VTable);
