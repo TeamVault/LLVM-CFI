@@ -3701,42 +3701,42 @@ UnreachableInst *UnreachableInst::clone_impl() const {
 // when I change a SafeDispatch header file
 //===----------------------------------------------------------------------===//
 
-static void sd_handleSelectMethodPointer(llvm::SelectInst* storeInst,
-                                  llvm::Value* val1, llvm::Value* val2) {
-  llvm::ConstantMemberPointer* memptr1 = dyn_cast<llvm::ConstantMemberPointer>(val1);
+//static void sd_handleSelectMethodPointer(llvm::SelectInst* storeInst,
+//                                  llvm::Value* val1, llvm::Value* val2) {
+//  llvm::ConstantMemberPointer* memptr1 = dyn_cast<llvm::ConstantMemberPointer>(val1);
 
-  if (memptr1) {
-    llvm::ConstantMemberPointer* memptr2 = dyn_cast<llvm::ConstantMemberPointer>(val2);
-    assert(memptr2);
+//  if (memptr1) {
+//    llvm::ConstantMemberPointer* memptr2 = dyn_cast<llvm::ConstantMemberPointer>(val2);
+//    assert(memptr2);
 
-    std::string cn1 = memptr1->getClassName();
-    std::string cn2 = memptr2->getClassName();
+//    std::string cn1 = memptr1->getClassName();
+//    std::string cn2 = memptr2->getClassName();
 
-    bool cond1 = sd_isVtableName(cn1);
-    bool cond2 = sd_isVtableName(cn2);
+//    bool cond1 = sd_isVtableName(cn1);
+//    bool cond2 = sd_isVtableName(cn2);
 
-    if (cond1 || cond2) {
-      assert(cond1 && cond2);
+//    if (cond1 || cond2) {
+//      assert(cond1 && cond2);
 
-      llvm::LLVMContext& C = storeInst->getContext();
-      std::vector<llvm::Metadata*> tupleElements;
+//      llvm::LLVMContext& C = storeInst->getContext();
+//      std::vector<llvm::Metadata*> tupleElements;
 
-      tupleElements.push_back(llvm::MDString::get(C, cn1));
-      tupleElements.push_back(sd_getClassVtblGVMD(cn1,
-                                                  * storeInst->getParent()->getParent()->getParent()));
+//      tupleElements.push_back(llvm::MDString::get(C, cn1));
+//      tupleElements.push_back(sd_getClassVtblGVMD(cn1,
+//                                                  * storeInst->getParent()->getParent()->getParent()));
 
-      tupleElements.push_back(llvm::MDString::get(C, cn2));
-      tupleElements.push_back(sd_getClassVtblGVMD(cn2,
-                                                  * storeInst->getParent()->getParent()->getParent()));
+//      tupleElements.push_back(llvm::MDString::get(C, cn2));
+//      tupleElements.push_back(sd_getClassVtblGVMD(cn2,
+//                                                  * storeInst->getParent()->getParent()->getParent()));
 
-      llvm::MDNode* mdNode = llvm::MDNode::get(C, tupleElements);
+//      llvm::MDNode* mdNode = llvm::MDNode::get(C, tupleElements);
 
-      storeInst->setMetadata(SD_MD_MEMPTR2, mdNode);
-    }
-  } else if (storeInst->getMetadata(SD_MD_MEMPTR2)) {
-    sd_print("HAS MD BUT NOT MEMPTR\n");
-  }
-}
+//      storeInst->setMetadata(SD_MD_MEMPTR2, mdNode);
+//    }
+//  } else if (storeInst->getMetadata(SD_MD_MEMPTR2)) {
+//    sd_print("HAS MD BUT NOT MEMPTR\n");
+//  }
+//}
 
 void SelectInst::init(Value *C, Value *S1, Value *S2) {
   assert(!areInvalidOperands(C, S1, S2) && "Invalid operands for select");
@@ -3744,5 +3744,5 @@ void SelectInst::init(Value *C, Value *S1, Value *S2) {
   Op<1>() = S1;
   Op<2>() = S2;
 
-  sd_handleSelectMethodPointer(this, S1, S2);
+//  sd_handleSelectMethodPointer(this, S1, S2);
 }

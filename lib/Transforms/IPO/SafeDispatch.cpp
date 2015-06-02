@@ -1507,7 +1507,7 @@ void SDModule::removeVtablesAndThunks(Module &M) {
   for (auto itr : oldVTables) {
     GlobalVariable* var = M.getGlobalVariable(itr.first, true);
     assert(var && var->use_empty());
-    sd_print("deleted vtbl: %s\n", var->getName().data());
+//    sd_print("deleted vtbl: %s\n", var->getName().data());
     var->eraseFromParent();
   }
 

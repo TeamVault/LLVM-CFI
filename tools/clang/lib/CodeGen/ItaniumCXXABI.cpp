@@ -475,7 +475,7 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
   assert(vtableGepInst);
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
-  if (sd_isVtableName(Name)) {
+  if (sd_isVtableName(Name) && RD->isDynamicClass()) {
 //    llvm::LLVMContext& C = vtableGepInst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
 //    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
@@ -1112,7 +1112,7 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   CXXRecordDecl* RD = SrcRecordTy->getAsCXXRecordDecl();
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
-  if (sd_isVtableName(Name)) {
+  if (sd_isVtableName(Name) && RD->isDynamicClass()) {
 //    llvm::LLVMContext& C = loadInst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
 //    loadInst->setMetadata(SD_MD_TYPEID, N);
@@ -1160,7 +1160,7 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
   // put mangled vtable name into a string
   std::string Name = CGM.getCXXABI().GetClassMangledName(SrcDecl);
 
-  if (sd_isVtableName(Name)) {
+  if (sd_isVtableName(Name) && SrcDecl->isDynamicClass()) {
 //    llvm::LLVMContext& C = cInst->getContext();
 //    llvm::MDString* classNameMD = llvm::MDString::get(C, Name);
 //    llvm::MDNode* N = llvm::MDNode::get(C, classNameMD);
@@ -1236,7 +1236,7 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
 
   std::string className = this->GetClassMangledName(ClassDecl);
 
-  if (sd_isVtableName(className)) {
+  if (sd_isVtableName(className) && ClassDecl->isDynamicClass()) {
     int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
     llvm::GlobalVariable* VTable = getAddrOfVTable(ClassDecl, CharUnits());
 
@@ -1590,7 +1590,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   llvm::GetElementPtrInst* gepInst = dyn_cast_or_null<llvm::GetElementPtrInst>(VFuncPtr);
   assert(gepInst);
 
-  if (sd_isVtableName(Name)) {
+  if (sd_isVtableName(Name) && RD->isDynamicClass()) {
     llvm::Instruction* inst = gepInst;
 //    llvm::LLVMContext& C = inst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
