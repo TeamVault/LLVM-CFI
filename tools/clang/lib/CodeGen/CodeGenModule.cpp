@@ -340,6 +340,99 @@ void InstrProfStats::reportDiagnostics(DiagnosticsEngine &Diags,
                                                       << Mismatched;
 }
 
+//===----------------------------------------------------------------------===//
+//                        SafeDispatch Additions
+//===----------------------------------------------------------------------===//
+#include "llvm/IR/Value.h"
+#include "llvm/IR/User.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
+
+#include "llvm/Transforms/IPO/SafeDispatch.h"
+#include "llvm/Transforms/IPO/SafeDispatchTools.h"
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
+#include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchGVMd.h"
+
+#include <vector>
+
+template <class T>
+T sd_fold(llvm::User* u, T (*callback)(T, llvm::Value*), T def) {
+  T next = def;
+  assert(u);
+  for(unsigned i=0; i < u->getNumOperands(); i++) {
+    llvm::Value* op = u->getOperand(i);
+    assert(op);
+
+    next = callback(next, op);
+    llvm::User* uOp = llvm::dyn_cast<llvm::User>(op);
+
+    if (uOp && ! llvm::dyn_cast<llvm::Instruction>(op)) {
+      next = sd_fold(uOp, callback, next);
+    }
+  }
+  return next;
+}
+
+typedef std::vector<llvm::ConstantMemberPointer*> sd_fold_t;
+
+static sd_fold_t*
+sd_cmp_callback(sd_fold_t* cmps, llvm::Value* val) {
+  llvm::ConstantMemberPointer* cmp = llvm::dyn_cast<llvm::ConstantMemberPointer>(val);
+  if (cmp) {
+    assert(cmps);
+    for(unsigned i=0; i < cmps->size(); i++) {
+      assert(cmps->at(i) != cmp);
+    }
+    cmps->push_back(cmp);
+  }
+  return cmps;
+}
+
+static void
+sd_emitMd(llvm::Module& M) {
+  for(llvm::Module::iterator f_itr = M.begin(); f_itr != M.end(); f_itr++) {
+    llvm::Function* f = f_itr;
+    for(llvm::Function::iterator bb_itr = f->begin(); bb_itr != f->end(); bb_itr++) {
+      llvm::BasicBlock* bb = bb_itr;
+      for(llvm::BasicBlock::iterator i_itr = bb->begin(); i_itr != bb->end(); i_itr++) {
+        llvm::Instruction* inst = i_itr;
+        assert(inst);
+
+        sd_fold_t cmps;
+        sd_fold<sd_fold_t*>(inst, sd_cmp_callback, &cmps);
+
+        if (! cmps.empty()) {
+          std::vector<llvm::Metadata*> mds;
+
+          for(unsigned i=0; i < cmps.size(); i++) {
+            llvm::ConstantMemberPointer* cmp = cmps[i];
+            sd_class_md_t p = sd_getClassNameMetadataPair(cmp->getClassName(), M);
+            mds.push_back(p.first);
+            mds.push_back(p.second);
+          }
+
+          llvm::MDTuple* mdtuple = llvm::MDTuple::get(M.getContext(), mds);
+          llvm::StringRef id;
+
+          switch(inst->getOpcode()){
+          case STORE_OPCODE:
+            id = SD_MD_MEMPTR;
+            break;
+          case SELECT_OPCODE:
+            id = SD_MD_MEMPTR2;
+            break;
+          default:
+            llvm_unreachable("this shouldn't happen");
+          }
+
+          inst->setMetadata(id, mdtuple);
+        }
+      }
+    }
+  }
+}
+
 void CodeGenModule::Release() {
   EmitDeferred();
   applyReplacements();
@@ -407,6 +500,9 @@ void CodeGenModule::Release() {
   }
 
   SimplifyPersonality();
+
+  assert(&TheModule);
+  sd_emitMd(TheModule);
 
   if (getCodeGenOpts().EmitDeclMetadata)
     EmitDeclMetadata();

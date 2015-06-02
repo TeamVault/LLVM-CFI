@@ -10,6 +10,7 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 
 #include "SafeDispatchTools.h"
+#include <utility>
 
 /**
  * Gets a class name and returns a md that contains the vtable global variable
@@ -46,6 +47,20 @@ sd_getClassNameMetadata(const std::string& className, const llvm::Module& M, llv
   llvm::MDNode* classNameMd = llvm::MDNode::get(C, llvm::MDString::get(C, className));
   llvm::MDNode* classVtblMd = sd_getClassVtblGVMD(className,M,VTable);
   return llvm::MDTuple::get(C, {classNameMd, classVtblMd});
+}
+
+typedef std::pair<llvm::MDNode*, llvm::MDNode*> sd_class_md_t;
+
+/**
+ * Gets a class name and returns a tuple that contains the name and the vtable global variable
+ */
+static sd_class_md_t
+sd_getClassNameMetadataPair(const std::string& className, const llvm::Module& M, llvm::GlobalVariable* VTable = NULL) {
+  llvm::LLVMContext& C = M.getContext();
+  llvm::MDNode* classNameMd = llvm::MDNode::get(C, llvm::MDString::get(C, className));
+  llvm::MDNode* classVtblMd = sd_getClassVtblGVMD(className,M,VTable);
+
+  return sd_class_md_t(classNameMd, classVtblMd);
 }
 
 #endif

@@ -35,29 +35,6 @@ using namespace llvm;
 
 
 //===----------------------------------------------------------------------===//
-//                        SafeDispatch Additions
-//===----------------------------------------------------------------------===//
-
-static void
-sd_handleStoreMethodPointer(StoreInst* storeInst, Value* val) {
-  llvm::ConstantMemberPointer* memptr = dyn_cast<llvm::ConstantMemberPointer>(val);
-
-  if (memptr) {
-    std::string className = memptr->getClassName();
-    if (sd_isVtableName(className)) {
-//      llvm::LLVMContext& C = storeInst->getContext();
-//      llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, className));
-//      storeInst->setMetadata(SD_MD_MEMPTR, N);
-      storeInst->setMetadata(SD_MD_MEMPTR,
-                             sd_getClassNameMetadata(className,
-                                                     * storeInst->getParent()->getParent()->getParent()));
-    }
-  } else if (storeInst->getMetadata(SD_MD_MEMPTR)) {
-    sd_print("HAS MD BUT NOT MEMPTR\n");
-  }
-}
-
-//===----------------------------------------------------------------------===//
 //                            CallSite Class
 //===----------------------------------------------------------------------===//
 
@@ -1109,8 +1086,6 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setAlignment(Align);
   setAtomic(Order, SynchScope);
   AssertOK();
-
-  sd_handleStoreMethodPointer(this, val);
 }
 
 StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
@@ -1127,8 +1102,6 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setAlignment(Align);
   setAtomic(Order, SynchScope);
   AssertOK();
-
-  sd_handleStoreMethodPointer(this, val);
 }
 
 void StoreInst::setAlignment(unsigned Align) {
