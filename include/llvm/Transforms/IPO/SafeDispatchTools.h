@@ -28,6 +28,11 @@ static bool sd_isVTTName(std::string& name) {
   return name.find("_ZTT") == 0;
 }
 
+static bool sd_isVthunk(const llvm::StringRef& name) {
+  return name.startswith("_ZTv") || // virtual thunk
+         name.startswith("_ZTcv");  // virtual covariant thunk
+}
+
 /**
  * Helper function to create a metadata that contains the given integer
  */

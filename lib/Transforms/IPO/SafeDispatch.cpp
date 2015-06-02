@@ -125,12 +125,6 @@ namespace {
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
-//      for (const GlobalVariable& gv : M.getGlobalList()) {
-//        if (gv.getName().startswith("_ZTV")) {
-//          sd_print("GOT GV: %s\n", gv.getName().data());
-//        }
-//      }
-
       buildClouds(M);          // part 1
       printClouds();
       interleaveClouds(M);     // part 2
@@ -477,8 +471,7 @@ Function* SDModule::getVthunkFunction(Constant* vtblElement) {
     Constant* operand = bcExpr->getOperand(0);
 
     // this is a vthunk
-    if (operand->getName().startswith("_ZTv") ||   // virtual thunk
-        operand->getName().startswith("_ZTcv")) {  // covariant return thunk
+    if (sd_isVthunk(operand->getName())) {
       Function* thunkF = dyn_cast<Function>(operand);
       assert(thunkF);
       return thunkF;
@@ -551,9 +544,6 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
         // we already created such function, will use that later
         continue;
       }
-
-//      sd_print("generating (%s, %u) (sub: %s)\n",
-//               vtbl.c_str(), vtblInd, parentClass.c_str());
 
       // duplicate the function and rename it
       ValueToValueMapTy VMap;
@@ -829,10 +819,10 @@ void SDModule::buildClouds(Module &M) {
       // record the old vtable array
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
-      sd_print("oldvtables: %p, %d, class %s\n",
-               oldVtable,
-               oldVtable ? oldVtable->hasInitializer() : -1,
-               info.className.c_str());
+//      sd_print("oldvtables: %p, %d, class %s\n",
+//               oldVtable,
+//               oldVtable ? oldVtable->hasInitializer() : -1,
+//               info.className.c_str());
 
       if (oldVtable && oldVtable->hasInitializer()) {
         ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
@@ -927,21 +917,22 @@ SDModule::extractMetadata(NamedMDNode* md) {
     if (classVtbl) {
       info.className = classVtbl->getName();
     }
-    sd_print("class: %s\n", info.className.c_str());
+//    sd_print("class: %s\n", info.className.c_str());
 
     unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(op++)->getOperand(0));
-    sd_print("operandNo : %u\n", numOperands);
+//    sd_print("operandNo : %u\n", numOperands);
 
     for (unsigned i = op; i < op + numOperands; ++i) {
       SDModule::nmd_sub_t subInfo;
       llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i));
       assert(tup);
-      if (tup->getNumOperands() != 6) {
-        sd_print("node operand count: %u\n", md->getNumOperands());
-        sd_print("tuple operand count: %u\n", tup->getNumOperands());
-        tup->dump();
-        assert(false);
-      }
+      assert(tup->getNumOperands() == 6);
+//      if (tup->getNumOperands() != 6) {
+//        sd_print("node operand count: %u\n", md->getNumOperands());
+//        sd_print("tuple operand count: %u\n", tup->getNumOperands());
+//        tup->dump();
+//        assert(false);
+//      }
 
       subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));
       subInfo.parentName = sd_getStringFromMDTuple(tup->getOperand(1));
@@ -957,14 +948,14 @@ SDModule::extractMetadata(NamedMDNode* md) {
       subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(5));
 
 
-      bool check1 = (subInfo.start <= subInfo.addressPoint &&
+      bool currRangeCheck = (subInfo.start <= subInfo.addressPoint &&
                      subInfo.addressPoint <= subInfo.end);
-      bool check2 = (i == op || (--info.subVTables.end())->end < subInfo.start);
+      bool prevVtblCheck = (i == op || (--info.subVTables.end())->end < subInfo.start);
 
-      sd_print("%lu, %s, %lu, %lu, %lu\n", subInfo.order, subInfo.parentName.c_str(),
-               subInfo.start, subInfo.end, subInfo.addressPoint);
+//      sd_print("%lu, %s, %lu, %lu, %lu\n", subInfo.order, subInfo.parentName.c_str(),
+//               subInfo.start, subInfo.end, subInfo.addressPoint);
 
-      assert(check1 && check2);
+      assert(currRangeCheck && prevVtblCheck);
 
       info.subVTables.push_back(subInfo);
     }
@@ -1064,16 +1055,16 @@ void SDModule::clearAnalysisResults() {
 static std::string
 sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
   llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
-  sd_print("tuple id: %u\n", mdTuple->getMetadataID());
-  mdTuple->dump(CURR_MODULE);
+//  sd_print("tuple id: %u\n", mdTuple->getMetadataID());
+//  mdTuple->dump(CURR_MODULE);
   assert(mdTuple);
 
   assert(mdTuple->getNumOperands() > operandNo + 1);
 
   llvm::MDNode* nameMdNode = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
   assert(nameMdNode);
-  sd_print("tuple[0] id: %u\n", nameMdNode->getMetadataID());
-  nameMdNode->dump(CURR_MODULE);
+//  sd_print("tuple[0] id: %u\n", nameMdNode->getMetadataID());
+//  nameMdNode->dump(CURR_MODULE);
 
   llvm::MDString* mdStr = dyn_cast<llvm::MDString>(nameMdNode->getOperand(0));
   assert(mdStr);
@@ -1081,14 +1072,14 @@ sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
   assert(sd_isVtableName_ref(strRef));
 
   llvm::MDNode* gvMd = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
-  sd_print("tuple[1] id: %u\n", gvMd->getMetadataID());
-  gvMd->dump(CURR_MODULE);
+//  sd_print("tuple[1] id: %u\n", gvMd->getMetadataID());
+//  gvMd->dump(CURR_MODULE);
 
   SmallString<256> OutName;
   llvm::raw_svector_ostream Out(OutName);
   gvMd->print(Out, CURR_MODULE);
   Out.flush();
-  sd_print("print: %s\n", OutName.str().data());
+//  sd_print("print: %s\n", OutName.str().data());
 
   llvm::ConstantAsMetadata* vtblConsMd = dyn_cast<ConstantAsMetadata>(gvMd->getOperand(0).get());
   if (vtblConsMd == NULL) {
@@ -1105,7 +1096,7 @@ sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
   StringRef vtblNameRef = vtbl->getName();
   assert(vtblNameRef.startswith(strRef));
 
-  sd_print("GV IN MD\n");
+//  sd_print("GV IN MD\n");
   return vtblNameRef.str();
 }
 
@@ -1180,7 +1171,7 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
     // bitcast instruction
     else if ((mdNode = inst->getMetadata(vcallMDId))) {
       Function* f = inst->getParent()->getParent();
-      assert(f->getName().startswith("_ZTv"));
+      assert(sd_isVthunk(f->getName()));
     }
 
     // store instruction
@@ -1328,8 +1319,8 @@ void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *
   std::string className = sd_getClassNameFromMD(mdNode);
   SDModule::vtbl_t vtbl(className,0);
 
-  sd_print("name: %s, function: %s\n", className.c_str(),
-           inst->getParent()->getParent()->getName().data());
+//  sd_print("name: %s, function: %s\n", className.c_str(),
+//           inst->getParent()->getParent()->getName().data());
 
   // %134 = icmp ult i64 %133, <count>, !dbg !874, !sd.check !751
   ICmpInst* icmpInst = dyn_cast<ICmpInst>(inst);
@@ -1529,7 +1520,7 @@ void SDModule::removeVtablesAndThunks(Module &M) {
 
   for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
        itr != M.getFunctionList().end(); itr++){
-    if (itr->getName().startswith("_ZTv") &&
+    if (sd_isVthunk(itr->getName()) &&
         (itr->user_begin() == itr->user_end())) {
       vthunksToRemove.insert(itr);
     }
