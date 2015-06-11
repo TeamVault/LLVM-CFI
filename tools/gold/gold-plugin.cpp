@@ -105,7 +105,9 @@ namespace options {
   // use only and will not be passed.
   static std::vector<const char *> extra;
 
-  static bool RunSDPasses = false;
+  static bool RunO2Passes  = false;
+  static bool RunSDPasses  = false;
+  static bool RunLTOPasses = false;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -127,6 +129,10 @@ namespace options {
       TheOutputType = OT_BC_ONLY;
     } else if (opt == "emit-vtbl-checks") {
       RunSDPasses = true;
+    } else if (opt == "run-O2-passes") {
+      RunO2Passes = true;
+    } else if (opt == "run-LTO-passes") {
+      RunLTOPasses = true;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -751,39 +757,42 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   unsigned SizeLevel = 0;
 
   PassManagerBuilder PMB;
-  PMB.OptLevel = OptLevel;
-  PMB.SizeLevel = SizeLevel;
-  PMB.BBVectorize = true;
-  PMB.SLPVectorize = true;
-  PMB.LoopVectorize = true;
-
-  PMB.DisableTailCalls = false;
-  PMB.DisableUnitAtATime = false;
-  PMB.DisableUnrollLoops = false;
-  PMB.MergeFunctions = true;
-  PMB.RerollLoops = true;
-
-  PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
-                   addAddDiscriminatorsPass);
-
-  // Figure out TargetLibraryInfo.
-  //  Triple TargetTriple(TheModule->getTargetTriple());
-  //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
-  PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
-
-  PMB.Inliner = createFunctionInliningPass(PMB.OptLevel, PMB.SizeLevel);
-
-  // Set up the per-function pass manager.
-  // legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
   llvm::legacy::FunctionPassManager* FPM = new legacy::FunctionPassManager(&M);
-  FPM->add(createTTIPass(TM));
-  PMB.populateFunctionPassManager(*FPM);
-
-  // Set up the per-module pass manager.
-  // legacy::PassManager *PM = getPerModulePasses(TM);
   llvm::legacy::PassManager* PM = new legacy::PassManager();
-  PM->add(createTTIPass(TM));
-  PMB.populateModulePassManager(*PM);
+
+  if(options::RunO2Passes) {
+    PMB.OptLevel = OptLevel;
+    PMB.SizeLevel = SizeLevel;
+    PMB.BBVectorize = true;
+    PMB.SLPVectorize = true;
+    PMB.LoopVectorize = true;
+
+    PMB.DisableTailCalls = false;
+    PMB.DisableUnitAtATime = false;
+    PMB.DisableUnrollLoops = false;
+    PMB.MergeFunctions = true;
+    PMB.RerollLoops = true;
+
+    PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
+                     addAddDiscriminatorsPass);
+
+    // Figure out TargetLibraryInfo.
+    //  Triple TargetTriple(TheModule->getTargetTriple());
+    //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
+    PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
+
+    PMB.Inliner = createFunctionInliningPass(PMB.OptLevel, PMB.SizeLevel);
+
+    // Set up the per-function pass manager.
+    // legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
+    FPM->add(createTTIPass(TM));
+    PMB.populateFunctionPassManager(*FPM);
+
+    // Set up the per-module pass manager.
+    // legacy::PassManager *PM = getPerModulePasses(TM);
+    PM->add(createTTIPass(TM));
+    PMB.populateModulePassManager(*PM);
+  }
 
   if (options::RunSDPasses) {
     // run safedispatch passes first
@@ -792,24 +801,28 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
     sd_print("Finished running SafeDispatch passes\n");
   }
 
-  // run function passes
-  FPM->doInitialization();
-  for (Function &F : M) {
-    FPM->run(F);
+  if (options::RunO2Passes) {
+    // run function passes
+    FPM->doInitialization();
+    for (Function &F : M) {
+        FPM->run(F);
+    }
+    FPM->doFinalization();
+
+    sd_print("Finished running function passes\n");
+
+    // run module passes
+    PM->run(M);
+
+    sd_print("Finished running module passes\n");
   }
-  FPM->doFinalization();
 
-  sd_print("Finished running function passes\n");
+  if (options::RunLTOPasses) {
+    // run LTO passes
+    runOriginalLTOPasses(M,TM);
 
-  // run module passes
-  PM->run(M);
-
-  sd_print("Finished running module passes\n");
-
-  // run LTO passes
-  runOriginalLTOPasses(M,TM);
-
-  sd_print("Finished running LTO passes\n");
+    sd_print("Finished running LTO passes\n");
+  }
 }
 
 

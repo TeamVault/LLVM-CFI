@@ -4,6 +4,8 @@ SCRIPTS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 source "$SCRIPTS_DIR/bash_library.sh"
 
+ENABLE_COMPILER_OPT=$("$SCRIPTS_DIR/config.py" ENABLE_COMPILER_OPT)
+
 run_compile_command() {
   local -a args=("$@")
 
@@ -21,7 +23,6 @@ run_compile_command() {
   local CXX_FLAGS=$("$SCRIPTS_DIR/config.py" CXX_FLAGS)
 
   >&2 echo "CC: $CXX $CXX_FLAGS ${new_args[@]}"
-
   $CXX $CXX_FLAGS "${new_args[@]}"
 }
 
@@ -39,14 +40,19 @@ run_link_command() {
 
 declare -a sd_args=()
 
-# remove unwanted parameters
-for var in "$@"; do
-  if [[ $(substring $var "-O") == "true" ]]; then
-    continue
-  else
-    sd_args=("${sd_args[@]}" "$var")
-  fi
-done
+# if we don't enable O2 opt
+if [[ ${ENABLE_COMPILER_OPT} == "False" ]]; then
+  # remove parameters starting with -O
+  for var in "$@"; do
+    if [[ $(substring $var "-O") == "true" ]]; then
+      continue
+    else
+      sd_args=("${sd_args[@]}" "$var")
+    fi
+  done
+else
+  sd_args=("$@")
+fi
 
 if [[ $(containsElement "-c" "${sd_args[@]}") == "1" ]]; then
   run_compile_command "${sd_args[@]}"

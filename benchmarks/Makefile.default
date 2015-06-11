@@ -1,4 +1,5 @@
 LIBS = $(patsubst lib%.a,-l%,$(LIB_NAMES))
+OPT  = -O2
 
 ifeq ($(NO_LTO),OK)
 CC = g++
@@ -9,6 +10,8 @@ CC = "$(LLVM_SCRIPTS_DIR)/clang_wrapper.sh"
 LD = $(CC)
 AR = $(shell $(LLVM_SCRIPTS_DIR)/config.py AR)
 endif
+
+CC += $(OPT)
 
 ALL_OBJS = $(OBJS) main.o
 
