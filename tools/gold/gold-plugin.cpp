@@ -753,7 +753,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   // generate the pass & analysis DB first
   fillPasses();
 
-  unsigned OptLevel = 3;
+  unsigned OptLevel = 2;
   unsigned SizeLevel = 0;
 
   PassManagerBuilder PMB;
