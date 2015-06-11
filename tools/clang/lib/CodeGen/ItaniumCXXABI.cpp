@@ -1596,7 +1596,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
     llvm::GlobalVariable* VTable = getAddrOfVTable(RD, CharUnits());
     llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTable);
-    inst->setMetadata(SD_MD_CLASS_NAME, md);
+    inst->setMetadata(SD_MD_VFUN_CALL, md);
   }
 
   return CGF.Builder.CreateLoad(VFuncPtr);

@@ -331,7 +331,7 @@ namespace {
 
       sd_print("inside the 2nd pass\n");
 
-      classNameMDId = M.getMDKindID(SD_MD_CLASS_NAME);
+      classNameMDId = M.getMDKindID(SD_MD_VFUN_CALL);
       castFromMDId  = M.getMDKindID(SD_MD_CAST_FROM);
       typeidMDId    = M.getMDKindID(SD_MD_TYPEID);
       vcallMDId     = M.getMDKindID(SD_MD_VCALL);
