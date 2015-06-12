@@ -1,8 +1,13 @@
 #ifndef LLVM_TRANSFORMS_IPO_SAFEDISPATCH_TOOLS_H
 #define LLVM_TRANSFORMS_IPO_SAFEDISPATCH_TOOLS_H
 
-#include <string>
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Constants.h"
+
+#include <string>
+
+#include "SafeDispatchLog.h"
 
 static bool sd_isVtableName_ref(const llvm::StringRef& name) {
   if (name.size() <= 4) {
@@ -48,6 +53,37 @@ sd_getMDNumber(llvm::LLVMContext& C, uint64_t val) {
 static llvm::Metadata*
 sd_getMDString(llvm::LLVMContext& C, const std::string& str) {
   return llvm::MDString::get(C, str.c_str());
+}
+
+static void
+sd_printVtable(llvm::GlobalVariable* globalVar) {
+  llvm::StringRef varName = globalVar->getName();
+  llvm::ConstantArray* vtable = llvm::dyn_cast<llvm::ConstantArray>(globalVar->getInitializer());
+  assert(vtable);
+
+  llvm::ConstantExpr* ce = NULL;
+  llvm::ConstantInt* vtblInt = NULL;
+  unsigned opcode = 0;
+
+  sd_print("%s elements:\n", varName.bytes_begin());
+  for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
+    ce = llvm::dyn_cast<llvm::ConstantExpr>(vtable->getOperand(vtblInd));
+    opcode = ce ? ce->getOpcode() : 0;
+
+    switch (opcode) {
+      case llvm::Instruction::BitCast:
+        sd_print("%-2u %s\n", vtblInd, ce->getOperand(0)->getName().bytes_begin());
+        break;
+      case llvm::Instruction::IntToPtr:
+        vtblInt = llvm::dyn_cast<llvm::ConstantInt>(ce->getOperand(0));
+        assert(vtblInt);
+        sd_print("%-2u %ld\n", vtblInd, vtblInt->getSExtValue());
+        break;
+      default: // this must be a null value
+        sd_print("%-2u 0\n", vtblInd);
+        break;
+    }
+  }
 }
 
 #endif

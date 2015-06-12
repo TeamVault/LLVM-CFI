@@ -24,12 +24,31 @@
 #include <set>
 #include <map>
 #include <algorithm>
+#include <sstream>
 
 using namespace llvm;
 
 #define WORD_WIDTH 8
 
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
+
+static Constant*
+sd_isRTTI(Constant* vtblElement) {
+  ConstantExpr* bcExpr = NULL;
+
+  // if this a constant bitcast expression, this might be a vthunk
+  if ((bcExpr = dyn_cast<ConstantExpr>(vtblElement)) &&
+      bcExpr->getOpcode() == Instruction::BitCast) {
+    Constant* operand = bcExpr->getOperand(0);
+
+    // this is a vthunk
+    if (operand->getName().startswith("_ZTI")) {
+      return operand;
+    }
+  }
+
+  return NULL;
+}
 
 static bool
 sd_isDestructorName(StringRef name) {
@@ -65,6 +84,7 @@ namespace {
   class SDFix : public ModulePass {
   public:
     static char ID; // Pass identification, replacement for typeid
+    typedef std::pair<unsigned, unsigned> vtbl_pair_t;
 
     SDFix() : ModulePass(ID) {
       initializeSDFixPass(*PassRegistry::getPassRegistry());
@@ -84,7 +104,30 @@ namespace {
 
   private:
     Module* module;
+
+    /**
+     * Fixes the destructor function pointers in the vtables where an undefined
+     * destructor is used inside the vtable.
+     *
+     * D2: base object destructor = deletes the non-static members & non-virtual
+     *     base classes
+     * D1: complete object destructor = D2 + virtual base classes
+     * D0: deleting object destructor = D1 + calls the operator delete
+     *
+     * when a class doesn't have virtual base class -> D1 = D2
+     */
     bool fixDestructors();
+
+    /**
+     * Figure out the start/end of the subvtables by just looking at the vtable elements
+     *
+     * !!! NOTE !!!
+     * This functions currently just return regions that the function pointers don't
+     * overlap. It doesn't properly split the vtable into valid sub-vtables. This
+     * level of precision is enough for code inside this file.
+     */
+    std::vector<vtbl_pair_t> findSubVtables(ConstantArray* vtable);
+
   };
 
 }
@@ -97,9 +140,83 @@ ModulePass* llvm::createSDFixPass() {
   return new SDFix();
 }
 
+namespace {
+  struct DestructorInfo {
+    DestructorInfo() :
+      function(NULL), index(0), isDefined(false), isAlias(false){}
+
+    DestructorInfo(Constant* destructor, unsigned index) {
+      this->index = index;
+      this->function = destructor;
+
+      Function* f = NULL;
+      GlobalAlias* fAlias = NULL;
+
+      if((f = dyn_cast<Function>(destructor))) {
+        isDefined = ! f->isDeclaration();
+        isAlias = false;
+
+      } else if((fAlias = dyn_cast<GlobalAlias>(destructor))) {
+        Function* aliasee = dyn_cast<Function>(fAlias->getAliasee());
+        assert(aliasee);
+        isDefined = ! aliasee->isDeclaration();
+        isAlias = true;
+
+      } else {
+        destructor->dump();
+        llvm_unreachable("Unhandled destructor type?");
+      }
+    }
+
+    bool needsReplacement() {
+      return function && ! isDefined;
+    }
+
+    std::string toStr() const {
+      if (function == NULL)
+        return "NO DESTRUCTOR";
+
+      std::stringstream oss;
+
+      oss << "#" << index << " "
+          << function->getName().str()
+          << (isDefined ? "" : " (UNDEF)");
+
+      if (isAlias) {
+        oss << " (ALIAS TO "
+            << cast<GlobalAlias>(function)->getAliasee()->getName().str()
+            << ")";
+      }
+
+      return oss.str();
+    }
+
+    void removeFunctionDecl() {
+      assert(function && ! isAlias);
+
+      Function* f = dyn_cast<Function>(function);
+      f->eraseFromParent();
+    }
+
+    Function* getFunction() {
+      if(function == NULL)
+        return NULL;
+
+      assert(! isAlias);
+
+      return cast<Function>(function);
+    }
+
+    Constant* function;
+    unsigned index;
+    bool isDefined;
+    bool isAlias;
+  };
+}
+
 bool SDFix::fixDestructors() {
-  Function* f = NULL;
-  GlobalAlias* fAlias = NULL;
+  bool replaced = false;
+
   for (GlobalVariable& gv : module->getGlobalList()) {
     if (! sd_isVtableName_ref(gv.getName()))
       continue;
@@ -108,36 +225,117 @@ bool SDFix::fixDestructors() {
 
     Constant* init = gv.getInitializer();
     assert(init);
-
     ConstantArray* vtable = dyn_cast<ConstantArray>(init);
     assert(vtable);
 
-    std::set<std::string> destructors;
+    // get an idea about the virtual function regions
+    std::vector<vtbl_pair_t> vtblRegions = findSubVtables(vtable);
 
-    for(unsigned i=0; i<vtable->getNumOperands(); i++) {
-      Constant* destructor = sd_getDestructorFunction(vtable->getOperand(i));
+    // for each subvtable
+    for(unsigned vtblInd = 0; vtblInd < vtblRegions.size(); vtblInd++) {
+      // record the destructors used in the vtable
+      std::vector<DestructorInfo> destructors(3);
 
-      if (destructor == NULL)
-        continue;
-      else if((f = dyn_cast<Function>(destructor))) {
-        sd_print("# FUNCTION #####################################\n");
-        f->dump();
-      } else if((fAlias = dyn_cast<GlobalAlias>(destructor))) {
-        const Function* aliasedF = dyn_cast<Function>(fAlias->getAliasee());
+      vtbl_pair_t p = vtblRegions[vtblInd];
 
-        sd_print("# ALIAS ########################################\n");
-        fAlias->dump();
-        aliasedF->dump();
+      for(unsigned i=p.first; i<p.second; i++) {
+        Constant* destructor = sd_getDestructorFunction(vtable->getOperand(i));
 
-        assert(!aliasedF->isDeclaration());
-      } else {
-        destructor->dump();
-        llvm_unreachable("Unhandled destructor type?");
+        if (destructor == NULL)
+          continue;
+
+        // get the type from its name
+        unsigned s = destructor->getName().size();
+        char type = destructor->getName()[s-3];
+        assert('0' <= type && type <= '2');
+        unsigned typeInt = type - '0';
+
+        // store it temporarily
+        destructors[typeInt] = DestructorInfo(destructor, i);
       }
-    }
 
+      // deleting destructor should always be defined
+      assert(! destructors[0].needsReplacement());
+
+      DestructorInfo* d1 = &destructors[1];
+      DestructorInfo* d2 = &destructors[2];
+
+      // only one of the rest could be undefined
+      assert(! d1->needsReplacement() || ! d2->needsReplacement());
+
+      // if complete object destructor is missing...
+      if (d1->needsReplacement()) {
+        std::string gv2Name = d1->function->getName();
+        unsigned l = gv2Name.length();
+        gv2Name = gv2Name.replace(l-3, 1, "2");
+
+        Function* f1 = d1->getFunction();
+        assert(f1);
+        Function* f2 = module->getFunction(gv2Name);
+        assert(f2);
+
+        sd_print("Replacing %s with %s inside %s\n",
+                 d1->function->getName().data(),
+                 gv2Name.c_str(),
+                 gv.getName().data());
+
+        f1->replaceAllUsesWith(f2);
+        replaced = true;
+
+      // if base object destructor is missing...
+      } else if (d2->needsReplacement()) {
+        std::string gv1Name = d2->function->getName();
+        unsigned l = gv1Name.length();
+        gv1Name = gv1Name.replace(l-3, 1, "1");
+
+        Function* f2 = d2->getFunction();
+        assert(f2);
+        Function* f1 = module->getFunction(gv1Name);
+        assert(f1);
+
+        sd_print("Replacing %s with %s inside %s\n",
+                 d2->function->getName().data(),
+                 gv1Name.c_str(),
+                 gv.getName().data());
+
+        f2->replaceAllUsesWith(f1);
+        replaced = true;
+      }
+
+//      sd_print("%s - %u\n", gv.getName().data(), vtblInd);
+//      for(unsigned i=0; i<3; i++)
+//        sd_print("%u : %s\n", i, destructors[i].toStr().c_str());
+    }
   }
 
-  return false;
+  return replaced;
 }
 
+std::vector<SDFix::vtbl_pair_t> SDFix::findSubVtables(ConstantArray* vtable) {
+  assert(vtable);
+  std::vector<unsigned> addrPts;
+  std::vector<vtbl_pair_t> subvtables;
+  unsigned numElements = vtable->getNumOperands();
+
+  for (unsigned i=0; i<numElements; i++) {
+    Constant* element = vtable->getOperand(i);
+    if (sd_isRTTI(element) != NULL)
+      addrPts.push_back(i+1);
+  }
+
+  assert(addrPts.size() > 0);
+
+  if (addrPts.size() == 1) {
+    subvtables.push_back(vtbl_pair_t(0, numElements));
+    return subvtables;
+  }
+  addrPts.push_back(numElements);
+
+  unsigned prevStart = 0;
+  for (unsigned i=0; i<addrPts.size() - 1; i++) {
+    subvtables.push_back(vtbl_pair_t(prevStart, addrPts[i+1]));
+    prevStart = addrPts[i];
+  }
+
+  return subvtables;
+}

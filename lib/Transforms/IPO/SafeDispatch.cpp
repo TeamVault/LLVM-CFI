@@ -306,8 +306,6 @@ namespace {
      */
     int64_t oldIndexToNew(vtbl_name_t vtbl_name, int64_t offset, bool isRelative);
     int64_t oldIndexToNew2(vtbl_t vtbl, int64_t offset, bool isRelative);
-
-    static void printVtable(GlobalVariable* globalVar);
   };
 
   /**
@@ -1421,37 +1419,6 @@ FunctionType *SDChangeIndices::getDynCastFunType(LLVMContext &context) {
 /// ----------------------------------------------------------------------------
 /// Helper functions
 /// ----------------------------------------------------------------------------
-
-void SDModule::printVtable(GlobalVariable* globalVar) {
-  StringRef varName = globalVar->getName();
-  ConstantArray* vtable = dyn_cast<ConstantArray>(globalVar->getInitializer());
-  assert(vtable);
-
-  ConstantExpr* ce = NULL;
-  ConstantInt* vtblInt = NULL;
-  unsigned opcode = 0;
-
-  sd_print("%s elements:\n", varName.bytes_begin());
-  for (unsigned vtblInd = 0; vtblInd < vtable->getNumOperands(); vtblInd++) {
-    ce = dyn_cast<ConstantExpr>(vtable->getOperand(vtblInd));
-    opcode = ce ? ce->getOpcode() : 0;
-
-    switch (opcode) {
-      case BITCAST_OPCODE:
-        sd_print("%-2u %s\n", vtblInd, ce->getOperand(0)->getName().bytes_begin());
-        break;
-      case INTTOPTR_OPCODE:
-        vtblInt = dyn_cast<ConstantInt>(ce->getOperand(0));
-        assert(vtblInt);
-        sd_print("%-2u %ld\n", vtblInd, vtblInt->getSExtValue());
-        break;
-      default: // this must be a null value
-        sd_print("%-2u 0\n", vtblInd);
-        break;
-    }
-  }
-}
-
 
 bool llvm::sd_replaceCallFunctionWith(CallInst* callInst, Function* to, std::vector<Value*> args) {
   assert(callInst && to && (args.size() > 0));

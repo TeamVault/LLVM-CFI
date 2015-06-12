@@ -14,8 +14,8 @@ ENABLE_COMPILER_OPT = False
 
 # Enabled linker flags
 linker_flags = {
-  "ENABLE_CHECKS"    : False, # interleave the vtables and add the range checks
-  "ENABLE_LINKER_O2" : False, # runs O2 level optimizations during linking
+  "ENABLE_CHECKS"    : True, # interleave the vtables and add the range checks
+  "ENABLE_LINKER_O2" : True, # runs O2 level optimizations during linking
   "ENABLE_LTO"       : True, # runs link time optimization passes
   "LTO_EMIT_LLVM"    : False, # emit bitcode rather than machine code
   "LTO_SAVE_TEMPS"   : True, # save bitcode before & after linker passes
