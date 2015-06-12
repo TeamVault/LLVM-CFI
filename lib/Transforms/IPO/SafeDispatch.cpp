@@ -38,7 +38,7 @@ using namespace llvm;
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 #define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
 
-llvm::Module* CURR_MODULE = NULL;
+static llvm::Module* CURR_MODULE = NULL;
 
 namespace {
   /**
@@ -341,14 +341,27 @@ namespace {
       memptrOptMdId = M.getMDKindID(SD_MD_MEMPTR_OPT);
       checkMdId     = M.getMDKindID(SD_MD_CHECK);
 
+      uint64_t noOfFunctions = M.getFunctionList().size();
+      uint64_t currFunctionInd = 1;
+      int pct, lastpct=0;
+
       bool isUpdate = false;
       for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
+        pct = ((double) currFunctionInd / noOfFunctions) * 100;
+        currFunctionInd++;
+
+        if (pct > lastpct) {
+          fprintf(stderr, "\rSD] Progress: %3d%%", pct);
+          fflush(stderr);
+          lastpct = pct;
+        }
+
         for(Function:: iterator bb_itr = f_itr->begin(); bb_itr != f_itr->end(); bb_itr++) {
           bool res = updateBasicBlock(&M, *bb_itr);
           isUpdate = isUpdate || res;
         }
       }
-
+      fprintf(stderr, "\n");
       sd_print("Finished running the 2nd pass...\n");
 
       sdModule->removeVtablesAndThunks(M);

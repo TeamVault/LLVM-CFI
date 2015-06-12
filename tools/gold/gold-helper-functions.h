@@ -139,6 +139,15 @@ std::string modulePasses[] = {
 };
 unsigned modulePassesLength = sizeof(modulePasses) / sizeof(std::string);
 
+void runSDFixPass(llvm::TargetMachine &TM, llvm::Module &M) {
+  llvm::legacy::PassManager* PM = new llvm::legacy::PassManager();
+  PM->add(createTTIPass(TM));
+
+  PM->add(llvm::createSDFixPass());
+
+  PM->run(M);
+}
+
 llvm::legacy::PassManager *
 getSDPasses(llvm::TargetMachine &TM) {
   llvm::legacy::PassManager* PM = new llvm::legacy::PassManager();

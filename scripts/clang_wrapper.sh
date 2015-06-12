@@ -29,6 +29,7 @@ run_compile_command() {
 run_link_command() {
   local CXX=$("$SCRIPTS_DIR/config.py" CXX)
   local LD=$("$SCRIPTS_DIR/config.py" LD)
+  local LD_FLAGS=$("$SCRIPTS_DIR/config.py" LD_FLAGS)
   local LD_PLUGIN=$("$SCRIPTS_DIR/config.py" LD_PLUGIN)
   local SD_LIB_FOLDERS=$("$SCRIPTS_DIR/config.py" SD_LIB_FOLDERS)
   local SD_LIBS=$("$SCRIPTS_DIR/config.py" SD_LIBS)

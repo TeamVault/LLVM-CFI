@@ -302,6 +302,7 @@ void initializeFloat2IntPass(PassRegistry&);
 void initializeSafeDispatch(PassRegistry&);
 void initializeSDModulePass(PassRegistry&);
 void initializeSDChangeIndicesPass(PassRegistry&);
+void initializeSDFixPass(PassRegistry&);
 }
 
 #endif

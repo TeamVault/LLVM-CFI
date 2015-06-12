@@ -14,8 +14,8 @@ ENABLE_COMPILER_OPT = False
 
 # Enabled linker flags
 linker_flags = {
-  "ENABLE_CHECKS"    : True, # interleave the vtables and add the range checks
-  "ENABLE_LINKER_O2" : True, # runs O2 level optimizations during linking
+  "ENABLE_CHECKS"    : False, # interleave the vtables and add the range checks
+  "ENABLE_LINKER_O2" : False, # runs O2 level optimizations during linking
   "ENABLE_LTO"       : True, # runs link time optimization passes
   "LTO_EMIT_LLVM"    : False, # emit bitcode rather than machine code
   "LTO_SAVE_TEMPS"   : True, # save bitcode before & after linker passes
@@ -102,34 +102,18 @@ def read_config():
     })
 
   clang_config.update({
+    "CC"              : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang",
+    "CXX"             : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
+    "CXX_FLAGS"       : ["-flto"],
+    "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
+    "LD_FLAGS"        : [],
     "SD_LIB_FOLDERS"  : ["-L" + clang_config["SD_DIR"] + "/libdyncast"],
     "SD_LIBS"         : ["-ldyncast"],
     "LD_PLUGIN"       : [opt for (key,opt) in linker_flag_opt_map.items()
                          if linker_flags[key]],
-    "CC"              : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang",
-    "CXX"             : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
     "AR"              : clang_config["LLVM_SCRIPTS_DIR"] + "/ar",
     "NM"              : clang_config["LLVM_SCRIPTS_DIR"] + "/nm",
     "RANLIB"          : clang_config["LLVM_SCRIPTS_DIR"] + "/ranlib",
-    "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
-    "CXX_FLAGS"       : ["-flto"],
-    "LD_FLAGS"        : ["-z", "relro", "--hash-style=gnu", "--build-id", "--eh-frame-hdr",
-                         "-m", "elf_x86_64", "-dynamic-linker", "/lib64/ld-linux-x86-64.so.2"],
-    "LD_OBJS"         : ["/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crt1.o",
-                         "/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crti.o",
-                         "/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/crtbegin.o"],
-    "LD_LIB_FOLDERS"  : ["-L/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"],
-                         "-L/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/../../../x86_64-linux-gnu",
-                         "-L/lib/x86_64-linux-gnu",
-                         "-L/lib/../lib64",
-                         "-L/usr/lib/x86_64-linux-gnu",
-                         "-L/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/../../..",
-                         "-L" + clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/../lib",
-                         "-L/lib",
-                         "-L/usr/lib"],
-    "LD_LIBS"         : ["-lstdc++", "-lm", "-lgcc_s", "-lgcc", "-lc", "-lgcc_s", "-lgcc",
-                         "/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/crtend.o",
-                         "/usr/lib/gcc/x86_64-linux-gnu/" + clang_config["MY_GCC_VER"] + "/../../../x86_64-linux-gnu/crtn.o"],
     })
 
   for (k,v) in linker_flags.items():
@@ -145,12 +129,12 @@ if __name__ == '__main__':
     d = read_config()
     key = sys.argv[1].upper()
 
-    if key in d:
-      var = d[key]
-      if type(var) == list:
-        print " ".join(var)
-      else:
-        print var
+    assert key in d
+    var = d[key]
+    if type(var) == list:
+      print " ".join(var)
+    else:
+      print var
 
     sys.exit(0)
   else:

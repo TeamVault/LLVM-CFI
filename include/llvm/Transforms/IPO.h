@@ -206,6 +206,7 @@ ModulePass *createLowerBitSetsPass();
 // safedispatch additions
 ModulePass* createSDChangeIndicesPass();
 ModulePass* createSDModulePass();
+ModulePass* createSDFixPass();
 
 } // End llvm namespace
 

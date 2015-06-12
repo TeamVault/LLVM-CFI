@@ -4,7 +4,7 @@
 #include <string>
 #include "llvm/ADT/StringRef.h"
 
-static bool sd_isVtableName_ref(llvm::StringRef& name) {
+static bool sd_isVtableName_ref(const llvm::StringRef& name) {
   if (name.size() <= 4) {
     // name is too short, cannot be a vtable name
     return false;

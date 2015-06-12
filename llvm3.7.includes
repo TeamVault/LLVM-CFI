@@ -403,3 +403,4 @@ utils/unittest/googletest/src
 ../llvm-build/include
 ../binutils/include
 tools/gold
+lib/Transforms/IPO

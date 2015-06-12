@@ -794,6 +794,8 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
     PMB.populateModulePassManager(*PM);
   }
 
+  runSDFixPass(TM,M);
+
   if (options::RunSDPasses) {
     // run safedispatch passes first
     legacy::PassManager *SD_PM = getSDPasses(TM);
