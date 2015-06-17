@@ -357,16 +357,16 @@ void InstrProfStats::reportDiagnostics(DiagnosticsEngine &Diags,
 #include <vector>
 
 template <class T>
-T sd_fold(llvm::User* u, T (*callback)(T, llvm::Value*), T def) {
+T sd_fold(llvm::User* u, T (*callback)(T, unsigned, llvm::Value*), T def) {
   T next = def;
   assert(u);
   for(unsigned i=0; i < u->getNumOperands(); i++) {
     llvm::Value* op = u->getOperand(i);
     assert(op);
 
-    next = callback(next, op);
-    llvm::User* uOp = llvm::dyn_cast<llvm::User>(op);
+    next = callback(next, i, op);
 
+    llvm::User* uOp = llvm::dyn_cast<llvm::User>(op);
     if (uOp && ! llvm::dyn_cast<llvm::Instruction>(op)) {
       next = sd_fold(uOp, callback, next);
     }
@@ -374,17 +374,18 @@ T sd_fold(llvm::User* u, T (*callback)(T, llvm::Value*), T def) {
   return next;
 }
 
-typedef std::vector<llvm::ConstantMemberPointer*> sd_fold_t;
+typedef std::pair<unsigned, llvm::ConstantMemberPointer*> sd_fold_pair_t;
+typedef std::vector<sd_fold_pair_t> sd_fold_t;
 
 static sd_fold_t*
-sd_cmp_callback(sd_fold_t* cmps, llvm::Value* val) {
+sd_cmp_callback(sd_fold_t* cmps, unsigned ind, llvm::Value* val) {
   llvm::ConstantMemberPointer* cmp = llvm::dyn_cast<llvm::ConstantMemberPointer>(val);
   if (cmp) {
     assert(cmps);
     for(unsigned i=0; i < cmps->size(); i++) {
       assert(cmps->at(i) != cmp);
     }
-    cmps->push_back(cmp);
+    cmps->push_back(sd_fold_pair_t(ind, cmp));
   }
   return cmps;
 }
@@ -423,6 +424,15 @@ sd_emitMd(llvm::Module& M) {
             id = SD_MD_MEMPTR2;
             break;
           default:
+            f->dump();
+            inst->dump();
+            for (unsigned i=0; i<cmps.size(); i++)
+              sd_print("#%u - %s\n", i, cmps[i]->getClassName().c_str());
+
+             llvm::ConstantExpr* bcExpr = llvm::cast<llvm::ConstantExpr>(inst->getOperand(1));
+             llvm::Constant* zzthing = bcExpr->getOperand(0);
+             zzthing->dump();
+
             llvm_unreachable("this shouldn't happen");
           }
 

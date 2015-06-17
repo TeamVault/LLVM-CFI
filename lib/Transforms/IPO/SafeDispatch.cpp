@@ -795,7 +795,7 @@ static inline uint64_t
 sd_getNumberFromMDTuple(const MDOperand& op) {
   Metadata* md = op.get();
   assert(md);
-  ConstantAsMetadata* cam = dyn_cast<ConstantAsMetadata>(md);
+  ConstantAsMetadata* cam = dyn_cast_or_null<ConstantAsMetadata>(md);
   assert(cam);
   ConstantInt* ci = dyn_cast<ConstantInt>(cam->getValue());
   assert(ci);
@@ -805,7 +805,7 @@ sd_getNumberFromMDTuple(const MDOperand& op) {
 
 static inline SDModule::vtbl_name_t
 sd_getStringFromMDTuple(const MDOperand& op) {
-  MDString* mds = dyn_cast<MDString>(op.get());
+  MDString* mds = dyn_cast_or_null<MDString>(op.get());
   assert(mds);
 
   return mds->getString().str();
@@ -902,7 +902,7 @@ static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
     return NULL;
   }
 
-  llvm::ConstantAsMetadata* vtblCAM = dyn_cast<ConstantAsMetadata>(md);
+  llvm::ConstantAsMetadata* vtblCAM = dyn_cast_or_null<ConstantAsMetadata>(md);
   if(! vtblCAM) {
     md->dump();
     assert(false);
@@ -922,7 +922,9 @@ SDModule::extractMetadata(NamedMDNode* md) {
 
   do {
     SDModule::nmd_t info;
-    info.className = (cast<MDString>(md->getOperand(op++)->getOperand(0)))->getString().str();
+    MDString* infoMDstr = dyn_cast_or_null<MDString>(md->getOperand(op++)->getOperand(0));
+    assert(infoMDstr);
+    info.className = infoMDstr->getString().str();
     GlobalVariable* classVtbl = sd_mdnodeToGV(md->getOperand(op++));
 
     if (classVtbl) {
@@ -1092,7 +1094,7 @@ sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
   Out.flush();
 //  sd_print("print: %s\n", OutName.str().data());
 
-  llvm::ConstantAsMetadata* vtblConsMd = dyn_cast<ConstantAsMetadata>(gvMd->getOperand(0).get());
+  llvm::ConstantAsMetadata* vtblConsMd = dyn_cast_or_null<ConstantAsMetadata>(gvMd->getOperand(0).get());
   if (vtblConsMd == NULL) {
     llvm::MDNode* tmpnode = dyn_cast<llvm::MDNode>(gvMd);
     llvm::MDString* tmpstr = dyn_cast<llvm::MDString>(tmpnode->getOperand(0));
@@ -1393,7 +1395,7 @@ int64_t SDChangeIndices::getMetadataConstant(llvm::MDNode *mdNode, unsigned oper
   llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
   assert(mdTuple);
 
-  llvm::ConstantAsMetadata* constantMD = dyn_cast<ConstantAsMetadata>(
+  llvm::ConstantAsMetadata* constantMD = dyn_cast_or_null<ConstantAsMetadata>(
         mdTuple->getOperand(operandNo));
   assert(constantMD);
 
