@@ -383,7 +383,7 @@ sd_cmp_callback(sd_fold_t* cmps, unsigned ind, llvm::Value* val) {
   if (cmp) {
     assert(cmps);
     for(unsigned i=0; i < cmps->size(); i++) {
-      assert(cmps->at(i) != cmp);
+      assert(cmps->at(i).second != cmp);
     }
     cmps->push_back(sd_fold_pair_t(ind, cmp));
   }
@@ -407,7 +407,7 @@ sd_emitMd(llvm::Module& M) {
           std::vector<llvm::Metadata*> mds;
 
           for(unsigned i=0; i < cmps.size(); i++) {
-            llvm::ConstantMemberPointer* cmp = cmps[i];
+            llvm::ConstantMemberPointer* cmp = cmps[i].second;
             sd_class_md_t p = sd_getClassNameMetadataPair(cmp->getClassName(), M);
             mds.push_back(p.first);
             mds.push_back(p.second);
@@ -417,17 +417,24 @@ sd_emitMd(llvm::Module& M) {
           llvm::StringRef id;
 
           switch(inst->getOpcode()){
-          case STORE_OPCODE:
+          case llvm::Instruction::Store:
             id = SD_MD_MEMPTR;
             break;
-          case SELECT_OPCODE:
+          case llvm::Instruction::Select:
             id = SD_MD_MEMPTR2;
             break;
+//          case llvm::Instruction::Call: {
+//            llvm::CallInst* ci = dyn_cast<llvm::CallInst>(inst);
+//            assert(ci &&
+//                   ci->getCalledFunction() &&
+//                   ci->getCalledFunction()->getName() &&
+//                   ci->getCalledFunction()->getName().startswith("llvm.memcpy"));
+//          }
           default:
             f->dump();
             inst->dump();
             for (unsigned i=0; i<cmps.size(); i++)
-              sd_print("#%u - %s\n", i, cmps[i]->getClassName().c_str());
+              sd_print("#%u - %s\n", cmps[i].first, cmps[i].second->getClassName().c_str());
 
              llvm::ConstantExpr* bcExpr = llvm::cast<llvm::ConstantExpr>(inst->getOperand(1));
              llvm::Constant* zzthing = bcExpr->getOperand(0);

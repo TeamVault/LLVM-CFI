@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
   void (A::*aFptr)();
 
   FunPtrSt fps1 = {&A::f, {1,2}, &A::g};
+  fps1 = (FunPtrSt) {&A::f, {1,2}, &A::g};
   FunPtrSt fps2 = {&A::h, {3,4}, &A::i};
 
   FunPtrSt fps = cond1 ? (fps1) : (fps2);
