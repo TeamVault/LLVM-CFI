@@ -1,0 +1,167 @@
+declare -a benchmarks=('xalancbmk' 'omnetpp' 'astar')
+#declare -a benchmarks=('astar')
+declare -a all_bench_types=('without_3.7_checks' 'with_3.7_checks')
+
+# ### LOG FORMAT ####################################################################
+# build_<benchmark>_without_3.7_checks.txt : for testing with clang 3.7 w/o CFI
+# build_<benchmark>_with_3.7_checks.txt    : for testing with clang 3.7 with CFI
+# ###################################################################################
+
+SCRIPTS_DIR=/home/sd/rami/llvm3.7/llvm/scripts
+
+clean_all_builds ()
+{
+	rm -Rf $SPEC/benchspec/C*/*/run
+	rm -Rf $SPEC/benchspec/C*/*/exe
+}
+
+read_report ()
+{
+	less "$SPEC/result/CPU2006."$(printf "%03d" $1)".log"
+}
+
+average_report ()
+{
+	if [[ $# -ne 1 ]]; then
+		echo "usage: $FUNCNAME <log file>"
+		return 1
+	fi
+
+	local FILE="$1"
+	grep -i "Reported" "$FILE" | awk '{sum += $4; cnt++; print cnt, $4;} END {if (cnt > 0) print "average: ", sum / cnt}'
+}
+
+compare_report ()
+{
+	local FILE1="$SPEC/result/CPU2006."$(printf "%03d" $1)".log"
+	local FILE2="$SPEC/result/CPU2006."$(printf "%03d" $2)".log"
+
+	local AVG1=$(grep -i "Reported" "$FILE1" | awk '{sum += $4; cnt++;} END {if (cnt > 0) {print sum / cnt} else {print "no value"}}')
+	local AVG2=$(grep -i "Reported" "$FILE2" | awk '{sum += $4; cnt++;} END {if (cnt > 0) {print sum / cnt} else {print "no value"}}')
+
+	if [[ -n $AVG1 && $AVG1 != "no value" && -n $AVG2 && $AVG2 != "no value"  ]]; then
+		echo "$AVG1 / $AVG2" | bc -l
+	else
+		echo "Cannot make comparison"
+	fi
+}
+
+print_sep ()
+{
+	for (( i = 0; i < 5; i++ )); do
+		echo "################################################################################"
+	done
+}
+
+extract_results ()
+{
+	if [[ $# -ne 1 ]]; then
+		echo "usage: $FUNCNAME <log file>"
+		return 1
+	fi
+
+	local FILE="$1"
+	grep -i "Reported" "$FILE" | awk '{sum += $4; cnt++; print $4;} END {if (cnt > 0) print "average: ", sum / cnt}'
+}
+
+show_stats()
+{
+	declare -a local types=("${!1}")
+
+	for b in ${benchmarks[@]}; do
+		for t in ${types[@]}; do
+			local buildfile="build_${b}_${t}.txt"
+			if [[ -e $buildfile ]]; then
+				local logfile=$(grep -ioP '[^ ]*\.log' $buildfile | tail -n 1)
+				if [[ -e $logfile ]]; then
+					echo "${b} - ${t}"
+					extract_results "$logfile"
+					echo
+				fi
+			fi
+		done
+	done
+}
+
+runspec_with_clang37 ()
+{
+	if [[ $# -lt 1 ]]; then
+		echo "usage: $FUNCNAME <benchmark> [# iteration]"
+		return 1
+	fi
+
+	local benchmark="$1"
+
+	if [[ $# -eq 2 ]]; then 
+		local runcount=$2
+	else
+		local runcount=100
+	fi
+
+    env PATH="$SCRIPTS_DIR:$PATH" \
+      runspec --size=test --noreportable --tune=base --iterations=$runcount $benchmark
+}
+
+runspec_with_clang37_and_check ()
+{
+	if [[ $# -lt 1 ]]; then
+		echo "usage: $FUNCNAME <benchmark> [# iteration]"
+		return 1
+	fi
+
+	local benchmark="$1"
+
+	if [[ $# -eq 2 ]]; then 
+		local runcount=$2
+	else
+		local runcount=100
+	fi
+
+    env PATH="$SCRIPTS_DIR:$PATH" \
+      runspec --size=test --noreportable --tune=base --iterations=$runcount $benchmark
+}
+
+test_all_with37()
+{
+	local runcount=1;
+	local has_check=0;
+
+	if [[ $# -eq 1 ]]; then 
+		has_check="$1"
+	elif [[ $# -eq 2 ]]; then 
+		runcount="$1"
+		has_check="$2"
+	else
+		echo "usage $FUNCNAME [count=1] <check (0|1)>"
+		return 1
+	fi
+
+	clean_all_builds
+
+    if [[ $has_check -eq 0 ]]; then
+      for b in ${benchmarks[@]}; do
+        runspec_with_clang37 $b $runcount 2>&1 | tee "build_${b}_without_3.7_checks.txt"
+        if [[ $? -ne 0 ]]; then return 1; fi
+      done
+    elif [[ $has_check -eq 1 ]]; then
+      for b in ${benchmarks[@]}; do
+        runspec_with_clang37_and_check $b $runcount 2>&1 | tee "build_${b}_with_3.7_checks.txt"
+        if [[ $? -ne 0 ]]; then return 1; fi
+      done
+    fi
+}
+
+show_all_stats()
+{
+	show_stats all_bench_types[@]
+}
+
+mail_results ()
+{
+	show_all_stats > /tmp/all_stats.txt
+
+	/home/sd/rami/applications/send_email/sendemail.py \
+		-s "Benchmark results - `date`" \
+		rkici@eng.ucsd.edu \
+		/tmp/all_stats.txt
+}

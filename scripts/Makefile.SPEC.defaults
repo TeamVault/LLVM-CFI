@@ -1,0 +1,7 @@
+# these 2 are the only variables
+LLVM_DIR     = /home/sd/rami/llvm3.7/llvm
+SCRIPTS_DIR  = $(LLVM_DIR)/scripts
+
+CXX=$(SCRIPTS_DIR)/clang_wrapper.sh
+
+print-%: ; @echo $*=$($*)
