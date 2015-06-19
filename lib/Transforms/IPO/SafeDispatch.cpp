@@ -7,6 +7,7 @@
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -1326,25 +1327,66 @@ void SDChangeIndices::handleStoreMemberPointer(MDNode *mdNode, Instruction *inst
   replaceConstantStruct(CS, storeInst, className);
 }
 
+//void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *inst){
+//  sanityCheck1(inst);
+
+//  std::string className = sd_getClassNameFromMD(mdNode);
+//  SDModule::vtbl_t vtbl(className,0);
+
+// //  sd_print("name: %s, function: %s\n", className.c_str(),
+// //           inst->getParent()->getParent()->getName().data());
+
+//  // %134 = icmp ult i64 %133, <count>, !dbg !874, !sd.check !751
+//  ICmpInst* icmpInst = dyn_cast<ICmpInst>(inst);
+//  assert(icmpInst);
+
+//  // %133 = sub i64 %132, <vtbl address>, !dbg !874
+//  SubOperator* subOp = dyn_cast<SubOperator>(icmpInst->getOperand(0));
+//  assert(subOp);
+
+//  // %132 = ptrtoint void (%class.A*)** %vtable90 to i64, !dbg !874
+//  PtrToIntInst* ptiInst = dyn_cast<PtrToIntInst>(subOp->getOperand(0));
+//  assert(ptiInst);
+
+//  LLVMContext& C = M->getContext();
+
+//  if (sdModule->cloudMap.count(vtbl) == 0 &&
+//      sdModule->newLayoutInds.count(vtbl) == 0) {
+//    // FIXME (rkici) : temporarily fix these weird classes by making it always check
+//    Value* zero = ConstantInt::get(IntegerType::getInt64Ty(C), 0);
+//    icmpInst->setOperand(1, zero);
+//    subOp->setOperand(1, subOp->getOperand(0));
+
+//    return;
+//  }
+
+//  // change the start address of the root class
+//  Value* addrPt = sdModule->newVtblAddress(*M, className, ptiInst);
+//  subOp->setOperand(1, addrPt);
+
+//  assert(sdModule->cloudSizeMap.count(className));
+//  uint32_t cloudSize = sdModule->cloudSizeMap[className];
+//  cloudSize *= WORD_WIDTH;
+
+//  Value* cloudSizeVal = ConstantInt::get(IntegerType::getInt64Ty(C), cloudSize);
+
+//  // update the cloud range
+//  icmpInst->setOperand(1, cloudSizeVal);
+//}
+
 void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *inst){
   sanityCheck1(inst);
 
   std::string className = sd_getClassNameFromMD(mdNode);
   SDModule::vtbl_t vtbl(className,0);
 
-//  sd_print("name: %s, function: %s\n", className.c_str(),
-//           inst->getParent()->getParent()->getName().data());
-
   // %134 = icmp ult i64 %133, <count>, !dbg !874, !sd.check !751
   ICmpInst* icmpInst = dyn_cast<ICmpInst>(inst);
   assert(icmpInst);
-
-  // %133 = sub i64 %132, <vtbl address>, !dbg !874
-  SubOperator* subOp = dyn_cast<SubOperator>(icmpInst->getOperand(0));
-  assert(subOp);
+  CmpInst::Predicate pred = icmpInst->getPredicate();
 
   // %132 = ptrtoint void (%class.A*)** %vtable90 to i64, !dbg !874
-  PtrToIntInst* ptiInst = dyn_cast<PtrToIntInst>(subOp->getOperand(0));
+  PtrToIntInst* ptiInst = dyn_cast<PtrToIntInst>(icmpInst->getOperand(0));
   assert(ptiInst);
 
   LLVMContext& C = M->getContext();
@@ -1352,25 +1394,32 @@ void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *
   if (sdModule->cloudMap.count(vtbl) == 0 &&
       sdModule->newLayoutInds.count(vtbl) == 0) {
     // FIXME (rkici) : temporarily fix these weird classes by making it always check
-    Value* zero = ConstantInt::get(IntegerType::getInt64Ty(C), 0);
-    icmpInst->setOperand(1, zero);
-    subOp->setOperand(1, subOp->getOperand(0));
-
+    icmpInst->setOperand(1,ptiInst);
     return;
   }
 
   // change the start address of the root class
   Value* addrPt = sdModule->newVtblAddress(*M, className, ptiInst);
-  subOp->setOperand(1, addrPt);
+
+  if (pred == CmpInst::ICMP_UGE) {
+    // icmp uge vtable, cloud start
+    icmpInst->setOperand(1, addrPt);
+    return;
+  }
+
+  assert(pred == CmpInst::ICMP_ULE);
 
   assert(sdModule->cloudSizeMap.count(className));
   uint32_t cloudSize = sdModule->cloudSizeMap[className];
   cloudSize *= WORD_WIDTH;
 
   Value* cloudSizeVal = ConstantInt::get(IntegerType::getInt64Ty(C), cloudSize);
+  IRBuilder<> builder(icmpInst);
+  builder.SetInsertPoint(icmpInst);
+  Value* cloudEnd = builder.CreateAdd(addrPt, cloudSizeVal);
 
   // update the cloud range
-  icmpInst->setOperand(1, cloudSizeVal);
+  icmpInst->setOperand(1, cloudEnd);
 }
 
 void SDChangeIndices::handleSelectMemberPointer(MDNode *mdNode, Instruction *inst){

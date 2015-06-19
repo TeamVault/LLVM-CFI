@@ -1518,6 +1518,50 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   return VTable;
 }
 
+//static llvm::Value*
+//sd_getCheckedVTable_old(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+//  assert(MD && "Non-null method decl");
+//  assert(MD->isInstance() && "Shouldn't see a static method");
+
+//  llvm::LLVMContext& C = CGF.getLLVMContext();
+
+//  // use some dummy values for the vtable address and the range
+//  llvm::Value *rangeStart = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 424242);
+//  llvm::Value *rangeSize = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 42);
+
+//  // use vtable address as an integer
+//  llvm::Value *VTableAPInt = CGF.Builder.CreatePtrToInt(VTableAP, rangeStart->getType());
+//  // calculate the range
+//  llvm::Value *relOff = CGF.Builder.CreateSub(VTableAPInt, rangeStart);
+
+//  // get the vtable
+//  const CXXRecordDecl* RD = MD->getParent();
+//  llvm::GlobalVariable* VTable = CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
+
+//  llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
+//  llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
+
+//  // check if vtbl is inside the range
+//  llvm::Value *isInsideRange = CGF.Builder.CreateICmpULE(relOff, rangeSize);
+
+//  // add the metadata
+//  llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
+//  assert(cmp);
+//  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+
+//  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
+
+//  // do the branch
+//  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
+
+//  CGF.addDeferredVTableFailBlock(checkFailed);
+
+//  // Continue function emittance in the vtblCheck.success bb
+//  CGF.EmitBlock(checkSuccess);
+
+//  return VTableAP;
+//}
+
 static llvm::Value*
 sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
   assert(MD && "Non-null method decl");
@@ -1527,35 +1571,49 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   // use some dummy values for the vtable address and the range
   llvm::Value *rangeStart = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 424242);
-  llvm::Value *rangeSize = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 42);
+  llvm::Value *rangeEnd   = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 434343);
 
   // use vtable address as an integer
   llvm::Value *VTableAPInt = CGF.Builder.CreatePtrToInt(VTableAP, rangeStart->getType());
-  // calculate the range
-  llvm::Value *relOff = CGF.Builder.CreateSub(VTableAPInt, rangeStart);
 
-  llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
-  llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
-
-  // check if vtbl is inside the range
-  llvm::Value *isInsideRange = CGF.Builder.CreateICmpULE(relOff, rangeSize);
-
-  // add the metadata
-  llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
-  assert(cmp);
-  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
-
+  // get the vtable
   const CXXRecordDecl* RD = MD->getParent();
   llvm::GlobalVariable* VTable = CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
-  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
+
+  llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
+  llvm::BasicBlock *checkSuccess1 = CGF.createBasicBlock("vtblCheck.success");
+  llvm::BasicBlock *checkSuccess2 = CGF.createBasicBlock("vtblCheck.success");
+
+  // check if vtbl is inside the range
+  llvm::Value *isAboveRange = CGF.Builder.CreateICmpUGE(VTableAPInt, rangeStart);
+
+  // add the metadata
+  llvm::ICmpInst* cmp1 = dyn_cast<llvm::ICmpInst>(isAboveRange);
+  assert(cmp1);
+  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+  cmp1->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
 
   // do the branch
-  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
+  CGF.Builder.CreateCondBr(isAboveRange, checkSuccess1, checkFailed);
 
   CGF.addDeferredVTableFailBlock(checkFailed);
 
   // Continue function emittance in the vtblCheck.success bb
-  CGF.EmitBlock(checkSuccess);
+  CGF.EmitBlock(checkSuccess1);
+
+  // check if vtbl is inside the range
+  llvm::Value *isBelowRange = CGF.Builder.CreateICmpULE(VTableAPInt, rangeEnd);
+
+  // add the metadata
+  llvm::ICmpInst* cmp2 = dyn_cast<llvm::ICmpInst>(isBelowRange);
+  assert(cmp2);
+  cmp2->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
+
+  // do the branch
+  CGF.Builder.CreateCondBr(isBelowRange, checkSuccess2, checkFailed);
+
+  // Continue function emittance in the vtblCheck.success bb
+  CGF.EmitBlock(checkSuccess2);
 
   return VTableAP;
 }
