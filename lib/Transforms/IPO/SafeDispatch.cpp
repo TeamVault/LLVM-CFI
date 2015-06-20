@@ -1385,6 +1385,8 @@ void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *
   assert(icmpInst);
   CmpInst::Predicate pred = icmpInst->getPredicate();
 
+  assert(pred == CmpInst::ICMP_UGE || pred == CmpInst::ICMP_ULE);
+
   // %132 = ptrtoint void (%class.A*)** %vtable90 to i64, !dbg !874
   PtrToIntInst* ptiInst = dyn_cast<PtrToIntInst>(icmpInst->getOperand(0));
   assert(ptiInst);
@@ -1401,25 +1403,43 @@ void SDChangeIndices::handleVtableCheck(Module* M, MDNode *mdNode, Instruction *
   // change the start address of the root class
   Value* addrPt = sdModule->newVtblAddress(*M, className, ptiInst);
 
-  if (pred == CmpInst::ICMP_UGE) {
-    // icmp uge vtable, cloud start
-    icmpInst->setOperand(1, addrPt);
-    return;
-  }
-
-  assert(pred == CmpInst::ICMP_ULE);
-
   assert(sdModule->cloudSizeMap.count(className));
   uint32_t cloudSize = sdModule->cloudSizeMap[className];
   cloudSize *= WORD_WIDTH;
 
-  Value* cloudSizeVal = ConstantInt::get(IntegerType::getInt64Ty(C), cloudSize);
-  IRBuilder<> builder(icmpInst);
-  builder.SetInsertPoint(icmpInst);
-  Value* cloudEnd = builder.CreateAdd(addrPt, cloudSizeVal);
+  if (cloudSize == WORD_WIDTH) {
+    // if there is only one class in the cloud, use equality for the first check
+    // and remove the 2nd one
+    if (pred == CmpInst::ICMP_UGE) {
+      icmpInst->setPredicate(CmpInst::ICMP_EQ);
+      icmpInst->setOperand(1, addrPt);
+    } else {
+      assert(! icmpInst->use_empty());
+      Value::use_iterator itr = icmpInst->use_begin();
+      Value* v = ((Use&) *itr).getUser();
+      BranchInst* brInst = dyn_cast<BranchInst>(v);
+      if (brInst == NULL) {
+        v->dump();
+        assert(false);
+      }
+      brInst->setCondition(ConstantInt::getTrue(C));
+      icmpInst->eraseFromParent();
+    }
+    return;
+  }
 
-  // update the cloud range
-  icmpInst->setOperand(1, cloudEnd);
+  if (pred == CmpInst::ICMP_UGE) {
+    // icmp uge vtable, cloud start
+    icmpInst->setOperand(1, addrPt);
+  } else {
+    Value* cloudSizeVal = ConstantInt::get(IntegerType::getInt64Ty(C), cloudSize);
+    IRBuilder<> builder(icmpInst);
+    builder.SetInsertPoint(icmpInst);
+    Value* cloudEnd = builder.CreateAdd(addrPt, cloudSizeVal);
+
+    // update the cloud range
+    icmpInst->setOperand(1, cloudEnd);
+  }
 }
 
 void SDChangeIndices::handleSelectMemberPointer(MDNode *mdNode, Instruction *inst){
