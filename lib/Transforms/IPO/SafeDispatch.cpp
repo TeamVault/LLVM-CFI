@@ -1119,7 +1119,8 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
 
   std::vector<Instruction*> instructions;
   for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
-    instructions.push_back(instItr);
+    if (instItr->hasMetadataOtherThanDebugLoc())
+      instructions.push_back(instItr);
   }
 
   std::set<Instruction*> changedInstructions;

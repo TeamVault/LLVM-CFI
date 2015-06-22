@@ -95,7 +95,7 @@ namespace {
 
       sd_print("Started running fix pass...\n");
 
-      bool isChanged = fixDestructors();
+      bool isChanged = fixDestructors2();
 
       sd_print("Finished running fix pass...\n");
 
@@ -117,6 +117,11 @@ namespace {
      * when a class doesn't have virtual base class -> D1 = D2
      */
     bool fixDestructors();
+
+    /**
+     * Change D1Ev to D2Ev if it doesn't exist
+     */
+    bool fixDestructors2();
 
     /**
      * Figure out the start/end of the subvtables by just looking at the vtable elements
@@ -301,10 +306,63 @@ bool SDFix::fixDestructors() {
         f2->replaceAllUsesWith(f1);
         replaced = true;
       }
+    }
+  }
 
-//      sd_print("%s - %u\n", gv.getName().data(), vtblInd);
-//      for(unsigned i=0; i<3; i++)
-//        sd_print("%u : %s\n", i, destructors[i].toStr().c_str());
+  return replaced;
+}
+
+bool SDFix::fixDestructors2() {
+  bool replaced = false;
+
+  for (GlobalVariable& gv : module->getGlobalList()) {
+    if (! sd_isVtableName_ref(gv.getName()))
+      continue;
+    else if (! gv.hasInitializer())
+      continue;
+
+    Constant* init = gv.getInitializer();
+    assert(init);
+    ConstantArray* vtable = dyn_cast<ConstantArray>(init);
+    assert(vtable);
+
+    for(unsigned i=0; i<vtable->getNumOperands(); i++) {
+      Constant* destructor = sd_getDestructorFunction(vtable->getOperand(i));
+
+      if (destructor == NULL)
+        continue;
+
+      // get the type from its name
+      unsigned s = destructor->getName().size();
+      char type = destructor->getName()[s-3];
+      assert('0' <= type && type <= '2');
+      unsigned typeInt = type - '0';
+
+      DestructorInfo di(destructor, i);
+
+      if(di.isDefined)
+        continue;
+
+      // this only handles the 1 -> 2 conversion
+      assert(typeInt == 1);
+
+      Function* f1 = di.getFunction();
+      assert(f1);
+      std::string gv2Name = f1->getName();
+      unsigned l = gv2Name.length();
+      gv2Name = gv2Name.replace(l-3, 1, "2");
+
+      Function* f2 = module->getFunction(gv2Name);
+      assert(f2 && ! f2->isDeclaration());
+
+      sd_print("Replacing %s with %s inside %s\n",
+               f1->getName().data(),
+               gv2Name.c_str(),
+               gv.getName().data());
+
+      f1->replaceAllUsesWith(f2);
+      replaced = true;
+
     }
   }
 
