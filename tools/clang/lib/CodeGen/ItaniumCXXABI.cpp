@@ -45,6 +45,13 @@ using namespace clang;
 using namespace CodeGen;
 
 namespace {
+bool sd_needGlobalVar(clang::CodeGen::CGCXXABI* CGM, const clang::CXXRecordDecl* RD) {
+  std::string className = CGM->GetClassMangledName(RD);
+  return className.find("_GLOBAL__N_") != std::string::npos;
+}
+}
+
+namespace {
 class ItaniumCXXABI : public CodeGen::CGCXXABI {
   /// VTables - All the vtables which have been defined.
   llvm::DenseMap<const CXXRecordDecl *, llvm::GlobalVariable *> VTables;
@@ -479,7 +486,7 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
 //    llvm::LLVMContext& C = vtableGepInst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
 //    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
-    llvm::GlobalVariable* VTable = RD->isAbstract() ? NULL : this->getAddrOfVTable(RD,CharUnits());
+    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? this->getAddrOfVTable(RD,CharUnits()) : NULL;
     vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
   }
 
@@ -1116,7 +1123,7 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
 //    llvm::LLVMContext& C = loadInst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
 //    loadInst->setMetadata(SD_MD_TYPEID, N);
-    llvm::GlobalVariable* VTable = RD->isAbstract() ? NULL : this->getAddrOfVTable(RD,CharUnits());
+    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? this->getAddrOfVTable(RD,CharUnits()) : NULL;
     loadInst->setMetadata(SD_MD_TYPEID, sd_getClassNameMetadata(Name,CGM.getModule(), VTable));
   }
 
@@ -1165,7 +1172,7 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
 //    llvm::MDString* classNameMD = llvm::MDString::get(C, Name);
 //    llvm::MDNode* N = llvm::MDNode::get(C, classNameMD);
 //    cInst->setMetadata(SD_MD_CAST_FROM, N);
-    llvm::GlobalVariable* VTable = SrcDecl->isAbstract() ? NULL : this->getAddrOfVTable(SrcDecl, CharUnits());
+    llvm::GlobalVariable* VTable = sd_needGlobalVar(this, SrcDecl) ? this->getAddrOfVTable(SrcDecl, CharUnits()) : NULL;
     cInst->setMetadata(SD_MD_CAST_FROM, sd_getClassNameMetadata(Name,CGM.getModule(), VTable));
   }
 
@@ -1238,7 +1245,7 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
 
   if (sd_isVtableName(className) && ClassDecl->isDynamicClass()) {
     int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
-    llvm::GlobalVariable* VTable = ClassDecl->isAbstract() ? NULL : getAddrOfVTable(ClassDecl, CharUnits());
+    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,ClassDecl) ? getAddrOfVTable(ClassDecl, CharUnits()) : NULL;
 
     llvm::LLVMContext& C = gepInst->getContext();
     std::vector<llvm::Metadata*> tupleElements;
@@ -1578,7 +1585,7 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   // get the vtable
   const CXXRecordDecl* RD = MD->getParent();
-  llvm::GlobalVariable* VTable = RD->isAbstract() ? NULL : CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
+  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(),RD) ? CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) : NULL;
 
   llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
   llvm::BasicBlock *checkSuccess1 = CGF.createBasicBlock("vtblCheck.success");
@@ -1652,7 +1659,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     llvm::Instruction* inst = gepInst;
 //    llvm::LLVMContext& C = inst->getContext();
 //    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    llvm::GlobalVariable* VTable = RD->isAbstract() ? NULL : getAddrOfVTable(RD, CharUnits());
+    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? getAddrOfVTable(RD, CharUnits()) : NULL;
     llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTable);
     inst->setMetadata(SD_MD_VFUN_CALL, md);
   }
