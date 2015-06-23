@@ -357,7 +357,11 @@ void InstrProfStats::reportDiagnostics(DiagnosticsEngine &Diags,
 #include <vector>
 
 template <class T>
-T sd_fold(llvm::User* u, T (*callback)(T, unsigned, llvm::Value*), T def) {
+T sd_fold(llvm::User* u, T (*callback)(T, unsigned, llvm::Value*), T def, std::set<llvm::User*>& seenUsers) {
+  if(seenUsers.count(u))
+    return def;
+  seenUsers.insert(u);
+
   T next = def;
   assert(u);
   for(unsigned i=0; i < u->getNumOperands(); i++) {
@@ -368,7 +372,7 @@ T sd_fold(llvm::User* u, T (*callback)(T, unsigned, llvm::Value*), T def) {
 
     llvm::User* uOp = llvm::dyn_cast<llvm::User>(op);
     if (uOp && ! llvm::dyn_cast<llvm::Instruction>(op)) {
-      next = sd_fold(uOp, callback, next);
+      next = sd_fold(uOp, callback, next, seenUsers);
     }
   }
   return next;
@@ -401,7 +405,8 @@ sd_emitMd(llvm::Module& M) {
         assert(inst);
 
         sd_fold_t cmps;
-        sd_fold<sd_fold_t*>(inst, sd_cmp_callback, &cmps);
+        std::set<llvm::User*> seenUsers;
+        sd_fold<sd_fold_t*>(inst, sd_cmp_callback, &cmps, seenUsers);
 
         if (! cmps.empty()) {
           std::vector<llvm::Metadata*> mds;
