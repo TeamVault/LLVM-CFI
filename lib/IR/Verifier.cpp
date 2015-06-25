@@ -1839,6 +1839,11 @@ void Verifier::visitIndirectBrInst(IndirectBrInst &BI) {
 }
 
 void Verifier::visitSelectInst(SelectInst &SI) {
+  if(SelectInst::areInvalidOperands(SI.getOperand(0), SI.getOperand(1),
+                                         SI.getOperand(2))) {
+    SI.getParent()->getParent()->dump();
+  }
+
   Assert(!SelectInst::areInvalidOperands(SI.getOperand(0), SI.getOperand(1),
                                          SI.getOperand(2)),
          "Invalid operands for select instruction!", &SI);

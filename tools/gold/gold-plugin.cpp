@@ -739,8 +739,9 @@ void runOriginalLTOPasses(Module &M, TargetMachine &TM)
   PMB.VerifyOutput = true;
 //  PMB.VerifyInput = false;
 //  PMB.VerifyOutput = false;
-  PMB.LoopVectorize = true;
-  PMB.SLPVectorize = true;
+  PMB.BBVectorize = false;
+  PMB.LoopVectorize = false;
+  PMB.SLPVectorize = false;
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
@@ -763,9 +764,9 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   if(options::RunO2Passes) {
     PMB.OptLevel = OptLevel;
     PMB.SizeLevel = SizeLevel;
-    PMB.BBVectorize = true;
-    PMB.SLPVectorize = true;
-    PMB.LoopVectorize = true;
+    PMB.BBVectorize = false;
+    PMB.SLPVectorize = false;
+    PMB.LoopVectorize = false;
 
     PMB.DisableTailCalls = false;
     PMB.DisableUnitAtATime = false;
