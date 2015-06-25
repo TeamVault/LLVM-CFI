@@ -86,8 +86,8 @@ def read_config():
 
   elif is_on_rami_chromebuild(): # zoidberg
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/rami/llvm3.7/llvm/scripts",
-      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/llvm3.7/llvm-build",
+      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/src/src/third_party/llvm-3.7/scripts",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/src/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
       "MY_GCC_VER"         : "4.7.3"
