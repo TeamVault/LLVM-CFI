@@ -344,7 +344,6 @@ namespace {
       uint64_t currFunctionInd = 1;
       int pct, lastpct=0;
 
-      bool isUpdate = false;
       for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
         pct = ((double) currFunctionInd / noOfFunctions) * 100;
         currFunctionInd++;
@@ -356,8 +355,7 @@ namespace {
         }
 
         for(Function:: iterator bb_itr = f_itr->begin(); bb_itr != f_itr->end(); bb_itr++) {
-          bool res = updateBasicBlock(&M, *bb_itr);
-          isUpdate = isUpdate || res;
+          updateBasicBlock2(&M, *bb_itr);
         }
       }
       fprintf(stderr, "\n");
@@ -369,7 +367,7 @@ namespace {
 
       sd_print("removed thunks...\n");
 
-      return isUpdate;
+      return true;
     }
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -403,6 +401,7 @@ namespace {
      * Change the instructions inside the given basic block
      */
     bool updateBasicBlock(Module* M, BasicBlock& BB);
+    void updateBasicBlock2(Module* M, BasicBlock& BB);
 
     /**
      * Update the function pointer index inside the GEP instruction
@@ -1068,50 +1067,137 @@ void SDModule::clearAnalysisResults() {
 
 static std::string
 sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
-  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
-//  sd_print("tuple id: %u\n", mdTuple->getMetadataID());
-//  mdTuple->dump(CURR_MODULE);
-  assert(mdTuple);
-
+//  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
+//  assert(mdTuple);
+  llvm::MDTuple* mdTuple = cast<llvm::MDTuple>(mdNode);
   assert(mdTuple->getNumOperands() > operandNo + 1);
 
-  llvm::MDNode* nameMdNode = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
-  assert(nameMdNode);
-//  sd_print("tuple[0] id: %u\n", nameMdNode->getMetadataID());
-//  nameMdNode->dump(CURR_MODULE);
+//  llvm::MDNode* nameMdNode = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
+//  assert(nameMdNode);
+  llvm::MDNode* nameMdNode = cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
 
-  llvm::MDString* mdStr = dyn_cast<llvm::MDString>(nameMdNode->getOperand(0));
-  assert(mdStr);
+//  llvm::MDString* mdStr = dyn_cast<llvm::MDString>(nameMdNode->getOperand(0));
+//  assert(mdStr);
+  llvm::MDString* mdStr = cast<llvm::MDString>(nameMdNode->getOperand(0));
+
   StringRef strRef = mdStr->getString();
   assert(sd_isVtableName_ref(strRef));
 
-  llvm::MDNode* gvMd = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
-//  sd_print("tuple[1] id: %u\n", gvMd->getMetadataID());
-//  gvMd->dump(CURR_MODULE);
+//  llvm::MDNode* gvMd = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
+  llvm::MDNode* gvMd = cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
 
-  SmallString<256> OutName;
-  llvm::raw_svector_ostream Out(OutName);
-  gvMd->print(Out, CURR_MODULE);
-  Out.flush();
-//  sd_print("print: %s\n", OutName.str().data());
+//  SmallString<256> OutName;
+//  llvm::raw_svector_ostream Out(OutName);
+//  gvMd->print(Out, CURR_MODULE);
+//  Out.flush();
 
   llvm::ConstantAsMetadata* vtblConsMd = dyn_cast_or_null<ConstantAsMetadata>(gvMd->getOperand(0).get());
   if (vtblConsMd == NULL) {
-    llvm::MDNode* tmpnode = dyn_cast<llvm::MDNode>(gvMd);
-    llvm::MDString* tmpstr = dyn_cast<llvm::MDString>(tmpnode->getOperand(0));
-    assert(tmpstr->getString() == "NO_VTABLE");
+//    llvm::MDNode* tmpnode = dyn_cast<llvm::MDNode>(gvMd);
+//    llvm::MDString* tmpstr = dyn_cast<llvm::MDString>(tmpnode->getOperand(0));
+//    assert(tmpstr->getString() == "NO_VTABLE");
 
     return strRef.str();
   }
 
-  llvm::GlobalVariable* vtbl = dyn_cast<llvm::GlobalVariable>(vtblConsMd->getValue());
-  assert(vtbl);
+//  llvm::GlobalVariable* vtbl = dyn_cast<llvm::GlobalVariable>(vtblConsMd->getValue());
+//  assert(vtbl);
+  llvm::GlobalVariable* vtbl = cast<llvm::GlobalVariable>(vtblConsMd->getValue());
 
   StringRef vtblNameRef = vtbl->getName();
   assert(vtblNameRef.startswith(strRef));
 
-//  sd_print("GV IN MD\n");
   return vtblNameRef.str();
+}
+
+void SDChangeIndices::updateBasicBlock2(Module* module, BasicBlock &BB) {
+  llvm::MDNode* mdNode = NULL;
+
+  std::vector<Instruction*> instructions;
+  for(BasicBlock::iterator instItr = BB.begin(); instItr != BB.end(); instItr++) {
+    if (instItr->hasMetadataOtherThanDebugLoc())
+      instructions.push_back(instItr);
+  }
+
+  std::set<Instruction*> changedInstructions;
+  this->changedInstructions = &changedInstructions;
+
+  for(std::vector<Instruction*>::iterator instItr = instructions.begin();
+      instItr != instructions.end(); instItr++) {
+    Instruction* inst = *instItr;
+    assert(inst);
+
+    unsigned opcode = inst->getOpcode();
+
+    // gep instruction
+    if (opcode == GEP_OPCODE) {
+      GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+      assert(gepInst);
+
+      if((mdNode = inst->getMetadata(classNameMDId))){
+        updateVfptrIndex(mdNode, gepInst);
+      } else if ((mdNode = inst->getMetadata(vbaseMDId))) {
+        std::string className = sd_getClassNameFromMD(mdNode);
+        int64_t oldValue = getMetadataConstant(mdNode, 2);
+        int64_t oldInd = oldValue / WORD_WIDTH;
+
+        int64_t newInd = sdModule->oldIndexToNew(className,oldInd,true);
+        int64_t newValue = newInd * WORD_WIDTH;
+
+        sanityCheck1(gepInst);
+        sd_changeGEPIndex(gepInst, 1, newValue);
+
+      } else if ((mdNode = inst->getMetadata(memptrOptMdId))) {
+        ConstantInt* ci = dyn_cast<ConstantInt>(inst->getOperand(1));
+        if (ci) {
+          std::string className = sd_getClassNameFromMD(mdNode);
+          // this happens when program is compiled with -O
+          // vtable index of the member pointer is put directly into the
+          // GEP instruction using constant folding
+          int64_t oldValue = ci->getSExtValue();
+          int64_t newValue = sdModule->oldIndexToNew(className,oldValue,true);
+
+          sanityCheck1(gepInst);
+          sd_changeGEPIndex(gepInst, 1, newValue);
+        }
+      }
+    }
+
+    // call instruction
+    else if ((mdNode = inst->getMetadata(castFromMDId))) {
+      assert(opcode == CALL_OPCODE);
+      replaceDynamicCast(module, inst, mdNode);
+    }
+
+    // load instruction
+    else if ((mdNode = inst->getMetadata(typeidMDId))) {
+      assert(opcode == LOAD_OPCODE);
+      updateRTTIOffset(inst,mdNode);
+    }
+
+    // bitcast instruction
+    else if ((mdNode = inst->getMetadata(vcallMDId))) {
+      Function* f = inst->getParent()->getParent();
+      assert(sd_isVthunk(f->getName()));
+    }
+
+    // store instruction
+    else if ((mdNode = inst->getMetadata(memptrMDId))) {
+      assert(opcode == STORE_OPCODE);
+      handleStoreMemberPointer(mdNode, inst);
+    }
+
+    // select instruction
+    else if ((mdNode = inst->getMetadata(memptr2MDId))) {
+      assert(opcode == SELECT_OPCODE);
+      handleSelectMemberPointer(mdNode, inst);
+    }
+
+    else if ((mdNode = inst->getMetadata(checkMdId))) {
+      assert(opcode == ICMP_OPCODE);
+      handleVtableCheck(module, mdNode, inst);
+    }
+  }
 }
 
 bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
@@ -1211,23 +1297,20 @@ bool SDChangeIndices::updateBasicBlock(Module* module, BasicBlock &BB) {
 }
 
 void SDChangeIndices::updateVfptrIndex(MDNode *mdNode, Instruction *inst) {
-  GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
-  assert(gepInst);
+//  GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(inst);
+//  assert(gepInst);
+
+  GetElementPtrInst* gepInst = cast<GetElementPtrInst>(inst);
 
   std::string className = sd_getClassNameFromMD(mdNode);
 
   ConstantInt* index = cast<ConstantInt>(gepInst->getOperand(1));
   uint64_t indexVal = index->getSExtValue();
 
-//  sd_print("vfptr: %s, %ld\n", className.c_str(), indexVal);
-
   uint64_t newIndexVal = sdModule->oldIndexToNew(className, indexVal, true);
-
-//  sd_print("vfptr-2\n");
 
   gepInst->setOperand(1, ConstantInt::get(IntegerType::getInt64Ty(gepInst->getContext()),
                                           newIndexVal, false));
-//  sd_print("vfptr-3\n");
 
   sanityCheck1(gepInst);
 }
