@@ -14,11 +14,12 @@ ENABLE_COMPILER_OPT = False
 
 # Enabled linker flags
 linker_flags = {
-  "ENABLE_CHECKS"    : True, # interleave the vtables and add the range checks
-  "ENABLE_LINKER_O2" : True, # runs O2 level optimizations during linking
-  "ENABLE_LTO"       : True, # runs link time optimization passes
-  "LTO_EMIT_LLVM"    : False, # emit bitcode rather than machine code
-  "LTO_SAVE_TEMPS"   : True, # save bitcode before & after linker passes
+  "ENABLE_INTERLEAVING" : True, # interleave the vtables and add the range checks
+  "ENABLE_CHECKS"       : True, # interleave the vtables and add the range checks
+  "ENABLE_LINKER_O2"    : True, # runs O2 level optimizations during linking
+  "ENABLE_LTO"          : True, # runs link time optimization passes
+  "LTO_EMIT_LLVM"       : False, # emit bitcode rather than machine code
+  "LTO_SAVE_TEMPS"      : True, # save bitcode before & after linker passes
 }
 
 compiler_flag_opt_map = {
@@ -27,11 +28,11 @@ compiler_flag_opt_map = {
 
 # corresponding plugin options of the linker flags
 linker_flag_opt_map = {
-  "ENABLE_CHECKS"    : "-plugin-opt=emit-vtbl-checks",
-  "ENABLE_LINKER_O2" : "-plugin-opt=run-O2-passes",
-  "ENABLE_LTO"       : "-plugin-opt=run-LTO-passes",
-  "LTO_EMIT_LLVM"    : "-plugin-opt=emit-llvm",
-  "LTO_SAVE_TEMPS"   : "-plugin-opt=save-temps",
+  "ENABLE_INTERLEAVING" : "-plugin-opt=emit-vtbl-checks",
+  "ENABLE_LINKER_O2"    : "-plugin-opt=run-O2-passes",
+  "ENABLE_LTO"          : "-plugin-opt=run-LTO-passes",
+  "LTO_EMIT_LLVM"       : "-plugin-opt=emit-llvm",
+  "LTO_SAVE_TEMPS"      : "-plugin-opt=save-temps",
 }
 
 def ld_version():
@@ -128,6 +129,10 @@ if __name__ == '__main__':
   if len(sys.argv) == 2:
     d = read_config()
     key = sys.argv[1].upper()
+
+    if key == "ENABLE_SD":
+      print d["ENABLE_INTERLEAVING"] or d["ENABLE_CHECKS"]
+      sys.exit(0)
 
     assert key in d
     var = d[key]
