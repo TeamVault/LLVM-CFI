@@ -22,7 +22,7 @@ sd_config = {
   "SD_LTO_SAVE_TEMPS"      : True, # save bitcode before & after linker passes
 }
 
-isTrue = lambda s : s.lower() in ['true', '1', 't', 'y', 'yes']
+isTrue = lambda s : s.lower() in ['true', '1', 't', 'y', 'yes', 'ok']
 
 for k in sd_config:
   env_value = os.environ.get(k)
