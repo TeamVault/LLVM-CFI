@@ -92,7 +92,7 @@ namespace {
     struct nmd_sub_t {
       uint64_t order;
       vtbl_name_t parentName;
-      uint64_t start;
+      uint64_t start; // range boundaries are inclusive
       uint64_t end;
       uint64_t addressPoint;
     };
@@ -514,8 +514,6 @@ void SDModule::updateVcallOffset(Instruction *inst, const vtbl_name_t& className
 
   // calculate the new one
   int64_t newIndex = oldIndexToNew2(vtbl_t(className,order), oldIndex, true);
-
-  sd_print("VCALL (%s) ::: %ld --> %ld\n", inst->getParent()->getParent()->getName().data(), oldIndex, newIndex);
 
   // update the value
   sd_changeGEPIndex(gepInst2, vcallOffsetOperandNo, newIndex * WORD_WIDTH);
@@ -994,21 +992,23 @@ int64_t SDModule::oldIndexToNew2(SDModule::vtbl_t name, int64_t offset,
   }
 
   assert(rangeMap.find(name.first) != rangeMap.end() &&
-         rangeMap[name.first].size() > 0);
+         rangeMap[name.first].size() > name.second);
 
   std::vector<uint64_t>& newInds = newLayoutInds[name];
+  range_t& subVtableRange = rangeMap[name.first].at(name.second);
 
   if (isRelative) {
-    int64_t oldAddrPt = addrPtMap[name.first].at(name.second);
-    if (! (offset >= 0 || oldAddrPt >= (-offset))) {
-      sd_print("error in oldIndexToNew: %s, addrPt:%ld, old:%ld\n", name.first.c_str(), oldAddrPt, offset);
+    int64_t oldAddrPt = addrPtMap[name.first].at(name.second) - subVtableRange.first;
+    int64_t fullIndex = oldAddrPt + offset;
+
+    if (! (fullIndex >= 0 && fullIndex <= ((int64_t) subVtableRange.second - subVtableRange.first))) {
+      sd_print("error in oldIndexToNew2: %s, addrPt:%ld, old:%ld\n", name.first.c_str(), oldAddrPt, offset);
       assert(false);
     }
-    int64_t fullIndex = oldAddrPt + offset;
-    assert(0 <= fullIndex && ((uint64_t) fullIndex) <= rangeMap[name.first].at(name.second).second);
+
     return ((int64_t) newInds.at(fullIndex)) - ((int64_t) newInds.at(oldAddrPt));
   } else {
-    assert(0 <= offset && ((uint64_t) offset) <= rangeMap[name.first][name.second].second);
+    assert(0 <= offset && offset <= newInds.size());
     return newInds[offset];
   }
 }
