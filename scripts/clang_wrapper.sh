@@ -5,6 +5,7 @@ SCRIPTS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPTS_DIR/bash_library.sh"
 
 ENABLE_COMPILER_OPT=$("$SCRIPTS_DIR/config.py" ENABLE_COMPILER_OPT)
+if [[ $? -ne 0 ]]; then exit 1; fi
 
 run_compile_command() {
   local -a args=("$@")
