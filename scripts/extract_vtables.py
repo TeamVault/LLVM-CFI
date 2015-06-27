@@ -89,7 +89,7 @@ class VTableExtractor(object):
 
     readelf = subprocess.Popen(('readelf', '-sW', self.elf_filename),
                                stdout=subprocess.PIPE)
-    output = subprocess.check_output(('grep', '-iP', ' (_Z|_SD_Z)'),
+    output = subprocess.check_output(('grep', '-iP', ' (_Z|_SD_Z|_SVT_Z)'),
                                      stdin=readelf.stdout)
     readelf.wait()
 

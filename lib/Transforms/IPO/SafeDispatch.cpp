@@ -515,6 +515,8 @@ void SDModule::updateVcallOffset(Instruction *inst, const vtbl_name_t& className
   // calculate the new one
   int64_t newIndex = oldIndexToNew2(vtbl_t(className,order), oldIndex, true);
 
+  sd_print("VCALL (%s) ::: %ld --> %ld\n", inst->getParent()->getParent()->getName().data(), oldIndex, newIndex);
+
   // update the value
   sd_changeGEPIndex(gepInst2, vcallOffsetOperandNo, newIndex * WORD_WIDTH);
 
@@ -997,14 +999,14 @@ int64_t SDModule::oldIndexToNew2(SDModule::vtbl_t name, int64_t offset,
   std::vector<uint64_t>& newInds = newLayoutInds[name];
 
   if (isRelative) {
-    int64_t oldAddrPt = addrPtMap[name.first][name.second];
+    int64_t oldAddrPt = addrPtMap[name.first].at(name.second);
     if (! (offset >= 0 || oldAddrPt >= (-offset))) {
       sd_print("error in oldIndexToNew: %s, addrPt:%ld, old:%ld\n", name.first.c_str(), oldAddrPt, offset);
       assert(false);
     }
     int64_t fullIndex = oldAddrPt + offset;
-    assert(0 <= fullIndex && ((uint64_t) fullIndex) <= rangeMap[name.first][name.second].second);
-    return newInds[fullIndex] - newInds[oldAddrPt];
+    assert(0 <= fullIndex && ((uint64_t) fullIndex) <= rangeMap[name.first].at(name.second).second);
+    return ((int64_t) newInds.at(fullIndex)) - ((int64_t) newInds.at(oldAddrPt));
   } else {
     assert(0 <= offset && ((uint64_t) offset) <= rangeMap[name.first][name.second].second);
     return newInds[offset];

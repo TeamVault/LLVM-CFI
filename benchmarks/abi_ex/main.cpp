@@ -20,7 +20,7 @@ void test_B(B* b) {
 void test_C(C* c) {
   test_A(c);
 
-  std::cout << "c----------------" << std::endl;
+  std::cout << "C----------------" << std::endl;
   c->f();
   c->g();
   c->h();
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
   test_B(b);
   test_C(c);
   test_D(d);
-  test_X(e);
+  test_X(x);
   test_E(e);
 
   std::cout << "--- Deleting ----" << std::endl;
