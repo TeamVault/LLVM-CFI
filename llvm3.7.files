@@ -10545,3 +10545,4 @@ Makefile.config.in
 Makefile.rules
 include/llvm/Transforms/IPO/SafeDispatchGVMd.h
 lib/Transforms/IPO/SafeDispatchFix.cpp
+include/llvm/Transforms/IPO/SafeDispatchCheck.h

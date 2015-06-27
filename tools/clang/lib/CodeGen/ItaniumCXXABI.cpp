@@ -1525,52 +1525,52 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   return VTable;
 }
 
-//static llvm::Value*
-//sd_getCheckedVTable_old(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
-//  assert(MD && "Non-null method decl");
-//  assert(MD->isInstance() && "Shouldn't see a static method");
+static llvm::Value*
+sd_getCheckedVTable_1(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+  assert(MD && "Non-null method decl");
+  assert(MD->isInstance() && "Shouldn't see a static method");
 
-//  llvm::LLVMContext& C = CGF.getLLVMContext();
+  llvm::LLVMContext& C = CGF.getLLVMContext();
 
-//  // use some dummy values for the vtable address and the range
-//  llvm::Value *rangeStart = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 424242);
-//  llvm::Value *rangeSize = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 42);
+  // use some dummy values for the vtable address and the range
+  llvm::Value *rangeStart = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 424242);
+  llvm::Value *rangeSize = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), 42);
 
-//  // use vtable address as an integer
-//  llvm::Value *VTableAPInt = CGF.Builder.CreatePtrToInt(VTableAP, rangeStart->getType());
-//  // calculate the range
-//  llvm::Value *relOff = CGF.Builder.CreateSub(VTableAPInt, rangeStart);
+  // use vtable address as an integer
+  llvm::Value *VTableAPInt = CGF.Builder.CreatePtrToInt(VTableAP, rangeStart->getType());
+  // calculate the range
+  llvm::Value *relOff = CGF.Builder.CreateSub(VTableAPInt, rangeStart);
 
-//  // get the vtable
-//  const CXXRecordDecl* RD = MD->getParent();
-//  llvm::GlobalVariable* VTable = CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
+  // get the vtable
+  const CXXRecordDecl* RD = MD->getParent();
+  llvm::GlobalVariable* VTable = CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
 
-//  llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
-//  llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
+  llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
+  llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
 
-//  // check if vtbl is inside the range
-//  llvm::Value *isInsideRange = CGF.Builder.CreateICmpULE(relOff, rangeSize);
+  // check if vtbl is inside the range
+  llvm::Value *isInsideRange = CGF.Builder.CreateICmpULE(relOff, rangeSize);
 
-//  // add the metadata
-//  llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
-//  assert(cmp);
-//  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+  // add the metadata
+  llvm::ICmpInst* cmp = dyn_cast<llvm::ICmpInst>(isInsideRange);
+  assert(cmp);
+  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
 
-//  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
+  cmp->setMetadata(SD_MD_CHECK, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
 
-//  // do the branch
-//  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
+  // do the branch
+  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
 
-//  CGF.addDeferredVTableFailBlock(checkFailed);
+  CGF.addDeferredVTableFailBlock(checkFailed);
 
-//  // Continue function emittance in the vtblCheck.success bb
-//  CGF.EmitBlock(checkSuccess);
+  // Continue function emittance in the vtblCheck.success bb
+  CGF.EmitBlock(checkSuccess);
 
-//  return VTableAP;
-//}
+  return VTableAP;
+}
 
 static llvm::Value*
-sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+sd_getCheckedVTable_2(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
   assert(MD && "Non-null method decl");
   assert(MD->isInstance() && "Shouldn't see a static method");
 
@@ -1625,6 +1625,19 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   return VTableAP;
 }
 
+#include "llvm/Transforms/IPO/SafeDispatchCheck.h"
+
+static inline llvm::Value*
+sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+  switch(SD_CHECK_TYPE){
+  case SD_CHECK_1:
+    return sd_getCheckedVTable_1(CGM,CGF,MD,VTableAP);
+  case SD_CHECK_2:
+    return sd_getCheckedVTable_2(CGM,CGF,MD,VTableAP);
+  }
+
+  return NULL;
+}
 
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                       GlobalDecl GD,
