@@ -152,3 +152,8 @@ mail_results ()
 		rkici@eng.ucsd.edu \
 		/tmp/all_stats.txt
 }
+
+test_and_mail() {
+  test_all_with37 100
+  mail_results
+}
