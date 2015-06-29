@@ -44,3 +44,13 @@ substring() {
     echo false
   fi
 }
+
+relative_to_full() {
+  local FILE="$1"
+  local DIR=$(dirname $FILE)
+  local BASE=$(basename $FILE)
+  pushd $DIR > /dev/null
+  local FULL_DIR=$(pwd)
+  popd > /dev/null
+  echo "$FULL_DIR/$BASE"
+}
