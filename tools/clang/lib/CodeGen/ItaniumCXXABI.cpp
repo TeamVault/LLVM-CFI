@@ -1543,7 +1543,9 @@ sd_getCheckedVTable_1(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodD
 
   // get the vtable
   const CXXRecordDecl* RD = MD->getParent();
-  llvm::GlobalVariable* VTable = CGM.getCXXABI().getAddrOfVTable(RD, CharUnits());
+  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(), RD) ?
+              CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
+              NULL;
 
   llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
   llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
@@ -1585,7 +1587,9 @@ sd_getCheckedVTable_2(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodD
 
   // get the vtable
   const CXXRecordDecl* RD = MD->getParent();
-  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(),RD) ? CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) : NULL;
+  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(),RD) ?
+              CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
+              NULL;
 
   llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
   llvm::BasicBlock *checkSuccess1 = CGF.createBasicBlock("vtblCheck.success");
