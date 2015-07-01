@@ -36,8 +36,8 @@ run_link_command() {
   local SD_LIBS=$("$SCRIPTS_DIR/config.py" SD_LIBS)
 
   local -a args=($($CXX -### -flto "${@}" 2>&1 | tail -n 1 | sed 's/\"//g'))
-  >&2 echo "LD: $LD $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN"
-  $LD $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN
+  >&2 echo "LD: $LD $LD_FLAGS $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN"
+  $LD $LD_FLAGS $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN
 }
 
 declare -a sd_args=()

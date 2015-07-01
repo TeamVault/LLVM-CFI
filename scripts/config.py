@@ -14,12 +14,13 @@ ENABLE_COMPILER_OPT = False
 
 # Enabled linker flags
 sd_config = {
-  "SD_ENABLE_INTERLEAVING" : True, # interleave the vtables and add the range checks
-  "SD_ENABLE_CHECKS"       : True, # interleave the vtables and add the range checks
-  "SD_ENABLE_LINKER_O2"    : True, # runs O2 level optimizations during linking
-  "SD_ENABLE_LTO"          : True, # runs link time optimization passes
+  "SD_ENABLE_INTERLEAVING" : True,  # interleave the vtables and add the range checks
+  "SD_ENABLE_CHECKS"       : True,  # interleave the vtables and add the range checks
+  "SD_ENABLE_LINKER_O2"    : True,  # runs O2 level optimizations during linking
+  "SD_ENABLE_LTO"          : True,  # runs link time optimization passes
   "SD_LTO_EMIT_LLVM"       : False, # emit bitcode rather than machine code
-  "SD_LTO_SAVE_TEMPS"      : True, # save bitcode before & after linker passes
+  "SD_LTO_SAVE_TEMPS"      : True,  # save bitcode before & after linker passes
+  "LLVM_CFI"               : False, # compile with llvm's cfi technique
 }
 
 isTrue = lambda s : s.lower() in ['true', '1', 't', 'y', 'yes', 'ok']
@@ -131,6 +132,11 @@ def read_config():
 
   if sd_config["SD_ENABLE_CHECKS"]:
     clang_config["CXX_FLAGS"].append(compiler_flag_opt_map["SD_ENABLE_CHECKS"])
+
+  if sd_config["LLVM_CFI"]:
+    clang_config["CXX_FLAGS"].append('-fsanitize=cfi-vcall')
+    clang_config["SD_LIB_FOLDERS"] = []
+    clang_config["SD_LIBS"] = []
 
   return clang_config
 
