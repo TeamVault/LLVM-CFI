@@ -8,7 +8,7 @@ declare -a all_bench_types=('3.7_vanilla' 'with_3.7_interleaving' 'with_3.7_chec
 # build_<benchmark>_with_3.7_checks.txt       : for testing with clang 3.7 w int. + CFI
 # #####################################################################################
 
-SCRIPTS_DIR=/home/sd/rami/llvm3.7/llvm/scripts
+SCRIPTS_DIR=/home/sd/src/src/third_party/llvm-3.7/scripts
 
 clean_all_builds ()
 {
