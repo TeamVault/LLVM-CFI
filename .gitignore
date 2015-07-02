@@ -69,3 +69,12 @@ bindings/go/llvm/workdir
 *.o
 *.ll
 *.bc
+
+#==============================================================================#
+# Qt Creator files
+#==============================================================================#
+llvm3.7.config
+llvm3.7.creator
+llvm3.7.creator.user
+llvm3.7.files
+llvm3.7.includes

@@ -57,7 +57,7 @@ run_benchmarks() {
       local isNeg=$?
       if [[ $isNeg -eq 0 ]]; then
         ./main 2>&1 > /dev/null
-        if [[ $? -ne 255 ]]; then echo "neg bench $b should fail!"; return 1; fi
+        if [[ $? -eq 0 ]]; then echo "neg bench $b should fail!"; return 1; fi
         popd > /dev/null
         continue
       fi
