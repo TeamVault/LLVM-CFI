@@ -500,9 +500,6 @@ llvm::Value *ItaniumCXXABI::EmitLoadOfMemberFunctionPointer(
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
   if (sd_isVtableName(Name) && RD->isDynamicClass()) {
-//    llvm::LLVMContext& C = vtableGepInst->getContext();
-//    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-//    vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, N);
     llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? this->getAddrOfVTable(RD,CharUnits()) : NULL;
     vtableGepInst->setMetadata(SD_MD_MEMPTR_OPT, sd_getClassNameMetadata(Name, CGF.CGM.getModule(), VTable));
   }
@@ -1303,21 +1300,6 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
     llvm::Value* wordWidth = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), WORD_WIDTH);
     llvm::Value* newVbase = CGF.Builder.CreateMul(newVbaseInd, wordWidth);
     VBaseOffsetPtr = CGF.Builder.CreateGEP(VTablePtr, newVbase, SD_MD_VBASE);
-
-//    llvm::LLVMContext& C = gepInst->getContext();
-//    std::vector<llvm::Metadata*> tupleElements;
-
-//    // class name and its vtable
-//    tupleElements.push_back(llvm::MDNode::get(C, llvm::MDString::get(C, className)));
-//    tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule(), VTableGV));
-
-//    // vbase offset
-//    tupleElements.push_back(llvm::ConstantAsMetadata::get(
-//                  llvm::ConstantInt::getSigned(
-//                    llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
-
-//    llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
-//    gepInst->setMetadata(SD_MD_VBASE, mdTuple);
   } else {
     VBaseOffsetPtr =
         CGF.Builder.CreateConstGEP1_64(VTablePtr, VBaseOffsetOffset.getQuantity(),
