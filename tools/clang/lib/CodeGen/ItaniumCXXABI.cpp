@@ -1666,19 +1666,32 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     CGF.EmitVTablePtrCheckForCall(cast<CXXMethodDecl>(GD.getDecl()), VTable);
 
   uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
-  llvm::Value *VFuncPtr =
-      CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
+  llvm::LLVMContext& C = CGF.getLLVMContext();
 
-  llvm::GetElementPtrInst* gepInst = dyn_cast_or_null<llvm::GetElementPtrInst>(VFuncPtr);
-  assert(gepInst);
+  llvm::Value* VFuncPtr = NULL;
 
   if (sd_isVtableName(Name) && RD->isDynamicClass()) {
-    llvm::Instruction* inst = gepInst;
-//    llvm::LLVMContext& C = inst->getContext();
-//    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? getAddrOfVTable(RD, CharUnits()) : NULL;
-    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTable);
-    inst->setMetadata(SD_MD_VFUN_CALL, md);
+    llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,RD) ? getAddrOfVTable(RD, CharUnits()) : NULL;
+    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTableGV);
+    llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+
+    llvm::CallInst* ci = CGF.Builder.CreateCall2(
+                CGM.getIntrinsic(llvm::Intrinsic::sd_get_vtbl_index),
+                  llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), VTableIndex),
+                  mdValue);
+
+
+    llvm::Value* arr[1] = {ci};
+    VFuncPtr = CGF.Builder.CreateGEP(VTable, arr, "vfn");
+
+//    llvm::GetElementPtrInst* gepInst = dyn_cast_or_null<llvm::GetElementPtrInst>(VFuncPtr);
+//    assert(gepInst);
+//    llvm::Instruction* inst = gepInst;
+//    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? getAddrOfVTable(RD, CharUnits()) : NULL;
+//    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTable);
+//    inst->setMetadata(SD_MD_VFUN_CALL, md);
+  } else {
+    VFuncPtr = CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
   }
 
   return CGF.Builder.CreateLoad(VFuncPtr);

@@ -8,6 +8,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -39,8 +40,6 @@ using namespace llvm;
 
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 #define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
-
-static llvm::Module* CURR_MODULE = NULL;
 
 namespace {
 
@@ -124,7 +123,6 @@ namespace {
      *    c. Create a GlobalVariable for each cloud
      */
     bool runOnModule(Module &M) {
-      CURR_MODULE = &M;
       sd_print("Started safedispatch analysis\n");
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
@@ -327,7 +325,6 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
-      CURR_MODULE = &M;
       sdModule = &getAnalysis<SDModule>();
       assert(sdModule);
 
@@ -342,6 +339,8 @@ namespace {
       memptr2MDId   = M.getMDKindID(SD_MD_MEMPTR2);
       memptrOptMdId = M.getMDKindID(SD_MD_MEMPTR_OPT);
       checkMdId     = M.getMDKindID(SD_MD_CHECK);
+
+      handleSDGetVtblIndex(&M);
 
       uint64_t noOfFunctions = M.getFunctionList().size();
       uint64_t currFunctionInd = 1;
@@ -465,6 +464,8 @@ namespace {
      * Create the function type of the new dynamic cast function
      */
     FunctionType* getDynCastFunType(LLVMContext& context);
+
+    void handleSDGetVtblIndex(Module* M);
   };
 }
 
@@ -1680,5 +1681,47 @@ void SDModule::removeVtablesAndThunks(Module &M) {
     Function* f = * vthunksToRemove.begin();
     vthunksToRemove.erase(f);
     f->eraseFromParent();
+  }
+}
+
+void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
+  Function *BitSetTestFunc =
+      M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vtbl_index));
+
+  // if the function doesn't exist, do nothing
+  if (!BitSetTestFunc)
+    return;
+
+  llvm::LLVMContext& C = M->getContext();
+  Type* intType = IntegerType::getInt64Ty(C);
+
+  // for each use of the function
+  for (const Use &U : BitSetTestFunc->uses()) {
+    // get the call inst
+    llvm::CallInst* CI = cast<CallInst>(U.getUser());
+
+    // get the arguments
+    llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+    assert(arg1);
+    llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
+    assert(arg2);
+    MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
+    assert(mdNode);
+
+    // first argument is the old vtable index
+    int64_t oldIndex = arg1->getSExtValue();
+
+    // second one is the tuple that contains the class name and the corresponding global var.
+    // note that the global variable isn't always emitted
+    std::string className = sd_getClassNameFromMD(mdNode,0);
+
+    // calculate the new index
+    int64_t newIndex = sdModule->oldIndexToNew(className,oldIndex, true);
+
+    // convert the integer to llvm value
+    llvm::Value* newConsIntInd = llvm::ConstantInt::get(intType, newIndex);
+
+    // since the result of the call instruction is i64, replace all of its occurence with this one
+    CI->replaceAllUsesWith(newConsIntInd);
   }
 }
