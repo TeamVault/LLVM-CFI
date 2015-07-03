@@ -36,10 +36,12 @@
 
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
+
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchVtblMD.h"
 #include <vector>
+#define WORD_WIDTH 8
 
 using namespace clang;
 using namespace CodeGen;
@@ -48,6 +50,21 @@ namespace {
 bool sd_needGlobalVar(clang::CodeGen::CGCXXABI* CGM, const clang::CXXRecordDecl* RD) {
   std::string className = CGM->GetClassMangledName(RD);
   return className.find("_GLOBAL__N_") != std::string::npos;
+}
+
+llvm::Value* sd_getNewIndFromOld(CodeGenModule& CGM, CGBuilderTy& builder,
+                            llvm::GlobalVariable* VTableGV, const std::string& className,
+                            int64_t oldIndex) {
+  llvm::Module& M = CGM.getModule();
+  llvm::LLVMContext& C = M.getContext();
+
+  llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
+  llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+
+  return builder.CreateCall2(
+              CGM.getIntrinsic(llvm::Intrinsic::sd_get_vtbl_index),
+              llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), oldIndex),
+              mdValue);
 }
 }
 
@@ -1108,9 +1125,6 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   llvm::Value *Value =
       CGF.GetVTablePtr(ThisPtr, StdTypeInfoPtrTy->getPointerTo());
 
-  // Load the type info.
-  Value = CGF.Builder.CreateConstInBoundsGEP1_64(Value, -1ULL);
-  Value = CGF.Builder.CreateLoad(Value);
 
   llvm::LoadInst* loadInst = dyn_cast<llvm::LoadInst>(Value);
   assert(loadInst);
@@ -1119,15 +1133,18 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   CXXRecordDecl* RD = SrcRecordTy->getAsCXXRecordDecl();
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
-  if (sd_isVtableName(Name) && RD->isDynamicClass()) {
-//    llvm::LLVMContext& C = loadInst->getContext();
-//    llvm::MDNode* N = llvm::MDNode::get(C, llvm::MDString::get(C, Name));
-//    loadInst->setMetadata(SD_MD_TYPEID, N);
-    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? this->getAddrOfVTable(RD,CharUnits()) : NULL;
-    loadInst->setMetadata(SD_MD_TYPEID, sd_getClassNameMetadata(Name,CGM.getModule(), VTable));
+  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name) && RD->isDynamicClass()) {
+    llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,RD) ?
+          this->getAddrOfVTable(RD,CharUnits()) : NULL;
+
+    llvm::Value* newRTTIInd = sd_getNewIndFromOld(CGM, CGF.Builder, VTableGV, Name, -1);
+    Value = CGF.Builder.CreateGEP(Value, newRTTIInd, SD_MD_TYPEID);
+  } else {
+    // Load the type info.
+    Value = CGF.Builder.CreateConstInBoundsGEP1_64(Value, -1ULL);
   }
 
-  return Value;
+  return CGF.Builder.CreateLoad(Value);
 }
 
 bool ItaniumCXXABI::shouldDynamicCastCallBeNullChecked(bool SrcIsPtr,
@@ -1158,22 +1175,59 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
   Value = CGF.EmitCastToVoidPtr(Value);
 
   llvm::Value *args[] = {Value, SrcRTTI, DestRTTI, OffsetHint};
-  Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
-
-  // make sure that the result is a bitcast instruction
-  llvm::CallInst* cInst = dyn_cast<llvm::CallInst>(Value);
-  assert(cInst && cInst->getOpcode() == 49);
 
   // put mangled vtable name into a string
-  std::string Name = CGM.getCXXABI().GetClassMangledName(SrcDecl);
+  std::string className = CGM.getCXXABI().GetClassMangledName(SrcDecl);
 
-  if (sd_isVtableName(Name) && SrcDecl->isDynamicClass()) {
-//    llvm::LLVMContext& C = cInst->getContext();
-//    llvm::MDString* classNameMD = llvm::MDString::get(C, Name);
-//    llvm::MDNode* N = llvm::MDNode::get(C, classNameMD);
-//    cInst->setMetadata(SD_MD_CAST_FROM, N);
-    llvm::GlobalVariable* VTable = sd_needGlobalVar(this, SrcDecl) ? this->getAddrOfVTable(SrcDecl, CharUnits()) : NULL;
-    cInst->setMetadata(SD_MD_CAST_FROM, sd_getClassNameMetadata(Name,CGM.getModule(), VTable));
+  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(className) && SrcDecl->isDynamicClass()) {
+    // in LLVM, we cannot call a function declared outside of the module
+    // so add a declaration here
+    llvm::Module* module = & CGM.getModule();
+    assert(module);
+    llvm::LLVMContext& C = module->getContext();
+
+    // easy access to types
+    llvm::Type* i64 = llvm::IntegerType::getInt64Ty(C);
+    llvm::Type* i8ptr = llvm::IntegerType::getInt8PtrTy(C);
+
+     // 1. object address
+     // 2. type of the starting object
+     // 3. desired target type
+     // 4. src2det ptrdiff
+     // 5. rttiOff ptrdiff
+     // 6. ottOff  ptrdiff
+    llvm::Type* types[6] = {i8ptr, i8ptr, i8ptr, i64, i64, i64};
+
+    // create the function type
+    llvm::FunctionType* dyncastFunType = llvm::FunctionType::get(i8ptr, types, false);
+
+    // declare the function
+    llvm::Constant* dyncastFun =
+        module->getOrInsertFunction(SD_DYNCAST_FUNC_NAME, dyncastFunType);
+
+    // create the argument list for calling the function
+    // initialize this with the original call's arguments
+    std::vector<llvm::Value*> arguments(args, args + sizeof(args) / sizeof(args[0]));
+
+    // create the metadata
+    llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this, SrcDecl) ?
+          this->getAddrOfVTable(SrcDecl, CharUnits()) : NULL;
+
+    // used to multiply the new indices
+    llvm::Value* wordWidth = llvm::ConstantInt::get(i64, WORD_WIDTH);
+
+    // find the new rtti index
+    llvm::Value* newRTTI = sd_getNewIndFromOld(CGM, CGF.Builder, VTableGV, className, -1);
+    arguments.push_back(CGF.Builder.CreateMul(newRTTI,wordWidth));
+
+    // find the new ott index
+    llvm::Value* newOTT = sd_getNewIndFromOld(CGM, CGF.Builder, VTableGV, className, -2);
+    arguments.push_back(CGF.Builder.CreateMul(newOTT,wordWidth));
+
+    // call the new dynamic cast function
+    Value = CGF.EmitNounwindRuntimeCall(dyncastFun, arguments, SD_MD_CAST_FROM);
+  } else {
+    Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
   }
 
   Value = CGF.Builder.CreateBitCast(Value, DestLTy);
@@ -1666,30 +1720,15 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     CGF.EmitVTablePtrCheckForCall(cast<CXXMethodDecl>(GD.getDecl()), VTable);
 
   uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
-  llvm::LLVMContext& C = CGF.getLLVMContext();
-
   llvm::Value* VFuncPtr = NULL;
 
-  if (sd_isVtableName(Name) && RD->isDynamicClass()) {
-    llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,RD) ? getAddrOfVTable(RD, CharUnits()) : NULL;
-    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTableGV);
-    llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name) && RD->isDynamicClass()) {
+    llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,RD) ?
+          getAddrOfVTable(RD, CharUnits()) : NULL;
 
-    llvm::CallInst* ci = CGF.Builder.CreateCall2(
-                CGM.getIntrinsic(llvm::Intrinsic::sd_get_vtbl_index),
-                  llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), VTableIndex),
-                  mdValue);
-
-
-    llvm::Value* arr[1] = {ci};
-    VFuncPtr = CGF.Builder.CreateGEP(VTable, arr, "vfn");
-
-//    llvm::GetElementPtrInst* gepInst = dyn_cast_or_null<llvm::GetElementPtrInst>(VFuncPtr);
-//    assert(gepInst);
-//    llvm::Instruction* inst = gepInst;
-//    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,RD) ? getAddrOfVTable(RD, CharUnits()) : NULL;
-//    llvm::MDNode* md = sd_getClassNameMetadata(Name,CGF.CGM.getModule(), VTable);
-//    inst->setMetadata(SD_MD_VFUN_CALL, md);
+    llvm::Value* newIndex = sd_getNewIndFromOld(CGM, CGF.Builder, VTableGV, Name, VTableIndex);
+    llvm::Value* arr[1] = {newIndex};
+    VFuncPtr = CGF.Builder.CreateGEP(VTable, arr, SD_MD_VFUN_CALL);
   } else {
     VFuncPtr = CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
   }
