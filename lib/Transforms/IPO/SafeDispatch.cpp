@@ -341,6 +341,7 @@ namespace {
       checkMdId     = M.getMDKindID(SD_MD_CHECK);
 
       handleSDGetVtblIndex(&M);
+      handleRemainingSDGetVcallIndex(&M);
 
       uint64_t noOfFunctions = M.getFunctionList().size();
       uint64_t currFunctionInd = 1;
@@ -466,6 +467,7 @@ namespace {
     FunctionType* getDynCastFunType(LLVMContext& context);
 
     void handleSDGetVtblIndex(Module* M);
+    void handleRemainingSDGetVcallIndex(Module* M);
   };
 }
 
@@ -543,6 +545,11 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
   vtbl_t root(rootName,0);
   order_t vtbls = preorder(root);
 
+  LLVMContext& C = M.getContext();
+
+  Function *sd_vcall_indexF =
+      M.getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
+
   for (unsigned i=0; i < vtbls.size(); i++) {
     const vtbl_name_t& vtbl = vtbls[i].first;
     if (oldVTables.count(vtbl) == 0) {
@@ -579,15 +586,37 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
       M.getFunctionList().push_back(newThunkF);
 
       bool foundMD = false;
+      CallInst* CI = NULL;
+
+      if(sd_vcall_indexF == NULL)
+        continue;
 
       // go over its instructions and replace the one with the metadata
       for(Function:: iterator bb_itr = newThunkF->begin(); bb_itr != newThunkF->end(); bb_itr++) {
         for(BasicBlock:: iterator i_itr = bb_itr->begin(); i_itr != bb_itr->end(); i_itr++) {
           Instruction* inst = i_itr;
-          if ((inst->getMetadata(vcallMDId))) {
-            updateVcallOffset(inst, vtbl, order);
+
+          if ((CI = dyn_cast<CallInst>(inst)) && CI->getCalledFunction() == sd_vcall_indexF) {
+            // get the arguments
+            llvm::ConstantInt* oldVal = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+            assert(oldVal);
+
+            // extract the old index
+            int64_t oldIndex = oldVal->getSExtValue() / WORD_WIDTH;
+
+            // calculate the new one
+            int64_t newIndex = oldIndexToNew2(vtbl_t(vtbl,order), oldIndex, true);
+
+            Value* newValue = ConstantInt::get(IntegerType::getInt64Ty(C), newIndex * WORD_WIDTH);
+
+            CI->replaceAllUsesWith(newValue);
+
             foundMD = true;
           }
+//          if ((inst->getMetadata(vcallMDId))) {
+//            updateVcallOffset(inst, vtbl, order);
+//            foundMD = true;
+//          }
         }
       }
 
@@ -1196,7 +1225,11 @@ void SDChangeIndices::updateBasicBlock2(Module* module, BasicBlock &BB) {
     // bitcast instruction
     else if ((mdNode = inst->getMetadata(vcallMDId))) {
       Function* f = inst->getParent()->getParent();
-      assert(sd_isVthunk(f->getName()));
+//      assert(sd_isVthunk(f->getName()));
+      if(! sd_isVthunk(f->getName())) {
+        f->dump();
+        assert(false);
+      }
     }
 
     // store instruction
@@ -1685,18 +1718,18 @@ void SDModule::removeVtablesAndThunks(Module &M) {
 }
 
 void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
-  Function *BitSetTestFunc =
+  Function *sd_vtbl_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vtbl_index));
 
   // if the function doesn't exist, do nothing
-  if (!BitSetTestFunc)
+  if (!sd_vtbl_indexF)
     return;
 
   llvm::LLVMContext& C = M->getContext();
   Type* intType = IntegerType::getInt64Ty(C);
 
   // for each use of the function
-  for (const Use &U : BitSetTestFunc->uses()) {
+  for (const Use &U : sd_vtbl_indexF->uses()) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
@@ -1723,5 +1756,27 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
 
     // since the result of the call instruction is i64, replace all of its occurence with this one
     CI->replaceAllUsesWith(newConsIntInd);
+  }
+}
+
+void SDChangeIndices::handleRemainingSDGetVcallIndex(Module* M) {
+  Function *sd_vcall_indexF =
+      M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
+
+  // if the function doesn't exist, do nothing
+  if (!sd_vcall_indexF)
+    return;
+
+  // for each use of the function
+  for (const Use &U : sd_vcall_indexF->uses()) {
+    // get the call inst
+    llvm::CallInst* CI = cast<CallInst>(U.getUser());
+
+    // get the arguments
+    llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+    assert(arg1);
+
+    // since the result of the call instruction is i64, replace all of its occurence with this one
+    CI->replaceAllUsesWith(arg1);
   }
 }

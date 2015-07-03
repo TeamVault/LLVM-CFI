@@ -1785,14 +1785,19 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
 
     llvm::Value *VTablePtr = CGF.Builder.CreateLoad(VTablePtrPtr);
 
-    llvm::Value *OffsetPtr =
-        CGF.Builder.CreateConstInBoundsGEP1_64(VTablePtr, VirtualAdjustment);
+    llvm::LLVMContext& C = CGF.CGM.getLLVMContext();
+    llvm::Value* newAdjustment = CGF.Builder.CreateCall(
+                CGF.CGM.getIntrinsic(llvm::Intrinsic::sd_get_vcall_index),
+                llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), VirtualAdjustment),
+                SD_MD_VCALL);
 
-//    sd_print("VirtualAdjustment: %ld\n", VirtualAdjustment);
+    llvm::Value *OffsetPtr =
+        CGF.Builder.CreateGEP(VTablePtr, newAdjustment);
+//    llvm::Value *OffsetPtr =
+//        CGF.Builder.CreateConstInBoundsGEP1_64(VTablePtr, VirtualAdjustment);
 
     OffsetPtr = CGF.Builder.CreateBitCast(OffsetPtr, PtrDiffTy->getPointerTo());
 
-    // burayi duzelt
     // Load the adjustment offset from the vtable.
     llvm::Value *Offset = CGF.Builder.CreateLoad(OffsetPtr);
 

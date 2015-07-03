@@ -41,29 +41,29 @@ using namespace CodeGen;
 /**
  * Adds the metadata to the vcall access inside the function
  */
-static void
-sd_addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalDecl& GD,
-                 const CXXMethodDecl *MD, const ThunkInfo *Thunk, bool isVarArgs = false) {
-  std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+//static void
+//sd_addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalDecl& GD,
+//                 const CXXMethodDecl *MD, const ThunkInfo *Thunk, bool isVarArgs = false) {
+//  std::string className = CGM.getCXXABI().GetClassMangledName(MD->getParent());
 
-  if (Thunk && ! Thunk->This.NonVirtual && sd_isVtableName(className)) {
-    // this is a bitcast instruction with a gep inside
-    llvm::BitCastInst* bcInst = dyn_cast<llvm::BitCastInst>(adjustedThisPtr);
+//  if (Thunk && ! Thunk->This.NonVirtual && sd_isVtableName(className)) {
+//    // this is a bitcast instruction with a gep inside
+//    llvm::BitCastInst* bcInst = dyn_cast<llvm::BitCastInst>(adjustedThisPtr);
 
-    if (!bcInst) {
-      // if this is not a bitcast instruction, this should be a
-      // nonvirtual covariant return thunk
-      llvm::Instruction* inst = cast<llvm::Instruction>(adjustedThisPtr);
-      const llvm::Function* function = inst->getParent()->getParent();
-      assert(function->getName().startswith("_ZTch"));
-      return;
-    }
+//    if (!bcInst) {
+//      // if this is not a bitcast instruction, this should be a
+//      // nonvirtual covariant return thunk
+//      llvm::Instruction* inst = cast<llvm::Instruction>(adjustedThisPtr);
+//      const llvm::Function* function = inst->getParent()->getParent();
+//      assert(function->getName().startswith("_ZTch"));
+//      return;
+//    }
 
-    llvm::LLVMContext& C = bcInst->getContext();
-    llvm::MDNode* mdNode = llvm::MDNode::get(C, NULL);
-    bcInst->setMetadata(SD_MD_VCALL, mdNode);
-  }
-}
+//    llvm::LLVMContext& C = bcInst->getContext();
+//    llvm::MDNode* mdNode = llvm::MDNode::get(C, NULL);
+//    bcInst->setMetadata(SD_MD_VCALL, mdNode);
+//  }
+//}
 
 CodeGenVTables::CodeGenVTables(CodeGenModule &CGM)
     : CGM(CGM), VTContext(CGM.getContext().getVTableContext()) {}
@@ -221,7 +221,7 @@ void CodeGenFunction::GenerateVarArgsThunk(
     }
   }
 
-  sd_addVcallMetadata(CGM, AdjustedThisPtr, GD, MD, &Thunk, true);
+//  sd_addVcallMetadata(CGM, AdjustedThisPtr, GD, MD, &Thunk, true);
 }
 
 void CodeGenFunction::StartThunk(llvm::Function *Fn, GlobalDecl GD,
@@ -343,7 +343,7 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
 
   FinishFunction();
 
-  sd_addVcallMetadata(CGM, AdjustedThisPtr, CurGD, MD, Thunk, false);
+//  sd_addVcallMetadata(CGM, AdjustedThisPtr, CurGD, MD, Thunk, false);
 }
 
 void CodeGenFunction::EmitMustTailThunk(const CXXMethodDecl *MD,
