@@ -1288,33 +1288,40 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
       CGM.getItaniumVTableContext().getVirtualBaseOffsetOffset(ClassDecl,
                                                                BaseClassDecl);
 
-  llvm::Value *VBaseOffsetPtr =
-    CGF.Builder.CreateConstGEP1_64(VTablePtr, VBaseOffsetOffset.getQuantity(),
-                                   "vbase.offset.ptr");
-
-  llvm::GetElementPtrInst* gepInst = dyn_cast<llvm::GetElementPtrInst>(VBaseOffsetPtr);
-  assert(gepInst);
+  llvm::Value *VBaseOffsetPtr = NULL;
 
   std::string className = this->GetClassMangledName(ClassDecl);
 
-  if (sd_isVtableName(className) && ClassDecl->isDynamicClass()) {
+  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(className) && ClassDecl->isDynamicClass()) {
+    llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,ClassDecl) ? getAddrOfVTable(ClassDecl, CharUnits()) : NULL;
     int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
-    llvm::GlobalVariable* VTable = sd_needGlobalVar(this,ClassDecl) ? getAddrOfVTable(ClassDecl, CharUnits()) : NULL;
 
-    llvm::LLVMContext& C = gepInst->getContext();
-    std::vector<llvm::Metadata*> tupleElements;
+    llvm::Value* newVbaseInd = sd_getNewIndFromOld(CGF.CGM, CGF.Builder,
+                                                VTableGV, className,
+                                                vbaseOffset / WORD_WIDTH);
+    llvm::LLVMContext& C = CGF.CGM.getLLVMContext();
+    llvm::Value* wordWidth = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), WORD_WIDTH);
+    llvm::Value* newVbase = CGF.Builder.CreateMul(newVbaseInd, wordWidth);
+    VBaseOffsetPtr = CGF.Builder.CreateGEP(VTablePtr, newVbase, SD_MD_VBASE);
 
-    // class name and its vtable
-    tupleElements.push_back(llvm::MDNode::get(C, llvm::MDString::get(C, className)));
-    tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule(), VTable));
+//    llvm::LLVMContext& C = gepInst->getContext();
+//    std::vector<llvm::Metadata*> tupleElements;
 
-    // vbase offset
-    tupleElements.push_back(llvm::ConstantAsMetadata::get(
-                  llvm::ConstantInt::getSigned(
-                    llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
+//    // class name and its vtable
+//    tupleElements.push_back(llvm::MDNode::get(C, llvm::MDString::get(C, className)));
+//    tupleElements.push_back(sd_getClassVtblGVMD(className, CGF.CGM.getModule(), VTableGV));
 
-    llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
-    gepInst->setMetadata(SD_MD_VBASE, mdTuple);
+//    // vbase offset
+//    tupleElements.push_back(llvm::ConstantAsMetadata::get(
+//                  llvm::ConstantInt::getSigned(
+//                    llvm::Type::getInt64Ty(gepInst->getContext()), vbaseOffset)));
+
+//    llvm::MDTuple* mdTuple = llvm::MDNode::get(C, tupleElements);
+//    gepInst->setMetadata(SD_MD_VBASE, mdTuple);
+  } else {
+    VBaseOffsetPtr =
+        CGF.Builder.CreateConstGEP1_64(VTablePtr, VBaseOffsetOffset.getQuantity(),
+                                       "vbase.offset.ptr");
   }
 
   VBaseOffsetPtr = CGF.Builder.CreateBitCast(VBaseOffsetPtr,
