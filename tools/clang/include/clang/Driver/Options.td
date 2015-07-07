@@ -518,6 +518,10 @@ def femit_vtbl_checks : Flag<["-"], "femit-vtbl-checks">, Group<f_Group>,
                         Flags<[CC1Option]>,
                         HelpText<"Emit runtime checks for VTable Pointers integrity">;
 
+def femit_vtbl_md: Flag<["-"], "femit-vtbl-md">, Group<f_Group>,
+                        Flags<[CC1Option]>,
+                        HelpText<"Emit Metadata and Intrinsics for VTable Pointers integrity">;
+
 def fsanitize_EQ : CommaJoined<["-"], "fsanitize=">, Group<f_clang_Group>,
                    Flags<[CC1Option, CoreOption]>, MetaVarName<"<check>">,
                    HelpText<"Turn on runtime checks for various forms of undefined "
@@ -1947,7 +1951,6 @@ defm sign_zero : BooleanFFlag<"sign-zero">, Group<gfortran_Group>;
 defm stack_arrays : BooleanFFlag<"stack-arrays">, Group<gfortran_Group>;
 defm underscoring : BooleanFFlag<"underscoring">, Group<gfortran_Group>;
 defm whole_file : BooleanFFlag<"whole-file">, Group<gfortran_Group>;
-
 
 include "CC1Options.td"
 

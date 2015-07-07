@@ -3762,6 +3762,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_femit_vtbl_checks))
     CmdArgs.push_back("-femit-vtbl-checks");
 
+  if (Args.hasArg(options::OPT_femit_vtbl_md))
+    CmdArgs.push_back("-femit-vtbl-md");
+
   // Forward -f (flag) options which we can pass directly.
   Args.AddLastArg(CmdArgs, options::OPT_femit_all_decls);
   Args.AddLastArg(CmdArgs, options::OPT_fheinous_gnu_extensions);

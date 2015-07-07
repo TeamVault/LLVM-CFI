@@ -150,6 +150,8 @@ CODEGENOPT(DebugColumnInfo, 1, 0) ///< Whether or not to use column information
 
 CODEGENOPT(EmitLLVMUseLists, 1, 0) ///< Control whether to serialize use-lists.
 
+CODEGENOPT(EmitVTBLMD, 1, 0) ///< Control whether SD Metadata gets emitted
+
 /// The user specified number of registers to be used for integral arguments,
 /// or 0 if unspecified.
 VALUE_CODEGENOPT(NumRegisterParameters, 32, 0)

@@ -590,7 +590,9 @@ void CodeGenModule::Release() {
   SimplifyPersonality();
 
   assert(&TheModule);
-  sd_emitMd(TheModule);
+  // Add codegen option for sd metadata
+  if (getCodeGenOpts().EmitVTBLMD)
+    sd_emitMd(TheModule);
 
   if (getCodeGenOpts().EmitDeclMetadata)
     EmitDeclMetadata();
