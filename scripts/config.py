@@ -43,15 +43,10 @@ for k in sd_config:
 
 assert not sd_config["SD_ENABLE_CHECKS"] or sd_config["SD_ENABLE_INTERLEAVING"]
 
-compiler_flag_opt_map = {
-  "SD_ENABLE_CHECKS"    : "-femit-vtbl-checks",
-}
-
 # corresponding plugin options of the linker flags
 linker_flag_opt_map = {
-  "SD_ENABLE_INTERLEAVING" : "-plugin-opt=emit-vtbl-checks",
-  "SD_ENABLE_LINKER_O2"    : "-plugin-opt=run-O2-passes",
-  "SD_ENABLE_LTO"          : "-plugin-opt=run-LTO-passes",
+  "SD_ENABLE_INTERLEAVING" : "-plugin-opt=sd-ivtbl",
+  "SD_ENABLE_CHECKS" : "-plugin-opt=sd-checks",
   "SD_LTO_EMIT_LLVM"       : "-plugin-opt=emit-llvm",
   "SD_LTO_SAVE_TEMPS"      : "-plugin-opt=save-temps",
 }
@@ -69,6 +64,9 @@ def get_username():
 
 def get_hostname():
   return socket.gethostname()
+
+def is_on_fry():
+  return get_hostname() == "fry"
 
 def is_on_rami_goto():
   return get_username() == "rkici" and get_hostname() == "goto"
@@ -115,6 +113,15 @@ def read_config():
       "MY_GCC_VER"         : "4.7.3"
     }
 
+  elif is_on_fry(): # fry 
+    clang_config = {
+      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
+      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
+      "SD_DIR"             : os.environ["HOME"] + "/work/sd2.0/scripts",
+      "MY_GCC_VER"         : "4.7.3"
+    }
+
   else: # don't know this machine
     return None
 
@@ -140,9 +147,6 @@ def read_config():
 
   for (k,v) in sd_config.items():
     clang_config[k] = v
-
-  if sd_config["SD_ENABLE_CHECKS"]:
-    clang_config["CXX_FLAGS"].append(compiler_flag_opt_map["SD_ENABLE_CHECKS"])
 
   if sd_config["SD_LLVM_CFI"]:
     clang_config["CXX_FLAGS"].append('-fsanitize=cfi-vcall')

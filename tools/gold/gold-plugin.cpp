@@ -47,8 +47,6 @@
 #include <system_error>
 #include <vector>
 
-#include "gold-helper-functions.h"
-
 #ifndef LDPO_PIE
 // FIXME: remove this declaration when we stop maintaining Ubuntu Quantal and
 // Precise and Debian Wheezy (binutils 2.23 is required)
@@ -105,9 +103,8 @@ namespace options {
   // use only and will not be passed.
   static std::vector<const char *> extra;
 
-  static bool RunO2Passes  = false;
-  static bool RunSDPasses  = false;
-  static bool RunLTOPasses = false;
+  static bool RunSDIVTBLPass = false;
+  static bool RunSDChecksPass = false;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -127,12 +124,10 @@ namespace options {
       obj_path = opt.substr(strlen("obj-path="));
     } else if (opt == "emit-llvm") {
       TheOutputType = OT_BC_ONLY;
-    } else if (opt == "emit-vtbl-checks") {
-      RunSDPasses = true;
-    } else if (opt == "run-O2-passes") {
-      RunO2Passes = true;
-    } else if (opt == "run-LTO-passes") {
-      RunLTOPasses = true;
+    } else if (opt == "sd-ivtbl") {
+      RunSDIVTBLPass = true;
+    } else if (opt == "sd-checks") {
+      RunSDChecksPass = true;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -727,8 +722,30 @@ getModuleForFile(LLVMContext &Context, claimed_file &F,
   return Obj.takeModule();
 }
 
-void runOriginalLTOPasses(Module &M, TargetMachine &TM)
-{
+static void runSDPasses(Module &M, TargetMachine &TM) {
+  if (const DataLayout *DL = TM.getDataLayout())
+    M.setDataLayout(*DL);
+
+  legacy::PassManager passes;
+  if (options::RunSDIVTBLPass ||options::RunSDChecksPass) {
+    passes.add(llvm::createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
+
+    // Lets get the sd passes out of the way
+    if (options::RunSDIVTBLPass) {
+      passes.add(llvm::createSDFixPass());
+    }
+
+    // Lets get the sd passes out of the way
+    if (options::RunSDChecksPass) {
+      passes.add(llvm::createSDChangeIndicesPass());
+    }
+
+    passes.add(llvm::createVerifierPass());
+    passes.run(M);
+  }
+}
+
+static void runLTOPasses(Module &M, TargetMachine &TM) {
   legacy::PassManager passes;
   passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
 
@@ -737,97 +754,12 @@ void runOriginalLTOPasses(Module &M, TargetMachine &TM)
   PMB.Inliner = createFunctionInliningPass();
   PMB.VerifyInput = true;
   PMB.VerifyOutput = true;
-//  PMB.VerifyInput = false;
-//  PMB.VerifyOutput = false;
-  PMB.BBVectorize = false;
-  PMB.LoopVectorize = false;
-  PMB.SLPVectorize = false;
+  PMB.LoopVectorize = true;
+  PMB.SLPVectorize = true;
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
 }
-
-static void runLTOPasses(Module &M, TargetMachine &TM) {
-  if (const DataLayout *DL = TM.getDataLayout())
-    M.setDataLayout(*DL);
-
-  // generate the pass & analysis DB first
-  fillPasses();
-
-  unsigned OptLevel = 2;
-  unsigned SizeLevel = 0;
-
-  PassManagerBuilder PMB;
-  llvm::legacy::FunctionPassManager* FPM = new legacy::FunctionPassManager(&M);
-  llvm::legacy::PassManager* PM = new legacy::PassManager();
-
-  if(options::RunO2Passes) {
-    PMB.OptLevel = OptLevel;
-    PMB.SizeLevel = SizeLevel;
-    PMB.BBVectorize = false;
-    PMB.SLPVectorize = false;
-    PMB.LoopVectorize = false;
-
-    PMB.DisableTailCalls = false;
-    PMB.DisableUnitAtATime = false;
-    PMB.DisableUnrollLoops = false;
-    PMB.MergeFunctions = true;
-    PMB.RerollLoops = true;
-
-    PMB.addExtension(PassManagerBuilder::EP_EarlyAsPossible,
-                     addAddDiscriminatorsPass);
-
-    // Figure out TargetLibraryInfo.
-    //  Triple TargetTriple(TheModule->getTargetTriple());
-    //  PMB.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
-    PMB.LibraryInfo = new TargetLibraryInfoImpl(Triple(TM.getTargetTriple()));
-
-    PMB.Inliner = createFunctionInliningPass(PMB.OptLevel, PMB.SizeLevel);
-
-    // Set up the per-function pass manager.
-    // legacy::FunctionPassManager *FPM = getPerFunctionPasses(M,TM);
-    FPM->add(createTTIPass(TM));
-    PMB.populateFunctionPassManager(*FPM);
-
-    // Set up the per-module pass manager.
-    // legacy::PassManager *PM = getPerModulePasses(TM);
-    PM->add(createTTIPass(TM));
-    PMB.populateModulePassManager(*PM);
-  }
-
-  runSDFixPass(TM,M);
-
-  if (options::RunSDPasses) {
-    // run safedispatch passes first
-    legacy::PassManager *SD_PM = getSDPasses(TM);
-    SD_PM->run(M);
-    sd_print("Finished running SafeDispatch passes\n");
-  }
-
-  if (options::RunO2Passes) {
-    // run function passes
-    FPM->doInitialization();
-    for (Function &F : M) {
-        FPM->run(F);
-    }
-    FPM->doFinalization();
-
-    sd_print("Finished running function passes\n");
-
-    // run module passes
-    PM->run(M);
-
-    sd_print("Finished running module passes\n");
-  }
-
-  if (options::RunLTOPasses) {
-    // run LTO passes
-    runOriginalLTOPasses(M,TM);
-
-    sd_print("Finished running LTO passes\n");
-  }
-}
-
 
 static void saveBCFile(StringRef Path, Module &M) {
   std::error_code EC;
@@ -874,6 +806,7 @@ static void codegen(Module &M) {
       TripleStr, options::mcpu, Features.getString(), Options, RelocationModel,
       CodeModel::Default, CGOptLevel));
 
+  runSDPasses(M, *TM);
   runLTOPasses(M, *TM);
 
   if (options::TheOutputType == options::OT_SAVE_TEMPS)

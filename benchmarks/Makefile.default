@@ -5,10 +5,12 @@ ifeq ($(NO_LTO),OK)
 CC = g++
 LD = $(CC)
 AR = ar
+CFLAGS = -O2 -g
 else
 CC = "$(LLVM_SCRIPTS_DIR)/clang_wrapper.sh"
 LD = $(CC)
 AR = $(shell $(LLVM_SCRIPTS_DIR)/config.py AR)
+CFLAGS = -O2 -g -femit-vtbl-md -femit-vtbl-checks
 endif
 
 CC += $(OPT)
@@ -21,7 +23,7 @@ main :	$(ALL_OBJS) $(LIB_NAMES)
 		@$(LD) -o main -L. $^ $(LIBS)
 
 %.o: 	%.cpp
-		@$(CC) -c $< -o $@
+		@$(CC) -c $(CFLAGS) $< -o $@
 
 clean:
 		@rm -f *.o *.a main
