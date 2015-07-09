@@ -378,9 +378,11 @@ T sd_fold(llvm::User* u, T (*callback)(T, unsigned, llvm::Value*), T def, std::s
   return next;
 }
 
-typedef llvm::User* (sd_map_callback_t)(llvm::User* root, std::vector<llvm::Value*> children);
+template <class ArgT>
+using sd_map_callback_t = llvm::User* (*)(llvm::User* root, std::vector<llvm::Value*> children, ArgT);
 
-llvm::User* sd_map(llvm::User* u, sd_map_callback_t* callback) {
+template <class ArgT>
+llvm::User* sd_map(llvm::User* u, sd_map_callback_t<ArgT> callback, ArgT arg) {
   std::vector<llvm::Value*> children;
   for(unsigned i=0; i < u->getNumOperands(); i++) {
     llvm::Value* op = u->getOperand(i);
@@ -389,35 +391,77 @@ llvm::User* sd_map(llvm::User* u, sd_map_callback_t* callback) {
     if (!child) {
       children.push_back(op);
     } else {
-      children.push_back(sd_map(child, callback));
+      children.push_back(sd_map<ArgT>(child, callback, arg));
     }
   }
 
-  return callback(u, children);
+  return callback(u, children, arg);
 }
 
-llvm::User* sd_unfold_map_cb(llvm::User* root, std::vector<llvm::Value*> children) {
+struct sd_unfold_map_cb_arg_t {
+  llvm::Module &M;
+  CodeGenModule &CGM;
+  llvm::Instruction *insertPos;
+};
+
+llvm::User* sd_unfold_map_cb(llvm::User* root,
+                             std::vector<llvm::Value*> children,
+                             struct sd_unfold_map_cb_arg_t &arg) {
   llvm::Constant* rootCons = dyn_cast<llvm::Constant>(root);
   assert(rootCons);
+  llvm::ConstantMemberPointer *cmptr;
 
   llvm::ConstantExpr* ce = NULL;
-  if (dyn_cast<llvm::ConstantMemberPointer>(rootCons)) {
-    // return intrinsic
-    return rootCons;
+  if ((cmptr = dyn_cast<llvm::ConstantMemberPointer>(rootCons))) {
+    llvm::Value *args[2];
+    llvm::Type *mptrType = cmptr->getType();
+    llvm::Type *elType = cmptr->getOperand(0)->getType();
+    llvm::User *newMPtr = llvm::UndefValue::get(mptrType);
+
+    int64_t oldIndInt = llvm::dyn_cast<llvm::ConstantInt>(cmptr->getOperand(0))->getSExtValue();
+
+    if (oldIndInt == 0)
+      return cmptr;
+
+    // The old vtable index is the first value of the member pointer - 1
+    args[0] = llvm::ConstantInt::get(elType, (oldIndInt - 1) / 8);
+    args[1] = llvm::MetadataAsValue::get(arg.M.getContext(),
+                                        sd_getClassNameMetadata(cmptr->getClassName(), arg.M, NULL));
+
+    // Add the intrinsic for converting the vtable index
+    llvm::Value *newInd = llvm::CallInst::Create(arg.CGM.getIntrinsic(llvm::Intrinsic::sd_get_vtbl_index),
+        args, "llvm.sd.mptr.intrinsic", arg.insertPos);
+
+    // Store the new vtable index + 1 in the member pointer
+    newInd = llvm::BinaryOperator::Create(llvm::Instruction::Mul, newInd, 
+      llvm::ConstantInt::get(newInd->getType(), 8), "", arg.insertPos);
+    newInd = llvm::BinaryOperator::Create(llvm::Instruction::Add, newInd,
+      llvm::ConstantInt::get(newInd->getType(), 1), "", arg.insertPos);
+
+    unsigned int indices[1] = { 0 };
+
+    newMPtr = llvm::InsertValueInst::Create(newMPtr, newInd, indices, "", arg.insertPos);
+    indices[0] = 1;
+    newMPtr = llvm::InsertValueInst::Create(newMPtr, cmptr->getOperand(1), indices, "", arg.insertPos);
+    
+    return newMPtr;
   } else if ((ce = dyn_cast<llvm::ConstantExpr>(rootCons))) {
     switch(ce->getOpcode()) {
     case llvm::Instruction::Select: {
       assert(children.size() == 3);
-      return llvm::SelectInst::Create(children[0], children[1], children[2]);
+      return llvm::SelectInst::Create(children[0], children[1], children[2],
+        "llvm.sd.unfolded.select", arg.insertPos);
     }
     case llvm::Instruction::GetElementPtr: {
       llvm::Value* arr = children[0];
       children.erase(children.begin());
 
-      return llvm::GetElementPtrInst::Create(ce->getType(), arr, children);
+      return llvm::GetElementPtrInst::Create(ce->getType(), arr, children,
+        "llvm.sd.unfolded.getelementptr", arg.insertPos);
     }
     default: {
-      assert(false);
+      rootCons->dump();
+      assert(false && "Unknown constant in unfolding");
     }
     }
   } else {
@@ -431,27 +475,13 @@ bool sd_ismemptr(bool isMemptr, unsigned ind, llvm::Value* val) {
 
 bool sd_contains_memptr(llvm::User* c) {
   std::set<llvm::User*> seenUsers;
-  return sd_fold<bool>(c, sd_ismemptr, false, seenUsers);
+  return  ((llvm::dyn_cast_or_null<llvm::ConstantMemberPointer>(c) != NULL) ||
+          sd_fold<bool>(c, sd_ismemptr, false, seenUsers));
 }
 
-//typedef std::pair<unsigned, llvm::ConstantMemberPointer*> sd_fold_pair_t;
-//typedef std::vector<sd_fold_pair_t> sd_fold_t;
-
-//static sd_fold_t*
-//sd_cmp_callback(sd_fold_t* cmps, unsigned ind, llvm::Value* val) {
-//  llvm::ConstantMemberPointer* cmp = llvm::dyn_cast<llvm::ConstantMemberPointer>(val);
-//  if (cmp) {
-//    assert(cmps);
-//    for(unsigned i=0; i < cmps->size(); i++) {
-//      assert(cmps->at(i).second != cmp);
-//    }
-//    cmps->push_back(sd_fold_pair_t(ind, cmp));
-//  }
-//  return cmps;
-//}
 
 static void
-sd_emitMd(llvm::Module& M) {
+sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
   for(llvm::Module::iterator f_itr = M.begin(); f_itr != M.end(); f_itr++) {
     llvm::Function* f = f_itr;
     for(llvm::Function::iterator bb_itr = f->begin(); bb_itr != f->end(); bb_itr++) {
@@ -464,58 +494,12 @@ sd_emitMd(llvm::Module& M) {
           llvm::User* arg = dyn_cast<llvm::User>(inst->getOperand(i));
           if (arg && sd_contains_memptr(arg)) {
             llvm::Constant* consArg = dyn_cast<llvm::Constant>(arg);
+            sd_unfold_map_cb_arg_t unfold_arg = {M, CGM, inst};
             assert(consArg);
 
-            inst->setOperand(i, sd_map(consArg, sd_unfold_map_cb));
+            inst->setOperand(i, sd_map<sd_unfold_map_cb_arg_t&>(consArg, sd_unfold_map_cb, unfold_arg));
           }
         }
-
-//        sd_fold_t cmps;
-//        std::set<llvm::User*> seenUsers;
-//        sd_fold<sd_fold_t*>(inst, sd_cmp_callback, &cmps, seenUsers);
-
-//        if (! cmps.empty()) {
-//          std::vector<llvm::Metadata*> mds;
-
-//          for(unsigned i=0; i < cmps.size(); i++) {
-//            llvm::ConstantMemberPointer* cmp = cmps[i].second;
-//            sd_class_md_t p = sd_getClassNameMetadataPair(cmp->getClassName(), M);
-//            mds.push_back(p.first);
-//            mds.push_back(p.second);
-//          }
-
-//          llvm::MDTuple* mdtuple = llvm::MDTuple::get(M.getContext(), mds);
-//          llvm::StringRef id;
-
-//          switch(inst->getOpcode()){
-//          case llvm::Instruction::Store:
-//            id = SD_MD_MEMPTR;
-//            break;
-//          case llvm::Instruction::Select:
-//            id = SD_MD_MEMPTR2;
-//            break;
-////          case llvm::Instruction::Call: {
-////            llvm::CallInst* ci = dyn_cast<llvm::CallInst>(inst);
-////            assert(ci &&
-////                   ci->getCalledFunction() &&
-////                   ci->getCalledFunction()->getName() &&
-////                   ci->getCalledFunction()->getName().startswith("llvm.memcpy"));
-////          }
-//          default:
-//            f->dump();
-//            inst->dump();
-//            for (unsigned i=0; i<cmps.size(); i++)
-//              sd_print("#%u - %s\n", cmps[i].first, cmps[i].second->getClassName().c_str());
-
-//             llvm::ConstantExpr* bcExpr = llvm::cast<llvm::ConstantExpr>(inst->getOperand(1));
-//             llvm::Constant* zzthing = bcExpr->getOperand(0);
-//             zzthing->dump();
-
-//            llvm_unreachable("this shouldn't happen");
-//          }
-
-//          inst->setMetadata(id, mdtuple);
-//        }
       }
     }
   }
@@ -590,9 +574,9 @@ void CodeGenModule::Release() {
   SimplifyPersonality();
 
   assert(&TheModule);
-  // Add codegen option for sd metadata
+
   if (getCodeGenOpts().EmitVTBLMD)
-    sd_emitMd(TheModule);
+    sd_rewriteMPtrToIntrinsics(TheModule, *this);
 
   if (getCodeGenOpts().EmitDeclMetadata)
     EmitDeclMetadata();
