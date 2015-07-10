@@ -162,11 +162,19 @@ namespace {
         isAlias = false;
 
       } else if((fAlias = dyn_cast<GlobalAlias>(destructor))) {
-        Function* aliasee = dyn_cast<Function>(fAlias->getAliasee());
+        Function* aliasee;
+        ConstantExpr *cexpr;
+        
+        if (cexpr = dyn_cast<ConstantExpr>(fAlias->getAliasee())) {
+          assert(cexpr->isCast());
+          aliasee = dyn_cast<Function>(cexpr->getOperand(0));
+        } else {
+          aliasee = dyn_cast<Function>(fAlias->getAliasee());
+        }
+
         assert(aliasee);
         isDefined = ! aliasee->isDeclaration();
         isAlias = true;
-
       } else {
         destructor->dump();
         llvm_unreachable("Unhandled destructor type?");
