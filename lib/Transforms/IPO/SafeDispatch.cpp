@@ -1832,6 +1832,8 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
   }
 }
 
+#include <iostream>
+
 void SDChangeIndices::handleSDCheckVtbl(Module* M) {
   Function *sd_vtbl_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
@@ -1872,16 +1874,25 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       IRBuilder<> builder(CI);
       builder.SetInsertPoint(CI);
 
-      llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
-      llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
-      llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
-      llvm::Value *inRange = builder.CreateICmpULE(diff,
-        llvm::ConstantInt::get(diff->getType(), rangeWidth * WORD_WIDTH));
+      std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
+      if (rangeWidth > 1) {
+        llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
+        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+        llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
+        llvm::Value *inRange = builder.CreateICmpULE(diff,
+          llvm::ConstantInt::get(diff->getType(), rangeWidth * WORD_WIDTH));
 
-      // since the result of the call instruction is i1, replace all of its occurence with this one
-      CI->replaceAllUsesWith(inRange);
+        CI->replaceAllUsesWith(inRange);
+      } else {
+        llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
+        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+        llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, startInt);
+
+        CI->replaceAllUsesWith(inRange);
+      }        
     } else {
-      std::cerr << "NO VTABLE FOR " << vtbl.first << "," << vtbl.second << std::endl;
+      std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
+        << std::endl;
       CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
     }
   }

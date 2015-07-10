@@ -29,6 +29,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 using namespace llvm;
+#include <iostream>
 
 #define DEBUG_TYPE "lowerbitsets"
 
@@ -423,8 +424,10 @@ Value *LowerBitSets::lowerBitSetCall(
   Value *Ptr = CI->getArgOperand(0);
   const DataLayout &DL = M->getDataLayout();
 
-  if (BSI.containsValue(DL, GlobalLayout, Ptr))
+  if (BSI.containsValue(DL, GlobalLayout, Ptr)) {
+    std::cerr << "llvm.llvmcfi.true\n";
     return ConstantInt::getTrue(CombinedGlobal->getParent()->getContext());
+  }
 
   Constant *GlobalAsInt = ConstantExpr::getPtrToInt(CombinedGlobal, IntPtrTy);
   Constant *OffsetedGlobalAsInt = ConstantExpr::getAdd(
@@ -436,8 +439,10 @@ Value *LowerBitSets::lowerBitSetCall(
 
   Value *PtrAsInt = B.CreatePtrToInt(Ptr, IntPtrTy);
 
-  if (BSI.isSingleOffset())
+  if (BSI.isSingleOffset()) {
+    std::cerr << "llvm.llvmcfi.eq\n";
     return B.CreateICmpEQ(PtrAsInt, OffsetedGlobalAsInt);
+  }
 
   Value *PtrOffset = B.CreateSub(PtrAsInt, OffsetedGlobalAsInt);
 
@@ -465,8 +470,10 @@ Value *LowerBitSets::lowerBitSetCall(
   Value *OffsetInRange = B.CreateICmpULT(BitOffset, BitSizeConst);
 
   // If the bit set is all ones, testing against it is unnecessary.
-  if (BSI.isAllOnes())
+  if (BSI.isAllOnes()) {
+    std::cerr << "llvm.llvmcfi.all1s\n";
     return OffsetInRange;
+  }
 
   TerminatorInst *Term = SplitBlockAndInsertIfThen(OffsetInRange, CI, false);
   IRBuilder<> ThenB(Term);
@@ -482,6 +489,7 @@ Value *LowerBitSets::lowerBitSetCall(
   PHINode *P = B.CreatePHI(Int1Ty, 2);
   P->addIncoming(ConstantInt::get(Int1Ty, 0), InitialBB);
   P->addIncoming(Bit, ThenB.GetInsertBlock());
+  std::cerr << "llvm.llvmcfi.bittest\n";
   return P;
 }
 
