@@ -77,6 +77,7 @@ namespace {
     typedef std::vector<vtbl_t>                             order_t;
     typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
+    typedef std::map<vtbl_t, Constant*>                     vtbl_start_map_t;
 
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
     roots_t roots;                                     // set<vtbl>
@@ -89,6 +90,7 @@ namespace {
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
     std::map<vtbl_name_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
+    vtbl_start_map_t newVTableStartAddrMap;            // Starting addresses of all new vtables
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
@@ -206,6 +208,50 @@ namespace {
       return vtableAddrPtr;
     }
 
+    Constant* newVtblAddressConst(Module& M, const vtbl_name_t& name) {
+      vtbl_t vtbl(name,0);
+
+      assert(ancestorMap.count(vtbl));
+      vtbl_name_t rootName = ancestorMap[vtbl];
+
+      // sanity checks
+      assert(roots.count(rootName));
+
+      // switch to the new vtable name
+      rootName = NEW_VTABLE_NAME(rootName);
+
+      // we should add the address point of the given class
+      // inside the new interleaved vtable to the start address
+      // of the vtable
+
+      // find which element is the address point
+      assert(addrPtMap.count(name));
+      unsigned addrPt = addrPtMap[name][0];
+
+      // now find its new index
+      assert(newLayoutInds.count(vtbl));
+      uint64_t addrPtOff = newLayoutInds[vtbl][addrPt];
+
+      // this should exist already
+      GlobalVariable* gv = M.getGlobalVariable(rootName);
+      assert(gv);
+
+      LLVMContext& C = M.getContext();
+      IntegerType* type = IntegerType::getInt64Ty(C);
+
+      // add the offset to the beginning of the vtable
+      ConstantInt* offsetVal     = ConstantInt::get(type, addrPtOff);
+      ConstantInt* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
+
+      std::vector<Constant*> indices;
+      indices.push_back(zero);
+      indices.push_back(offsetVal);
+
+      Constant* newConst = ConstantExpr::getGetElementPtr(NULL, gv, indices, true);
+
+      return newConst;
+    }
+
     void removeVtablesAndThunks(Module &M);
 
   private:
@@ -308,6 +354,18 @@ namespace {
      */
     int64_t oldIndexToNew(vtbl_name_t vtbl_name, int64_t offset, bool isRelative);
     int64_t oldIndexToNew2(vtbl_t vtbl, int64_t offset, bool isRelative);
+
+    /**
+     * Return the number of vtables in a given primary vtable's cloud(including
+     * the vtable itself). This is effectively the width of the range in which
+     * the vtable pointer must lie in.
+     */
+    int64_t getCloudSize(const vtbl_name_t& vtbl);
+    /**
+     * Get the start of the valid range for vptrs for a (potentially non-primary) vtable.
+     * In practice we are always interested in primary vtables here.
+     */
+    llvm::Constant* getVTableRangeStart(const vtbl_t& vtbl);
   };
 
   /**
@@ -341,6 +399,7 @@ namespace {
       checkMdId     = M.getMDKindID(SD_MD_CHECK);
 
       handleSDGetVtblIndex(&M);
+      handleSDCheckVtbl(&M);
       handleRemainingSDGetVcallIndex(&M);
 
       uint64_t noOfFunctions = M.getFunctionList().size();
@@ -467,6 +526,7 @@ namespace {
     FunctionType* getDynCastFunType(LLVMContext& context);
 
     void handleSDGetVtblIndex(Module* M);
+    void handleSDCheckVtbl(Module* M);
     void handleRemainingSDGetVcallIndex(Module* M);
   };
 }
@@ -715,6 +775,11 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
   for (const vtbl_t& v : cloud) {
+    if (v.second == 0) {
+      assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
+      newVTableStartAddrMap[v] = newVtblAddressConst(M, v.first);
+    }
+
     if (undefinedVTables.find(v.first) != undefinedVTables.end())
       continue;
 
@@ -766,7 +831,6 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
       indices.push_back(newOffsetCons);
 
       Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
-
       // replace the constant expression with the one that uses the new vtable
       userCE->replaceAllUsesWith(newConst);
       // and then remove it
@@ -941,7 +1005,10 @@ static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
   llvm::MDNode* mdNode = dyn_cast<llvm::MDNode>(vtblMd);
   assert(mdNode);
   Metadata* md = mdNode->getOperand(0).get();
-  assert(md);
+
+  if(!md) {
+    return NULL;
+  }
 
   if(dyn_cast<llvm::MDString>(md)) {
     return NULL;
@@ -975,10 +1042,8 @@ SDModule::extractMetadata(NamedMDNode* md) {
     if (classVtbl) {
       info.className = classVtbl->getName();
     }
-//    sd_print("class: %s\n", info.className.c_str());
 
     unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(op++)->getOperand(0));
-//    sd_print("operandNo : %u\n", numOperands);
 
     for (unsigned i = op; i < op + numOperands; ++i) {
       SDModule::nmd_sub_t subInfo;
@@ -1074,6 +1139,14 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
   }
 
   return oldIndexToNew2(name, offset, isRelative);
+}
+
+int64_t SDModule::getCloudSize(const SDModule::vtbl_name_t& vtbl) {
+  return cloudSizeMap[vtbl];
+}
+
+llvm::Constant* SDModule::getVTableRangeStart(const SDModule::vtbl_t& vtbl) {
+  return newVTableStartAddrMap[vtbl];
 }
 
 uint32_t SDModule::calculateChildrenCounts(const SDModule::vtbl_t& root){
@@ -1756,6 +1829,61 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
 
     // since the result of the call instruction is i64, replace all of its occurence with this one
     CI->replaceAllUsesWith(newConsIntInd);
+  }
+}
+
+void SDChangeIndices::handleSDCheckVtbl(Module* M) {
+  Function *sd_vtbl_indexF =
+      M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
+
+  llvm::Type *i64ty = llvm::IntegerType::get(M->getContext(), 64);
+
+  // if the function doesn't exist, do nothing
+  if (!sd_vtbl_indexF)
+    return;
+
+  llvm::LLVMContext& C = M->getContext();
+  Type* intType = IntegerType::getInt64Ty(C);
+
+  // for each use of the function
+  for (const Use &U : sd_vtbl_indexF->uses()) {
+    // get the call inst
+    llvm::CallInst* CI = cast<CallInst>(U.getUser());
+
+    // get the arguments
+    llvm::Value* vptr = CI->getArgOperand(0);
+    assert(vptr);
+    llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
+    assert(arg2);
+    MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
+    assert(mdNode);
+
+    // second one is the tuple that contains the class name and the corresponding global var.
+    // note that the global variable isn't always emitted
+    std::string className = sd_getClassNameFromMD(mdNode,0);
+    SDModule::vtbl_t vtbl(className, 0);
+
+    // calculate the new index
+    llvm::Constant* start = sdModule->getVTableRangeStart(vtbl);
+    int64_t rangeWidth = sdModule->getCloudSize(vtbl.first);
+    LLVMContext& C = CI->getContext();
+
+    if (start) {
+      IRBuilder<> builder(CI);
+      builder.SetInsertPoint(CI);
+
+      llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
+      llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+      llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
+      llvm::Value *inRange = builder.CreateICmpULE(diff,
+        llvm::ConstantInt::get(diff->getType(), rangeWidth * WORD_WIDTH));
+
+      // since the result of the call instruction is i1, replace all of its occurence with this one
+      CI->replaceAllUsesWith(inRange);
+    } else {
+      std::cerr << "NO VTABLE FOR " << vtbl.first << "," << vtbl.second << std::endl;
+      CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
+    }
   }
 }
 
