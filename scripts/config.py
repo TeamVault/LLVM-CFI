@@ -68,6 +68,9 @@ def get_hostname():
 def is_on_fry():
   return get_hostname() == "fry"
 
+def is_on_bender():
+  return get_hostname() == "bender"
+
 def is_on_rami_goto():
   return get_username() == "rkici" and get_hostname() == "goto"
 
@@ -119,6 +122,14 @@ def read_config():
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd2.0/scripts",
+      "MY_GCC_VER"         : "4.7.3"
+    }
+  elif is_on_bender(): # fry 
+    clang_config = {
+      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
+      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
+      "SD_DIR"             : os.environ["HOME"] + "/work/sd3.0/safedispatch-scripts",
       "MY_GCC_VER"         : "4.7.3"
     }
 
