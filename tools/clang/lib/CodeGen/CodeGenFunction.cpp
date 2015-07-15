@@ -1731,9 +1731,7 @@ void CodeGenFunction::EmitDeferredVTableFailBlocks() {
        i != DeferredVTableFailBlocks.end(); i++) {
     EmitBlock(i->bb);
 
-    llvm::Constant *ExitF = CGM.getModule().getOrInsertFunction("exit", Builder.getVoidTy(),
-      Builder.getInt32Ty(), NULL);
-    Builder.CreateCall(ExitF, llvm::ConstantInt::get(Builder.getInt32Ty(), -1));
+    Builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::trap));
     Builder.CreateUnreachable();
   }
 }

@@ -104,7 +104,8 @@ static bool similar(const ABIArgInfo &infoL, CanQualType typeL,
 
 static RValue PerformReturnAdjustment(CodeGenFunction &CGF,
                                       QualType ResultType, RValue RV,
-                                      const ThunkInfo &Thunk) {
+                                      const ThunkInfo &Thunk,
+                                      const CXXRecordDecl *RD) {
   // Emit the return adjustment.
   bool NullCheckValue = !ResultType->isReferenceType();
 
@@ -125,7 +126,7 @@ static RValue PerformReturnAdjustment(CodeGenFunction &CGF,
   }
 
   ReturnValue = CGF.CGM.getCXXABI().performReturnAdjustment(CGF, ReturnValue,
-                                                            Thunk.Return);
+                                                            Thunk.Return, RD);
 
   if (NullCheckValue) {
     CGF.Builder.CreateBr(AdjustEnd);
@@ -164,6 +165,7 @@ void CodeGenFunction::GenerateVarArgsThunk(
                                       const CGFunctionInfo &FnInfo,
                                       GlobalDecl GD, const ThunkInfo &Thunk) {
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+  const CXXRecordDecl *RD = MD->getParent();
   const FunctionProtoType *FPT = MD->getType()->getAs<FunctionProtoType>();
   QualType ResultType = FPT->getReturnType();
 
@@ -203,7 +205,7 @@ void CodeGenFunction::GenerateVarArgsThunk(
   // Adjust "this", if necessary.
   Builder.SetInsertPoint(ThisStore);
   llvm::Value *AdjustedThisPtr =
-      CGM.getCXXABI().performThisAdjustment(*this, ThisPtr, Thunk.This);
+      CGM.getCXXABI().performThisAdjustment(*this, ThisPtr, Thunk.This, RD);
   ThisStore->setOperand(0, AdjustedThisPtr);
 
   if (!Thunk.Return.isEmpty()) {
@@ -214,7 +216,7 @@ void CodeGenFunction::GenerateVarArgsThunk(
         RValue RV = RValue::get(T->getOperand(0));
         T->eraseFromParent();
         Builder.SetInsertPoint(&*I);
-        RV = PerformReturnAdjustment(*this, ResultType, RV, Thunk);
+        RV = PerformReturnAdjustment(*this, ResultType, RV, Thunk, RD);
         Builder.CreateRet(RV.getScalarVal());
         break;
       }
@@ -264,10 +266,11 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
   assert(isa<CXXMethodDecl>(CurGD.getDecl()) &&
          "Please use a new CGF for this thunk");
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(CurGD.getDecl());
+  const CXXRecordDecl *RD = MD->getParent();
 
   // Adjust the 'this' pointer if necessary
   llvm::Value *AdjustedThisPtr = Thunk ? CGM.getCXXABI().performThisAdjustment(
-                                             *this, LoadCXXThis(), Thunk->This)
+                                             *this, LoadCXXThis(), Thunk->This, RD)
                                        : LoadCXXThis();
 
   if (CurFnInfo->usesInAlloca()) {
@@ -332,7 +335,7 @@ void CodeGenFunction::EmitCallAndReturnForThunk(llvm::Value *Callee,
 
   // Consider return adjustment if we have ThunkInfo.
   if (Thunk && !Thunk->Return.isEmpty())
-    RV = PerformReturnAdjustment(*this, ResultType, RV, *Thunk);
+    RV = PerformReturnAdjustment(*this, ResultType, RV, *Thunk, RD);
 
   // Emit return.
   if (!ResultType->isVoidType() && Slot.isNull())

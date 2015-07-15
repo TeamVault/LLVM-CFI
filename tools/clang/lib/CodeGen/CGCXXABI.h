@@ -388,11 +388,13 @@ public:
 
   virtual llvm::Value *performThisAdjustment(CodeGenFunction &CGF,
                                              llvm::Value *This,
-                                             const ThisAdjustment &TA) = 0;
+                                             const ThisAdjustment &TA,
+                                             const CXXRecordDecl *RD) = 0;
 
   virtual llvm::Value *performReturnAdjustment(CodeGenFunction &CGF,
                                                llvm::Value *Ret,
-                                               const ReturnAdjustment &RA) = 0;
+                                               const ReturnAdjustment &RA,
+                                               const CXXRecordDecl *RD) = 0;
 
   virtual void EmitReturnFromThunk(CodeGenFunction &CGF,
                                    RValue RV, QualType ResultType);

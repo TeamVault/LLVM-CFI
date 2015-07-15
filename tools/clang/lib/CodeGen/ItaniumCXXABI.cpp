@@ -270,10 +270,12 @@ public:
   }
 
   llvm::Value *performThisAdjustment(CodeGenFunction &CGF, llvm::Value *This,
-                                     const ThisAdjustment &TA) override;
+                                     const ThisAdjustment &TA,
+                                     const CXXRecordDecl *RD) override;
 
   llvm::Value *performReturnAdjustment(CodeGenFunction &CGF, llvm::Value *Ret,
-                                       const ReturnAdjustment &RA) override;
+                                       const ReturnAdjustment &RA,
+                                       const CXXRecordDecl *RD) override;
 
   size_t getSrcArgforCopyCtor(const CXXConstructorDecl *,
                               FunctionArgList &Args) const override {
@@ -1679,7 +1681,8 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
                                           llvm::Value *Ptr,
                                           int64_t NonVirtualAdjustment,
                                           int64_t VirtualAdjustment,
-                                          bool IsReturnAdjustment) {
+                                          bool IsReturnAdjustment,
+                                          const CXXRecordDecl* RD) {
   if (!NonVirtualAdjustment && !VirtualAdjustment)
     return Ptr;
 
@@ -1701,11 +1704,21 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
 
     llvm::Value *VTablePtr = CGF.Builder.CreateLoad(VTablePtrPtr);
 
+    std::string Name = CGF.CGM.getCXXABI().GetClassMangledName(RD);
     llvm::LLVMContext& C = CGF.CGM.getLLVMContext();
-    llvm::Value* newAdjustment = CGF.Builder.CreateCall(
-                CGF.CGM.getIntrinsic(llvm::Intrinsic::sd_get_vcall_index),
-                llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), VirtualAdjustment),
-                SD_MD_VCALL);
+    llvm::Value* newAdjustment;
+
+    if (CGF.CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name) &&
+        RD->isDynamicClass()) {
+      newAdjustment = CGF.Builder.CreateCall(
+                  CGF.CGM.getIntrinsic(llvm::Intrinsic::sd_get_vcall_index),
+                  llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C),
+                    VirtualAdjustment),
+                  SD_MD_VCALL);
+    } else {
+      newAdjustment = llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C),
+                    VirtualAdjustment);
+    }
 
     llvm::Value *OffsetPtr =
         CGF.Builder.CreateGEP(VTablePtr, newAdjustment);
@@ -1732,18 +1745,20 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
 
 llvm::Value *ItaniumCXXABI::performThisAdjustment(CodeGenFunction &CGF,
                                                   llvm::Value *This,
-                                                  const ThisAdjustment &TA) {
+                                                  const ThisAdjustment &TA,
+                                                  const CXXRecordDecl *RD) {
   return performTypeAdjustment(CGF, This, TA.NonVirtual,
                                TA.Virtual.Itanium.VCallOffsetOffset,
-                               /*IsReturnAdjustment=*/false);
+                               /*IsReturnAdjustment=*/false, RD);
 }
 
 llvm::Value *
 ItaniumCXXABI::performReturnAdjustment(CodeGenFunction &CGF, llvm::Value *Ret,
-                                       const ReturnAdjustment &RA) {
+                                       const ReturnAdjustment &RA,
+                                       const CXXRecordDecl *RD) {
   return performTypeAdjustment(CGF, Ret, RA.NonVirtual,
                                RA.Virtual.Itanium.VBaseOffsetOffset,
-                               /*IsReturnAdjustment=*/true);
+                               /*IsReturnAdjustment=*/true, RD);
 }
 
 void ARMCXXABI::EmitReturnFromThunk(CodeGenFunction &CGF,

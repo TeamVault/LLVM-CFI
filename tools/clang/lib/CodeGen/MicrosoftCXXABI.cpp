@@ -264,10 +264,12 @@ public:
   }
 
   llvm::Value *performThisAdjustment(CodeGenFunction &CGF, llvm::Value *This,
-                                     const ThisAdjustment &TA) override;
+                                     const ThisAdjustment &TA,
+                                     const CXXRecordDecl *RD) override;
 
   llvm::Value *performReturnAdjustment(CodeGenFunction &CGF, llvm::Value *Ret,
-                                       const ReturnAdjustment &RA) override;
+                                       const ReturnAdjustment &RA,
+                                       const CXXRecordDecl *RD) override;
 
   void EmitThreadLocalInitFuncs(
       CodeGenModule &CGM,
@@ -1812,7 +1814,8 @@ void MicrosoftCXXABI::emitVBTableDefinition(const VPtrInfo &VBT,
 
 llvm::Value *MicrosoftCXXABI::performThisAdjustment(CodeGenFunction &CGF,
                                                     llvm::Value *This,
-                                                    const ThisAdjustment &TA) {
+                                                    const ThisAdjustment &TA,
+                                                    const CXXRecordDecl *RD) {
   if (TA.isEmpty())
     return This;
 
@@ -1855,7 +1858,8 @@ llvm::Value *MicrosoftCXXABI::performThisAdjustment(CodeGenFunction &CGF,
 
 llvm::Value *
 MicrosoftCXXABI::performReturnAdjustment(CodeGenFunction &CGF, llvm::Value *Ret,
-                                         const ReturnAdjustment &RA) {
+                                         const ReturnAdjustment &RA,
+                                         const CXXRecordDecl *RD) {
   if (RA.isEmpty())
     return Ret;
 
