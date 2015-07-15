@@ -1610,11 +1610,6 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   // Continue function emittance in the vtblCheck.success bb
   CGF.EmitBlock(checkSuccess);
-
-  llvm::Value *VTableAPInt = CGF.Builder.CreatePtrToInt(VTableAP, CGM.IntPtrTy);
-  VTableAPInt = CGF.Builder.CreateShl(VTableAPInt, 3);
-  VTableAPInt = CGF.Builder.CreateLShr(VTableAPInt, 3);
-  VTableAP = CGF.Builder.CreateIntToPtr(VTableAPInt, VTableAP->getType());
   return VTableAP;
 }
 

@@ -1837,6 +1837,7 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
 void SDChangeIndices::handleSDCheckVtbl(Module* M) {
   Function *sd_vtbl_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
+  const DataLayout &DL = M->getDataLayout();
 
   llvm::Type *i64ty = llvm::IntegerType::get(M->getContext(), 64);
 
@@ -1876,12 +1877,23 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
 
       std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
       if (rangeWidth > 1) {
-        llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
-        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
-        llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
-        llvm::Value *inRange = builder.CreateICmpULE(diff,
-          llvm::ConstantInt::get(diff->getType(), rangeWidth * WORD_WIDTH));
+        // Shift start and range by 3 bytes (since they are all 8-byte aligned)
+        llvm::Value *startInt = llvm::ConstantExpr::getLShr(
+          llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C)), 
+          llvm::ConstantInt::get(IntegerType::getInt64Ty(C), 3));
+          
+        // The shift here is implicit since rangeWidth is in terms of indices, not bytes
+        llvm::Value *width = llvm::ConstantInt::get(startInt->getType(), rangeWidth);
 
+        // Rotate right by 3 to push the lowest order bits into the higher order bits
+        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+        llvm::Value *vptrIntShr = builder.CreateLShr(vptrInt, 3);
+        llvm::Value *vptrIntShl = builder.CreateShl(vptrInt, DL.getPointerSizeInBits(0) - 3);
+        llvm::Value *vptrIntRor = builder.CreateOr(vptrIntShr, vptrIntShl);
+
+        llvm::Value *diff = builder.CreateSub(vptrIntRor, startInt);
+        llvm::Value *inRange = builder.CreateICmpULE(diff, width);
+          
         CI->replaceAllUsesWith(inRange);
       } else {
         llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
