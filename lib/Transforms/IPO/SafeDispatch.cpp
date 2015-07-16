@@ -681,7 +681,7 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
       }
 
       // this function should have a metadata
-      assert(foundMD);
+      //assert(foundMD);
     }
   }
 }
