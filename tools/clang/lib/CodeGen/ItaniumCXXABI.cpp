@@ -1148,7 +1148,7 @@ llvm::Value *ItaniumCXXABI::EmitTypeid(CodeGenFunction &CGF,
   CXXRecordDecl* RD = SrcRecordTy->getAsCXXRecordDecl();
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
 
-  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name) && RD->isDynamicClass()) {
+  if (CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(Name) && RD->isDynamicClass()) {
     llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,RD) ?
           this->getAddrOfVTable(RD,CharUnits()) : NULL;
 
@@ -1194,7 +1194,7 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
   // put mangled vtable name into a string
   std::string className = CGM.getCXXABI().GetClassMangledName(SrcDecl);
 
-  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(className) && SrcDecl->isDynamicClass()) {
+  if (CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(className) && SrcDecl->isDynamicClass()) {
     // in LLVM, we cannot call a function declared outside of the module
     // so add a declaration here
     llvm::Module* module = & CGM.getModule();
@@ -1307,7 +1307,7 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
 
   std::string className = this->GetClassMangledName(ClassDecl);
 
-  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(className) && ClassDecl->isDynamicClass()) {
+  if (CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(className) && ClassDecl->isDynamicClass()) {
     llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,ClassDecl) ? getAddrOfVTable(ClassDecl, CharUnits()) : NULL;
     int64_t vbaseOffset = VBaseOffsetOffset.getQuantity();
 
@@ -1640,7 +1640,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
   llvm::Value* VFuncPtr = NULL;
 
-  if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name) && RD->isDynamicClass()) {
+  if (CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(Name) && RD->isDynamicClass()) {
     llvm::GlobalVariable* VTableGV = sd_needGlobalVar(this,RD) ?
           getAddrOfVTable(RD, CharUnits()) : NULL;
 
@@ -1708,7 +1708,7 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
     llvm::LLVMContext& C = CGF.CGM.getLLVMContext();
     llvm::Value* newAdjustment;
 
-    if (CGF.CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name) &&
+    if (CGF.CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(Name) &&
         RD->isDynamicClass()) {
       newAdjustment = CGF.Builder.CreateCall(
                   CGF.CGM.getIntrinsic(llvm::Intrinsic::sd_get_vcall_index),

@@ -104,7 +104,6 @@ namespace options {
   static std::vector<const char *> extra;
 
   static bool RunSDIVTBLPass = false;
-  static bool RunSDChecksPass = false;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -126,8 +125,6 @@ namespace options {
       TheOutputType = OT_BC_ONLY;
     } else if (opt == "sd-ivtbl") {
       RunSDIVTBLPass = true;
-    } else if (opt == "sd-checks") {
-      RunSDChecksPass = true;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -727,7 +724,7 @@ static void runSDPasses(Module &M, TargetMachine &TM) {
     M.setDataLayout(*DL);
 
   legacy::PassManager passes;
-  if (options::RunSDIVTBLPass ||options::RunSDChecksPass) {
+  if (options::RunSDIVTBLPass) {
     passes.add(llvm::createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
 
     // Lets get the sd passes out of the way
@@ -736,9 +733,7 @@ static void runSDPasses(Module &M, TargetMachine &TM) {
     }
 
     // Lets get the sd passes out of the way
-    if (options::RunSDChecksPass) {
-      passes.add(llvm::createSDChangeIndicesPass());
-    }
+    passes.add(llvm::createSDChangeIndicesPass());
 
     passes.add(llvm::createVerifierPass());
     passes.run(M);
@@ -756,6 +751,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.VerifyOutput = true;
   PMB.LoopVectorize = true;
   PMB.SLPVectorize = true;
+  PMB.EmitIVTBLs = options::RunSDIVTBLPass;
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
@@ -806,7 +802,7 @@ static void codegen(Module &M) {
       TripleStr, options::mcpu, Features.getString(), Options, RelocationModel,
       CodeModel::Default, CGOptLevel));
 
-  runSDPasses(M, *TM);
+  //runSDPasses(M, *TM);
   runLTOPasses(M, *TM);
 
   if (options::TheOutputType == options::OT_SAVE_TEMPS)

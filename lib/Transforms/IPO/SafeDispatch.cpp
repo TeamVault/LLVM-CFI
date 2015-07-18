@@ -1877,6 +1877,7 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
 
       std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
       if (rangeWidth > 1) {
+        /*
         // Shift start and range by 3 bytes (since they are all 8-byte aligned)
         llvm::Value *startInt = llvm::ConstantExpr::getLShr(
           llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C)), 
@@ -1892,6 +1893,16 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
         llvm::Value *vptrIntRor = builder.CreateOr(vptrIntShr, vptrIntShl);
 
         llvm::Value *diff = builder.CreateSub(vptrIntRor, startInt);
+        llvm::Value *inRange = builder.CreateICmpULE(diff, width);
+          
+        */
+        
+        llvm::Value *startInt = 
+          llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C));
+          
+        llvm::Value *width = llvm::ConstantInt::get(startInt->getType(), rangeWidth * WORD_WIDTH);
+        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+        llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
         llvm::Value *inRange = builder.CreateICmpULE(diff, width);
           
         CI->replaceAllUsesWith(inRange);

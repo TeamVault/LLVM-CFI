@@ -644,7 +644,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                       Opts.SanitizeRecover);
 
   Opts.EmitVTBLChecks = Args.hasArg(OPT_femit_vtbl_checks);
-  Opts.EmitVTBLMD = Args.hasArg(OPT_femit_vtbl_md);
+  Opts.EmitIVTBL = Args.hasArg(OPT_femit_ivtbl);
 
   return Success;
 }

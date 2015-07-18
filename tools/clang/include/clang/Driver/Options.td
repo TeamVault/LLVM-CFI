@@ -518,9 +518,9 @@ def femit_vtbl_checks : Flag<["-"], "femit-vtbl-checks">, Group<f_Group>,
                         Flags<[CC1Option]>,
                         HelpText<"Emit runtime checks for VTable Pointers integrity">;
 
-def femit_vtbl_md: Flag<["-"], "femit-vtbl-md">, Group<f_Group>,
+def femit_ivtbl: Flag<["-"], "femit-ivtbl">, Group<f_Group>,
                         Flags<[CC1Option]>,
-                        HelpText<"Emit Metadata and Intrinsics for VTable Pointers integrity">;
+                        HelpText<"Emit Interleaved VTables and Intrinsics for SafeDispatch CFI">;
 
 def fsanitize_EQ : CommaJoined<["-"], "fsanitize=">, Group<f_clang_Group>,
                    Flags<[CC1Option, CoreOption]>, MetaVarName<"<check>">,

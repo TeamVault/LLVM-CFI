@@ -127,8 +127,6 @@ CODEGENOPT(VectorizeBB       , 1, 0) ///< Run basic block vectorizer.
 CODEGENOPT(VectorizeLoop     , 1, 0) ///< Run loop vectorizer.
 CODEGENOPT(VectorizeSLP      , 1, 0) ///< Run SLP vectorizer.
 
-  /// Generate class hieararchy information for whole-program CHA analysis
-CODEGENOPT(EmitVTBLChecks    , 1, 0)
 
   /// Attempt to use register sized accesses to bit-fields in structures, when
   /// possible.
@@ -150,7 +148,9 @@ CODEGENOPT(DebugColumnInfo, 1, 0) ///< Whether or not to use column information
 
 CODEGENOPT(EmitLLVMUseLists, 1, 0) ///< Control whether to serialize use-lists.
 
-CODEGENOPT(EmitVTBLMD, 1, 0) ///< Control whether SD Metadata gets emitted
+/// Generate checks before dynamic dispatch
+CODEGENOPT(EmitVTBLChecks    , 1, 0)
+CODEGENOPT(EmitIVTBL, 1, 0) ///< Control whether we emit interleaved vtables
 
 /// The user specified number of registers to be used for integral arguments,
 /// or 0 if unspecified.

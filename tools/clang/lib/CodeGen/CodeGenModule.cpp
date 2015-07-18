@@ -575,7 +575,7 @@ void CodeGenModule::Release() {
 
   assert(&TheModule);
 
-  if (getCodeGenOpts().EmitVTBLMD)
+  if (getCodeGenOpts().EmitIVTBL)
     sd_rewriteMPtrToIntrinsics(TheModule, *this);
 
   if (getCodeGenOpts().EmitDeclMetadata)

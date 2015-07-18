@@ -102,6 +102,7 @@ PassManagerBuilder::PassManagerBuilder() {
     VerifyInput = false;
     VerifyOutput = false;
     MergeFunctions = false;
+    EmitIVTBLs = false;
 }
 
 PassManagerBuilder::~PassManagerBuilder() {
@@ -525,10 +526,16 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (OptLevel > 1)
     addLTOOptimizationPasses(PM);
 
+  if (EmitIVTBLs) {
+    // Lets get the sd passes out of the way
+    PM.add(llvm::createSDFixPass());
+    PM.add(llvm::createSDChangeIndicesPass());
+  } else {
   // Lower bit sets to globals. This pass supports Clang's control flow
   // integrity mechanisms (-fsanitize=cfi*) and needs to run at link time if CFI
   // is enabled. The pass does nothing if CFI is disabled.
-  PM.add(createLowerBitSetsPass());
+    PM.add(createLowerBitSetsPass());
+  }
 
   if (OptLevel != 0)
     addLateLTOOptimizationPasses(PM);
