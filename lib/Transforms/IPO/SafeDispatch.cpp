@@ -71,6 +71,7 @@ namespace {
     typedef std::map<vtbl_name_t, std::vector<range_t>>     range_map_t;
     typedef std::map<vtbl_t, vtbl_name_t>                   ancestor_map_t;
     typedef std::map<vtbl_t, std::vector<uint64_t>>         new_layout_inds_t;
+    typedef std::map<vtbl_t, std::map<uint64_t, uint64_t>>  new_layout_inds_map_t;
     typedef std::pair<vtbl_t, uint64_t>       					    interleaving_t;
     typedef std::list<interleaving_t>                       interleaving_list_t;
     typedef std::map<vtbl_name_t, interleaving_list_t>      interleaving_map_t;
@@ -130,7 +131,7 @@ namespace {
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
       buildClouds(M);          // part 1
-      printClouds();
+      //printClouds();
       interleaveClouds(M);     // part 2
 
       sd_print("Finished safedispatch analysis\n");
@@ -254,6 +255,18 @@ namespace {
 
     void removeVtablesAndThunks(Module &M);
 
+    bool isUndefined(const vtbl_name_t &vtbl) {
+      return undefinedVTables.find(vtbl) != undefinedVTables.end();
+    }
+
+    bool isUndefined(const vtbl_t &vtbl) {
+      return isUndefined(vtbl.first);
+    }
+
+    bool isDefined(const vtbl_t &vtbl) {
+      return !isUndefined(vtbl);
+    }
+
   private:
 
     /**
@@ -271,7 +284,14 @@ namespace {
         vtbl_name_t vtbl = *itr;
 
         interleaveCloud(vtbl);         // interleave the cloud
+        assert(verifyInterleavedCloud(vtbl));
         calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
+      }
+
+      for (auto undefV : undefinedVTables) {
+        for (uint64_t ind = 0; ind < addrPtMap[undefV].size(); ind++) {
+          assert(hasDefinedChild(vtbl_t(undefV, ind)));
+        }
       }
 
       for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
@@ -294,6 +314,8 @@ namespace {
      * Interleave the cloud given by the root element.
      */
     void interleaveCloud(vtbl_name_t& vtbl);
+
+    bool verifyInterleavedCloud(vtbl_name_t& vtbl);
 
     /**
      * Calculate the new layout indices for each vtable inside the given cloud
@@ -335,6 +357,8 @@ namespace {
     void updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order);
     Function* getVthunkFunction(Constant* vtblElement);
 
+    bool hasDefinedChild(const vtbl_t &vtbl);
+    vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
   public:
 
     /**
@@ -706,6 +730,123 @@ void SDModule::interleaveCloud(SDModule::vtbl_name_t& vtbl) {
   interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positivePart.begin(), positivePart.end());
 }
 
+/**
+* Check that the interleaving for a given cloud:
+*    1) Contains all indices for all original (defined) vtables
+*    2) For every class C
+*        For each subclass D of C
+*          For each element in C's vtable
+*            The corresponding element in D's vtable is at the same relative offset from the address point
+*/
+bool SDModule::verifyInterleavedCloud(vtbl_name_t& vtbl) {
+  vtbl_t root(vtbl,0);
+  assert(interleavingMap.count(vtbl) && roots.count(vtbl) && cloudMap.count(root));
+
+  interleaving_list_t &interleaving = interleavingMap[vtbl];
+  new_layout_inds_map_t indMap;
+  uint64_t i = 0;
+
+  // Build a map (vtbl_t -> (uint64_t -> uint64_t)) with the old-to-new index mapping encoded in the
+  // interleaving
+  for (auto elem : interleaving) {
+    vtbl_t &v = elem.first;
+    uint64_t oldPos = elem.second;
+
+    if (indMap.find(v) == indMap.end()) {
+      indMap[v] = std::map<uint64_t, uint64_t>();
+    } else {
+      if (indMap[v].count(oldPos) != 0) {
+        std::cerr << "In ivtbl " << vtbl << " entry " << v.first << "," << v.second << "[" << oldPos << "]"
+          << " appears twice - at " << indMap[v][oldPos] << " and " << i << std::endl;
+        return false;
+      }
+    }
+
+    indMap[v][oldPos] = i;
+    i++;
+  }
+
+  order_t cloud = preorder(root);
+
+  // 1) Check that we have a (DENSE!) map of indices for each vtable in the cloud in the
+  // current interleaving. (i.e. inside indMap)
+  for (const SDModule::vtbl_t& n : cloud) {
+    // Skip undefined vtables
+    if (isUndefined(n.first)) {
+      // TODO: Assert that it does not appear in the interleaved vtable.
+      continue;
+    }
+
+    if (indMap.find(n) == indMap.end()) {
+        std::cerr << "In ivtbl " << vtbl << " missing " << n.first << "," << n.second << std::endl;
+        return false;
+    }
+
+    // Check that the index map is dense (total on the range of indices)
+    int64_t oldVtblSize = rangeMap[n.first][n.second].second - rangeMap[n.first][n.second].first + 1;
+    auto minMax = std::minmax_element (indMap[n].begin(), indMap[n].end());
+
+    if (minMax.first->first != 0) {
+        std::cerr << "In ivtbl " << vtbl << " lowest index for " << n.first << "," << n.second << 
+          " is " << minMax.first->first << " not 0 " << std::endl;
+        return false;
+    }
+
+    if (minMax.second->first != (oldVtblSize - 1)) {
+        std::cerr << "In ivtbl " << vtbl << " highest index for " << n.first << "," << n.second << 
+          " is " << minMax.second->first << " not " << (oldVtblSize - 1) << std::endl;
+        return false;
+    }
+
+    if (indMap[n].size() != oldVtblSize) {
+        std::cerr << "In ivtbl " << vtbl << " index mapping for " << n.first << "," << n.second << 
+          " has " << indMap[n].size() << " expected " << oldVtblSize << std::endl;
+        return false;
+    }
+  }
+
+  // 2) Check that the relative vtable offsets are the same for every parent/child class pair
+  for (const vtbl_t& pt : cloud) {
+    if (isUndefined(pt.first))  continue;
+
+    for(const vtbl_t& child : cloudMap[pt]) {
+      if (isUndefined(child.first))  continue;
+
+      uint64_t ptStart = rangeMap[pt.first][pt.second].first;
+      uint64_t ptEnd = rangeMap[pt.first][pt.second].second;
+      uint64_t ptAddrPt = addrPtMap[pt.first][pt.second] - ptStart;
+      uint64_t childStart = rangeMap[child.first][child.second].first;
+      uint64_t childEnd = rangeMap[child.first][child.second].second;
+      uint64_t childAddrPt = addrPtMap[child.first][child.second] - childStart;
+
+      int64_t ptToChildAdj = childAddrPt - ptAddrPt;
+
+      uint64_t newPtAddrPt = indMap[pt][ptAddrPt];
+      uint64_t newChildAddrPt = indMap[child][childAddrPt];
+
+      if (ptToChildAdj < 0 || ptEnd + ptToChildAdj > childEnd) {
+        sd_print("Parent vtable(%s,%d) [%d,%d,%d] is not contained in child vtable(%s,%d) [%d,%d,%d]",
+            pt.first.c_str(), pt.second, ptStart, ptAddrPt, ptEnd,
+            child.first.c_str(), child.second, childStart, childAddrPt, childEnd);
+        return false;
+      }
+
+      for (int64_t ind = 0; ind < ptEnd - ptStart + 1; ind++) {
+        int64_t newPtInd = indMap[pt][ind] - newPtAddrPt;
+        int64_t newChildInd = indMap[child][ind + ptToChildAdj] - newChildAddrPt;
+        if (newPtInd != newChildInd) {
+          sd_print("Parent (%s,%d) old relative index %d(new relative %d) mismatches child(%s,%d) corresponding old index %d(new relative %d)",
+              pt.first.c_str(), pt.second, (ind - ptAddrPt), newPtInd,
+              child.first.c_str(), child.second, ind + ptToChildAdj - childAddrPt, newChildInd);
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
 void SDModule::calculateNewLayoutInds(SDModule::vtbl_name_t& vtbl){
   assert(interleavingMap.count(vtbl));
 
@@ -863,7 +1004,7 @@ void SDModule::fillVtablePart(SDModule::interleaving_list_t& vtblPart, const SDM
     // do a preorder traversal and add the remaining elements
     for (const vtbl_t& n : order) {
       pos = posMap[n];
-      if (check(pos, lastPosMap[n])) {
+      if (!isUndefined(n.first) && check(pos, lastPosMap[n])) {
         current.push_back(interleaving_t(n, pos));
         posMap[n] += increment;
       }
@@ -952,30 +1093,35 @@ void SDModule::buildClouds(Module &M) {
         undefinedVTables.insert(info.className);
       }
 
-      // remove the root from undefined vtables
-      if (build_undefinedVtables.find(info.className) != build_undefinedVtables.end())
-        build_undefinedVtables.erase(info.className);
-
       for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
 
+        if (ind == 0) {
+          // remove the primary vtable from the build_undefined vtables map
+          if (build_undefinedVtables.find(info.className) != build_undefinedVtables.end()) {
+            build_undefinedVtables.erase(info.className);
+          }
+
+          if (cloudMap.find(name) == cloudMap.end()){
+            cloudMap[name] = std::set<vtbl_t>();
+          }
+        }
+
         if (subInfo->parentName != "") {
-          // add the current class to the parent's children set
-          cloudMap[vtbl_t(subInfo->parentName,0)].insert(name);
+          vtbl_t parent(subInfo->parentName, 0);
 
           // if the parent class is not defined yet, add it to the
           // undefined vtable set
-          if (cloudMap.find(vtbl_t(subInfo->parentName,0)) == cloudMap.end())
+          if (cloudMap.find(parent) == cloudMap.end()) {
+            cloudMap[parent] = std::set<vtbl_t>();
             build_undefinedVtables.insert(subInfo->parentName);
-        } else {
-          assert(ind == 0); // make sure secondary vtables have a direct parent
-
-          if (cloudMap.find(name) == cloudMap.end()){
-            // make sure the root is added to the cloud
-            cloudMap[name] = std::set<vtbl_t>();
           }
 
+          // add the current class to the parent's children set
+          cloudMap[parent].insert(name);
+        } else {
+          assert(ind == 0); // make sure secondary vtables have a direct parent
           // add the class to the root set
           roots.insert(info.className);
         }
@@ -992,6 +1138,12 @@ void SDModule::buildClouds(Module &M) {
     }
   }
 
+  if (build_undefinedVtables.size() != 0) {
+    sd_print("Undefined vtables:\n");
+    for (auto n : build_undefinedVtables) {
+      sd_print("%s\n", n.c_str());
+    }
+  }
   assert(build_undefinedVtables.size() == 0);
 }
 
@@ -1788,6 +1940,29 @@ void SDModule::removeVtablesAndThunks(Module &M) {
     vthunksToRemove.erase(f);
     f->eraseFromParent();
   }
+}
+
+
+bool SDModule::hasDefinedChild(const vtbl_t &vtbl) {
+  assert(isUndefined(vtbl));
+
+  for (vtbl_t c : cloudMap[vtbl]) {
+    if (isDefined(c) || hasDefinedChild(c)) 
+      return true;
+  }
+
+  return false;
+}
+
+vtbl_t SDModule::getFirstDefinedChild(const vtbl_t &vtbl) {
+  assert(isUndefined(vtbl) && hasDefinedChild(vtbl));
+
+  for (vtbl_t c : cloudMap[vtbl]) {
+    if (isDefined(c) || hasDefinedChild(c)) 
+      return true;
+  }
+
+  return false;
 }
 
 void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
