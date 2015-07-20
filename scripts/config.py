@@ -46,7 +46,7 @@ assert not sd_config["SD_ENABLE_CHECKS"] or sd_config["SD_ENABLE_INTERLEAVING"]
 # corresponding plugin options of the linker flags
 linker_flag_opt_map = {
   "SD_ENABLE_INTERLEAVING" : "-plugin-opt=sd-ivtbl",
-  "SD_ENABLE_CHECKS" : "-plugin-opt=sd-checks",
+  "SD_ENABLE_CHECKS" : "",
   "SD_LTO_EMIT_LLVM"       : "-plugin-opt=emit-llvm",
   "SD_LTO_SAVE_TEMPS"      : "-plugin-opt=save-temps",
 }

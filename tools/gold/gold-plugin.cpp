@@ -751,7 +751,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.VerifyOutput = true;
   PMB.LoopVectorize = true;
   PMB.SLPVectorize = true;
-  PMB.EmitIVTBLs = options::RunSDIVTBLPass;
+  PMB.EmitIVTBLs = false; //options::RunSDIVTBLPass;
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
@@ -802,7 +802,7 @@ static void codegen(Module &M) {
       TripleStr, options::mcpu, Features.getString(), Options, RelocationModel,
       CodeModel::Default, CGOptLevel));
 
-  //runSDPasses(M, *TM);
+  runSDPasses(M, *TM);
   runLTOPasses(M, *TM);
 
   if (options::TheOutputType == options::OT_SAVE_TEMPS)

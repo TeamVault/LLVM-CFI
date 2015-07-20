@@ -131,7 +131,11 @@ namespace {
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
       buildClouds(M);          // part 1
-      //printClouds();
+      std::cerr << "Undefined vtables: \n";
+      for (auto i : undefinedVTables) {
+        std::cerr << i << "\n";
+      }
+      printClouds();
       interleaveClouds(M);     // part 2
 
       sd_print("Finished safedispatch analysis\n");
@@ -209,9 +213,7 @@ namespace {
       return vtableAddrPtr;
     }
 
-    Constant* newVtblAddressConst(Module& M, const vtbl_name_t& name) {
-      vtbl_t vtbl(name,0);
-
+    Constant* newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
       assert(ancestorMap.count(vtbl));
       vtbl_name_t rootName = ancestorMap[vtbl];
 
@@ -226,8 +228,8 @@ namespace {
       // of the vtable
 
       // find which element is the address point
-      assert(addrPtMap.count(name));
-      unsigned addrPt = addrPtMap[name][0];
+      assert(addrPtMap.count(vtbl.first));
+      unsigned addrPt = addrPtMap[vtbl.first][vtbl.second] - rangeMap[vtbl.first][vtbl.second].first;
 
       // now find its new index
       assert(newLayoutInds.count(vtbl));
@@ -286,12 +288,6 @@ namespace {
         interleaveCloud(vtbl);         // interleave the cloud
         assert(verifyInterleavedCloud(vtbl));
         calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
-      }
-
-      for (auto undefV : undefinedVTables) {
-        for (uint64_t ind = 0; ind < addrPtMap[undefV].size(); ind++) {
-          assert(hasDefinedChild(vtbl_t(undefV, ind)));
-        }
       }
 
       for (roots_t::iterator itr = roots.begin(); itr != roots.end(); itr++) {
@@ -357,15 +353,13 @@ namespace {
     void updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order);
     Function* getVthunkFunction(Constant* vtblElement);
 
-    bool hasDefinedChild(const vtbl_t &vtbl);
-    vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
   public:
 
     /**
      * Return a list that contains the preorder traversal of the tree
      * starting from the given node
      */
-    order_t preorder(vtbl_t& root);
+    order_t preorder(const vtbl_t& root);
     void preorderHelper(order_t& nodes, const vtbl_t& root);
 
     /**
@@ -390,6 +384,8 @@ namespace {
      * In practice we are always interested in primary vtables here.
      */
     llvm::Constant* getVTableRangeStart(const vtbl_t& vtbl);
+    vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
+    bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
   };
 
   /**
@@ -786,15 +782,12 @@ bool SDModule::verifyInterleavedCloud(vtbl_name_t& vtbl) {
     int64_t oldVtblSize = rangeMap[n.first][n.second].second - rangeMap[n.first][n.second].first + 1;
     auto minMax = std::minmax_element (indMap[n].begin(), indMap[n].end());
 
-    if (minMax.first->first != 0) {
-        std::cerr << "In ivtbl " << vtbl << " lowest index for " << n.first << "," << n.second << 
-          " is " << minMax.first->first << " not 0 " << std::endl;
-        return false;
-    }
-
-    if (minMax.second->first != (oldVtblSize - 1)) {
-        std::cerr << "In ivtbl " << vtbl << " highest index for " << n.first << "," << n.second << 
-          " is " << minMax.second->first << " not " << (oldVtblSize - 1) << std::endl;
+    if ((minMax.second->first - minMax.first->first + 1) != oldVtblSize) {
+        std::cerr << "In ivtbl " << vtbl << " min-max rangefor "
+          << n.first << "," << n.second << 
+          " is (" << minMax.first->first << "-"
+          << minMax.second->first << ") expected size "
+          << oldVtblSize << std::endl;
         return false;
     }
 
@@ -814,10 +807,12 @@ bool SDModule::verifyInterleavedCloud(vtbl_name_t& vtbl) {
 
       uint64_t ptStart = rangeMap[pt.first][pt.second].first;
       uint64_t ptEnd = rangeMap[pt.first][pt.second].second;
-      uint64_t ptAddrPt = addrPtMap[pt.first][pt.second] - ptStart;
+      uint64_t ptAddrPt = addrPtMap[pt.first][pt.second];
+      uint64_t ptRelAddrPt = ptAddrPt - ptStart;
       uint64_t childStart = rangeMap[child.first][child.second].first;
       uint64_t childEnd = rangeMap[child.first][child.second].second;
-      uint64_t childAddrPt = addrPtMap[child.first][child.second] - childStart;
+      uint64_t childAddrPt = addrPtMap[child.first][child.second];
+      uint64_t childRelAddrPt = childAddrPt - childStart;
 
       int64_t ptToChildAdj = childAddrPt - ptAddrPt;
 
@@ -916,9 +911,9 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
   for (const vtbl_t& v : cloud) {
-    if (v.second == 0) {
+    if (isDefined(v)) {
       assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
-      newVTableStartAddrMap[v] = newVtblAddressConst(M, v.first);
+      newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
     }
 
     if (undefinedVTables.find(v.first) != undefinedVTables.end())
@@ -1035,7 +1030,7 @@ void SDModule::preorderHelper(std::vector<SDModule::vtbl_t>& nodes, const SDModu
   }
 }
 
-std::vector<SDModule::vtbl_t> SDModule::preorder(vtbl_t& root) {
+std::vector<SDModule::vtbl_t> SDModule::preorder(const vtbl_t& root) {
   order_t nodes;
   preorderHelper(nodes, root);
   return nodes;
@@ -1279,14 +1274,20 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
                                 bool isRelative = true) {
   vtbl_t name(vtbl,0);
 
+  if (isUndefined(name)) {
+    name = getFirstDefinedChild(name);
+  }
+
   // if the class doesn't have any vtable defined,
   // use one of its children to calculate function ptr offset
   if (newLayoutInds.find(name) == newLayoutInds.end()) {
     // i don't know if works for negative offsets too
     assert(isRelative && offset >= 0);
 
-    // FIXME (rkici) : so weird, don't know what to do
-    assert(cloudMap.find(name) == cloudMap.end());
+    // this is a class we don't have any metadata about (i.e. there is no child of its
+    // that has a defined vtable). We assume this should never get called in a
+    // statically linked binary.
+    assert(!knowsAbout(name));
     return offset;
   }
 
@@ -1302,7 +1303,7 @@ llvm::Constant* SDModule::getVTableRangeStart(const SDModule::vtbl_t& vtbl) {
 }
 
 uint32_t SDModule::calculateChildrenCounts(const SDModule::vtbl_t& root){
-  uint32_t count = 1;
+  uint32_t count = isDefined(root) ? 1 : 0;
   if (cloudMap.find(root) != cloudMap.end()) {
     for (const SDModule::vtbl_t& n : cloudMap[root]) {
       count += calculateChildrenCounts(n);
@@ -1943,26 +1944,23 @@ void SDModule::removeVtablesAndThunks(Module &M) {
 }
 
 
-bool SDModule::hasDefinedChild(const vtbl_t &vtbl) {
+SDModule::vtbl_t SDModule::getFirstDefinedChild(const vtbl_t &vtbl) {
   assert(isUndefined(vtbl));
+  order_t const &order = preorder(vtbl);
 
-  for (vtbl_t c : cloudMap[vtbl]) {
-    if (isDefined(c) || hasDefinedChild(c)) 
-      return true;
+  for (const vtbl_t& c : order) {
+    if (c != vtbl && isDefined(c))
+      return c;
   }
 
-  return false;
+  // If we get here then there is an undefined class with no
+  // defined subclasses.
+  std::cerr << vtbl.first << "," << vtbl.second << " doesn't have first defined child\n";
+  assert(false); // unreachable
 }
 
-vtbl_t SDModule::getFirstDefinedChild(const vtbl_t &vtbl) {
-  assert(isUndefined(vtbl) && hasDefinedChild(vtbl));
-
-  for (vtbl_t c : cloudMap[vtbl]) {
-    if (isDefined(c) || hasDefinedChild(c)) 
-      return true;
-  }
-
-  return false;
+bool SDModule::knowsAbout(const vtbl_t &vtbl) {
+  return cloudMap.find(vtbl) != cloudMap.end();
 }
 
 void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
@@ -2040,10 +2038,23 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
     // note that the global variable isn't always emitted
     std::string className = sd_getClassNameFromMD(mdNode,0);
     SDModule::vtbl_t vtbl(className, 0);
+    llvm::Constant *start;
+    int64_t rangeWidth;
 
-    // calculate the new index
-    llvm::Constant* start = sdModule->getVTableRangeStart(vtbl);
-    int64_t rangeWidth = sdModule->getCloudSize(vtbl.first);
+    if (sdModule->knowsAbout(vtbl)) {
+      // calculate the new index
+      start = sdModule->isUndefined(vtbl) ?
+        sdModule->getVTableRangeStart(sdModule->getFirstDefinedChild(vtbl)) :
+        sdModule->getVTableRangeStart(vtbl);
+      rangeWidth = sdModule->getCloudSize(vtbl.first);
+    } else {
+      // This is a class we have no metadata about (i.e. doesn't have any
+      // non-virtuall subclasses). In a fully statically linked binary we
+      // should never be able to create an instance of this.
+      start = NULL;
+      rangeWidth = 0;
+      std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
+    }
     LLVMContext& C = CI->getContext();
 
     if (start) {
@@ -2052,7 +2063,6 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
 
       std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
       if (rangeWidth > 1) {
-        /*
         // Shift start and range by 3 bytes (since they are all 8-byte aligned)
         llvm::Value *startInt = llvm::ConstantExpr::getLShr(
           llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C)), 
@@ -2070,8 +2080,7 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
         llvm::Value *diff = builder.CreateSub(vptrIntRor, startInt);
         llvm::Value *inRange = builder.CreateICmpULE(diff, width);
           
-        */
-        
+        /*
         llvm::Value *startInt = 
           llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C));
           
@@ -2079,6 +2088,8 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
         llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
         llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
         llvm::Value *inRange = builder.CreateICmpULE(diff, width);
+        */
+        
           
         CI->replaceAllUsesWith(inRange);
       } else {
