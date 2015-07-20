@@ -2002,6 +2002,7 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
 
     // since the result of the call instruction is i64, replace all of its occurence with this one
     CI->replaceAllUsesWith(newConsIntInd);
+    CI->eraseFromParent();
   }
 }
 
@@ -2092,17 +2093,20 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
         
           
         CI->replaceAllUsesWith(inRange);
+        CI->eraseFromParent();
       } else {
         llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
         llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
         llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, startInt);
 
         CI->replaceAllUsesWith(inRange);
+        CI->eraseFromParent();
       }        
     } else {
       std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
         << std::endl;
       CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
+      CI->eraseFromParent();
     }
   }
 }
