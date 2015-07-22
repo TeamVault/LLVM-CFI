@@ -1,0 +1,189 @@
+#      Compiler name/version:       [gcc,g++,gfortran 4.3 release]
+#      Operating system version:    [SLES 10 SP1 for AMD64]
+#      Hardware:                    [Opteron]
+#
+# If your platform uses different versions, different
+# hardware or operates in a different mode (for
+# example, 32- vs. 64-bit mode), there is the possibiliy
+# that this configuration file may not work as-is.
+#
+# Note that issues with compilation should be directed
+# to the compiler vendor. Information about SPEC techncial
+# support can be found in the techsupport document in the
+# Docs directory of your benchmark installation.
+#
+# Also note that this is a sample configuration. It
+# is expected to work for the environment in which
+# it was tested; it is not guaranteed that this is
+# the config file that will provide the best performance.
+
+# Note that you might find a more recent config file for
+# your platform with the posted results at
+# www.spec.org/cpu2006
+####################################################################
+# AMD64 (64-bit) FSF's gcc 4.3 config file 
+# Sample Config file for CPU2006 
+#####################################################################
+
+#ignore_errors = yes
+strict_rundir_verify = 0
+tune          = base
+ext           = llvm-llvmcfi
+output_format = asc
+reportable    = 1
+teeout        = yes
+teerunout     = yes
+hw_avail = Dec-9999
+license_num = 0
+test_sponsor = Turbo Computers
+prepared_by = 
+tester      =
+
+default=default=default=default:
+
+#####################################################################
+#
+# SafeDispatch Configuration
+#
+#####################################################################
+LLVM_BUILD_DIR     =
+BINUTILS_BUILD_DIR =
+SD_DYNCAST_DIR     =
+
+#####################################################################
+#
+# Compiler selection
+#
+#####################################################################
+CC           = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang
+CXX          = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++
+FC           = /usr/bin/gfortran
+LD           = $(BINUTILS_BUILD_DIR)/gold/ld-new
+
+## HW config
+hw_model     = Tyan Thunder KKQS Pro (S4882)
+hw_cpu_name  = AMD Opteron 256
+hw_cpu_char  =
+hw_cpu_mhz   = 3000
+hw_fpu       = Integrated
+hw_nchips	= 1
+hw_ncores	= 1
+hw_ncoresperchip= 1
+hw_nthreadspercore = 1
+hw_ncpuorder = 1 chip
+hw_pcache    = 64 KB I + 64 KB D on chip per chip
+hw_scache    = 1 MB I+D on chip per chip
+hw_tcache    = None
+hw_ocache    = None
+hw_memory	= 2 GB (2 x 1GB DDR333 CL2.5)
+hw_disk  	= SATA
+hw_vendor	= Tyan
+hw_other	= None
+
+## SW config
+sw_os        = SUSE Linux Enterprise Server 10 (x86_64) SP1, Kernel 2.6.16.46-0.12-smp
+sw_file      = ext3
+sw_state     = Runlevel 3 (Full multiuser with network)
+sw_compiler  = gcc, g++ & gfortran 4.3.0 (for AMD64)
+sw_avail = Mar-2008
+sw_other = None
+sw_base_ptrsize = 64-bit
+sw_peak_ptrsize = Not Applicable
+
+#####################################################################
+# Optimization
+#####################################################################
+
+## Base is low opt
+default=base=default=default:
+COPTIMIZE    = -O2 -fno-strict-aliasing 
+CXXOPTIMIZE  = -O2 -fno-strict-aliasing -flto -fsanitize=cfi-vcall
+FOPTIMIZE    = -O2 -fno-strict-aliasing 
+LDOPT        = -B $(BINUTILS_BUILD_DIR)/gold
+
+#####################################################################
+# 32/64 bit Portability Flags - all
+#####################################################################
+
+default=base=default=default:
+PORTABILITY = -DSPEC_CPU_LP64 
+
+#####################################################################
+# Portability Flags
+#####################################################################
+
+400.perlbench=default=default=default:
+CPORTABILITY = -DSPEC_CPU_LINUX_X64
+
+462.libquantum=default=default=default:
+CPORTABILITY=  -DSPEC_CPU_LINUX
+
+483.xalancbmk=default=default=default:
+CXXPORTABILITY= -DSPEC_CPU_LINUX
+
+481.wrf=default=default=default:
+CPORTABILITY = -DSPEC_CPU_CASE_FLAG -DSPEC_CPU_LINUX
+
+__MD5__
+483.xalancbmk=base=llvm-vanilla-lto=default:
+# Last updated Wed Jul  8 11:38:12 2015
+optmd5=e32caa5d55e5d2dd29b9e828468225df
+baggage=
+compile_options=\
+@eNrtVN1vmzAQf+evsHiNiKut2kPVVHKApXR8iY+K7cUixsm8GrvCJGv3189AyMimSuuiSXuYJfDd\
++Xw+3+93DqWw6vKBbhinQD62TAp1Zai2YaTFzU5UrMF72rDN88K8MA07CuIrAD/LmsKK1RJ+lc0D\
+VNXb+QXkfF9b6x3jFUwop6WiM6QUbVoF10xAwkuxnc2ARYAlx6PmElhOGrs2tuNci6HjLvMV0BKK\
+YxxGOLtNXOSk2lAgH4XYCwM3wEG6wn6EHDcBljfX3xNtCFXkhwQrWZ9qkNWPfGJS5dNE27WMw0Bt\
+fVlWtFHQEwGtZfP8s0vWlEIROfgQKfadQ6mvRiAThO8qqlONk+gOF4EfoyTtUjwa8szzR3VYTEc1\
+RcWlPVHejLITBaN4j3zPQVnU79LhcJ66OESZd+/iLEFhakd9SY5rh2q5aYpW7qFgwIp07I2Q1oCy\
+VXJWKia22shbjcdGlYK17BtdkA2z9qTkHIAJTNiP312e6F6YF6Af10rudLVuDPsK2EWxMM+hinmI\
+Ei3vojhbmCfMMQ1NRH36ex+tUr32K4t6j6Ub2rdYBzn6/SfW3yGWaUQDWnHmBd4nV9f69UTrMYuj\
+JENLz/eyj1Nge94NsBfFiz4dF01DTx/OfKf+sFF+r0/AtVx/oaRVN+A4rOULCeusOoqoQ9JbqX+T\
+Tui6xHfObbV/CLz+PkPHv6Yk48a82zh5J74DU9Qseg==
+exemd5=dc1cb91d6dccbe277a6f22a6c04197f1
+
+471.omnetpp=base=llvm-llvmcfi=default:
+# Last updated Fri Jul 10 16:16:55 2015
+optmd5=894c2569e3e2d1b11bab690420516863
+baggage=
+compile_options=\
+@eNq9Um1PwjAQ/r5f0ewrKSVq/ECAhI2J08EWGAn6ZdlLhydda9YOo7/esgHBqDFI4iVt+nJ3z3P3\
+3FRwXMRrmgOjSLwoEFx2DalKSFVUVjyDMtrQEvK3vtkxDdufBF1EnkRBSQaFIK+iXBOZXbY7hLFN\
+gZMKWEZmlNFY0tZQSloqSRLgJGUxX7VaCKcIiz1UWyA8mgeOHdnBQh+nI8dajBF223qJglMVAU9Z\
+lVF9Z5BIQvkGSoQQ9i8QzrnADVccM4gl8JV+ZEpnzWXMQcE77ac54E0aM7aNOoBFXnB9hRrrSVGV\
+KR0YdhfZy2XfPKdAc5fFt+78IOybn+o1Dd0+jX7jDcdz/fe19trDcqb2bbR3+qUZpuE3gEHoTtxH\
+R0ec3psaNvBn4dByPTd8OOZWt8o0PHd6f6b2f5Tte9VQTyTPNFVygA6GrR8IahaVAiZ3JFdCb0e6\
+bDXzRucK/z861FSb0Tql2n3gYht4NJAfuG9HtA==
+exemd5=4b7cb678f437a4ec48931f412db755d1
+
+483.xalancbmk=base=llvm-llvmcfi=default:
+# Last updated Wed Jul 15 19:07:07 2015
+optmd5=e32caa5d55e5d2dd29b9e828468225df
+baggage=
+compile_options=\
+@eNrtVN1vmzAQf+evsHiNiKut2kPVVHKApXR8iY+K7cUixsm8GrvCJGv3189AyMimSuuiSXuYJfDd\
++Xw+3+93DqWw6vKBbhinQD62TAp1Zai2YaTFzU5UrMF72rDN88K8MA07CuIrAD/LmsKK1RJ+lc0D\
+VNXb+QXkfF9b6x3jFUwop6WiM6QUbVoF10xAwkuxnc2ARYAlx6PmElhOGrs2tuNci6HjLvMV0BKK\
+YxxGOLtNXOSk2lAgH4XYCwM3wEG6wn6EHDcBljfX3xNtCFXkhwQrWZ9qkNWPfGJS5dNE27WMw0Bt\
+fVlWtFHQEwGtZfP8s0vWlEIROfgQKfadQ6mvRiAThO8qqlONk+gOF4EfoyTtUjwa8szzR3VYTEc1\
+RcWlPVHejLITBaN4j3zPQVnU79LhcJ66OESZd+/iLEFhakd9SY5rh2q5aYpW7qFgwIp07I2Q1oCy\
+VXJWKia22shbjcdGlYK17BtdkA2z9qTkHIAJTNiP312e6F6YF6Af10rudLVuDPsK2EWxMM+hinmI\
+Ei3vojhbmCfMMQ1NRH36ex+tUr32K4t6j6Ub2rdYBzn6/SfW3yGWaUQDWnHmBd4nV9f69UTrMYuj\
+JENLz/eyj1Nge94NsBfFiz4dF01DTx/OfKf+sFF+r0/AtVx/oaRVN+A4rOULCeusOoqoQ9JbqX+T\
+Tui6xHfObbV/CLz+PkPHv6Yk48a82zh5J74DU9Qseg==
+exemd5=7213eec5c2d7401119e028491b528b93
+
+473.astar=base=llvm-llvmcfi=default:
+# Last updated Wed Jul 22 14:26:35 2015
+optmd5=aead5a08ff746b4020184a087bee9589
+baggage=
+compile_options=\
+@eNq9Ul1rwjAUfe+vCH2V2LGNDcQK/ZrrVtuiFdxeSmxTzZY2kkTB/fql7dwq7sUhCwTCzb3nnHvP\
+DVkFS/SOC0IxYBtJWCUGmpCcZDLl2yonPN1hToq9qV/pmhNN4gEw1qzEhsgNwbPmyjXhebpBXO4N\
+SnclXG4JzeFN/96YYoqRwD1LCMylMJakMjKKqlWvB2AGIDuw9hmA7iz2nNSJ5+oZup49H3diaeAn\
+SeClXuj6VggAgNE1gEXFYCsXIkqQINVKBalUaIVAFZHkA5tZQeAuQ5TWVR3A+O4WtGco2JZneKQ5\
+A+AsFqZ+oR71L8DIforixNSPWtY1NUwl5CGwxjP1d9p+k2F7ofOYniQdz0PXopYoTvyJ/+qpzPPH\
+09DF0TSxbF+hvxzTqWnpWuCHz5fbgD+a+LuHYMiWbziTYgS+D7R/tHJUkkZcrUqp2EpCRSvUWDGa\
+d5ypXQvcC27B/5jTqG737Iy+D3Xzuq6znJ93Vk/u
+exemd5=ba2e9e204fa07d0bca93c2fb715ce373
+
