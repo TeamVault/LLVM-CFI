@@ -622,6 +622,15 @@ def int_sd_get_vtbl_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty, llvm_metadata
 def int_sd_get_vcall_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty],
                                 [IntrReadArgMem]>;
 
+def int_sd_subst_check_range : Intrinsic<[llvm_i1_ty],
+                                [llvm_ptr_ty,
+                                 llvm_i64_ty,
+                                 llvm_i64_ty],
+                                [IntrReadArgMem]>;
+
+def int_sd_subst_vtbl_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty],
+                                [IntrReadArgMem]>;
+
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics
 //===----------------------------------------------------------------------===//

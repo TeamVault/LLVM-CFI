@@ -41,8 +41,9 @@ using namespace llvm;
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 #define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
 
-namespace {
+#include <iostream>
 
+namespace {
 
   /**
    * Module pass for the SafeDispatch Gold Plugin
@@ -52,6 +53,7 @@ namespace {
     static char ID; // Pass identification, replacement for typeid
 
     SDModule() : ModulePass(ID) {
+      std::cerr << "Creating SDModule pass!\n";
       initializeSDModulePass(*PassRegistry::getPassRegistry());
     }
 
@@ -79,6 +81,7 @@ namespace {
     typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
     typedef std::map<vtbl_t, Constant*>                     vtbl_start_map_t;
+    typedef std::map<vtbl_name_t, GlobalVariable*>          cloud_start_map_t;
 
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
     roots_t roots;                                     // set<vtbl>
@@ -92,6 +95,7 @@ namespace {
     std::map<vtbl_name_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
     vtbl_start_map_t newVTableStartAddrMap;            // Starting addresses of all new vtables
+    cloud_start_map_t cloudStartMap;                   // Mapping from new vtable names to their corresponding cloud starts
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
@@ -135,7 +139,7 @@ namespace {
       for (auto i : undefinedVTables) {
         std::cerr << i << "\n";
       }
-      printClouds();
+      //printClouds();
       interleaveClouds(M);     // part 2
 
       sd_print("Finished safedispatch analysis\n");
@@ -214,8 +218,11 @@ namespace {
     }
 
     Constant* newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
+      const DataLayout &DL = M.getDataLayout();
       assert(ancestorMap.count(vtbl));
       vtbl_name_t rootName = ancestorMap[vtbl];
+      LLVMContext& C = M.getContext();
+      Type *IntPtrTy = DL.getIntPtrType(C);
 
       // sanity checks
       assert(roots.count(rootName));
@@ -236,23 +243,16 @@ namespace {
       uint64_t addrPtOff = newLayoutInds[vtbl][addrPt];
 
       // this should exist already
-      GlobalVariable* gv = M.getGlobalVariable(rootName);
+      GlobalVariable* gv = cloudStartMap[rootName];
       assert(gv);
 
-      LLVMContext& C = M.getContext();
-      IntegerType* type = IntegerType::getInt64Ty(C);
-
       // add the offset to the beginning of the vtable
-      ConstantInt* offsetVal     = ConstantInt::get(type, addrPtOff);
-      ConstantInt* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
+      Constant* gvInt         = ConstantExpr::getPtrToInt(gv, IntPtrTy);
+      Constant* offsetVal     = ConstantInt::get(IntPtrTy, addrPtOff * WORD_WIDTH);
+      Constant* gvOffInt      = ConstantExpr::getAdd(gvInt, offsetVal);
 
-      std::vector<Constant*> indices;
-      indices.push_back(zero);
-      indices.push_back(offsetVal);
-
-      Constant* newConst = ConstantExpr::getGetElementPtr(NULL, gv, indices, true);
-
-      return newConst;
+      gvOffInt->dump();
+      return gvOffInt;
     }
 
     void removeVtablesAndThunks(Module &M);
@@ -301,10 +301,6 @@ namespace {
       }
     }
 
-    /**
-     * Extract the vtable info from the metadata and put it into a struct
-     */
-    std::vector<nmd_t> extractMetadata(NamedMDNode* md);
 
     /**
      * Interleave the cloud given by the root element.
@@ -355,6 +351,10 @@ namespace {
 
   public:
 
+    /**
+     * Extract the vtable info from the metadata and put it into a struct
+     */
+    std::vector<nmd_t> static extractMetadata(NamedMDNode* md);
     /**
      * Return a list that contains the preorder traversal of the tree
      * starting from the given node
@@ -551,10 +551,152 @@ namespace {
   };
 }
 
+  /**
+   * Module pass for substittuing the final subst_ intrinsics
+   */
+  class SDSubstModule : public ModulePass {
+  public:
+    static char ID; // Pass identification, replacement for typeid
+
+    SDSubstModule() : ModulePass(ID) {
+      initializeSDSubstModulePass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual ~SDSubstModule() {
+      sd_print("deleting SDSubstModule pass\n");
+    }
+
+    bool runOnModule(Module &M) {
+      int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0;
+      Function *sd_subst_indexF =
+          M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
+       Function *sd_subst_rangeF =
+          M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
+
+      if (sd_subst_indexF) {
+        for (const Use &U : sd_subst_indexF->uses()) {
+          // get the call inst
+          llvm::CallInst* CI = cast<CallInst>(U.getUser());
+
+          // get the arguments
+          llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+          assert(arg1);
+          CI->replaceAllUsesWith(arg1);
+          CI->eraseFromParent();
+          indexSubst += 1;
+        }
+      }
+
+      if (sd_subst_rangeF) {
+        const DataLayout &DL = M.getDataLayout();
+        LLVMContext& C = M.getContext();
+        Type *IntPtrTy = DL.getIntPtrType(C, 0);
+
+        for (const Use &U : sd_subst_rangeF->uses()) {
+          // get the call inst
+          llvm::CallInst* CI = cast<CallInst>(U.getUser());
+          IRBuilder<> builder(CI);
+
+          // get the arguments
+          llvm::Value* vptr = CI->getArgOperand(0);
+          llvm::Constant* start = dyn_cast<Constant>(CI->getArgOperand(1));
+          llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
+          assert(vptr && start && width);
+
+          int64_t widthInt = width->getSExtValue();
+
+          if (widthInt > 1) {
+            // Rotate right by 3 to push the lowest order bits into the higher order bits
+            llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
+            llvm::Value *diff = builder.CreateSub(vptrInt, start);
+            llvm::Value *diffShr = builder.CreateLShr(diff, 3);
+            llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - 3);
+            llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
+
+            llvm::Value *inRange = builder.CreateICmpULE(diffRor, width);
+              
+            CI->replaceAllUsesWith(inRange);
+            CI->eraseFromParent();
+
+            rangeSubst += 1;
+          } else {
+            llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
+            llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, start);
+
+            CI->replaceAllUsesWith(inRange);
+            CI->eraseFromParent();
+            eqSubst += 1;
+          }        
+        }
+      }
+
+      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d\n", indexSubst, rangeSubst, eqSubst);
+      return indexSubst > 0 || rangeSubst > 0;
+    }
+  };
+
+  /**
+   * Module pass for printing the SafeDispatch metadata
+   */
+  class SDPrintMDModule : public ModulePass {
+  public:
+    static char ID; // Pass identification, replacement for typeid
+
+    SDPrintMDModule() : ModulePass(ID) {
+      initializeSDPrintMDModulePass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual ~SDPrintMDModule() {
+      sd_print("deleting SDPrintMDModule pass\n");
+    }
+
+    bool runOnModule(Module &M) {
+      int64_t nodeCnt = 0;
+
+      for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
+        // check if this is a metadata that we've added
+        if(itr->getName().startswith(SD_MD_CLASSINFO))
+          nodeCnt += 1;
+      }
+
+      sd_print("Metadata(%d): ----------------- \n", nodeCnt);
+
+      for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
+        NamedMDNode* md = itr;
+
+        // check if this is a metadata that we've added
+        if(! md->getName().startswith(SD_MD_CLASSINFO))
+          continue;
+
+        sd_print("Node: %s\n", md->getName().data());
+
+        std::vector<SDModule::nmd_t> infoVec = SDModule::extractMetadata(md);
+
+        for (const SDModule::nmd_t& info : infoVec) {
+          sd_print("  VTable: %s\n", info.className.c_str());
+
+          for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
+            const SDModule::nmd_sub_t* subInfo = & info.subVTables[ind];
+            sd_print("    [%d]: %s (%d-%d) addrPt: %d\n",
+                subInfo->order, subInfo->parentName.c_str(),
+                subInfo->start, subInfo->end, subInfo->addressPoint);
+          }
+        }
+      }
+      sd_print("---------------------------\n");
+
+      return false;
+    }
+  };
+
 char SDChangeIndices::ID = 0;
 char SDModule::ID = 0;
+char SDPrintMDModule::ID = 0;
+char SDSubstModule::ID = 0;
 
 INITIALIZE_PASS(SDModule, "sdmp", "Module pass for SafeDispatch", false, false)
+INITIALIZE_PASS(SDPrintMDModule, "sdpmdmp", "Module pass for printing SafeDispatch metadata", false, false)
+INITIALIZE_PASS(SDSubstModule, "sdsdmp", "Module pass for substituting the constant-holding intrinsics generated by sdmp.", false, false)
 
 INITIALIZE_PASS_BEGIN(SDChangeIndices, "cc", "Change Constant", false, false)
 INITIALIZE_PASS_DEPENDENCY(SDModule)
@@ -567,6 +709,14 @@ ModulePass* llvm::createSDChangeIndicesPass() {
 
 ModulePass* llvm::createSDModulePass() {
   return new SDModule();
+}
+
+ModulePass* llvm::createSDPrintMDModulePass() {
+  return new SDPrintMDModule();
+}
+
+ModulePass* llvm::createSDSubstModulePass() {
+  return new SDSubstModule();
 }
 
 /// ----------------------------------------------------------------------------
@@ -899,10 +1049,13 @@ void SDModule::createNewVTable(Module& M, SDModule::vtbl_name_t& vtbl){
 
   // create the global variable
   GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
-                                                 GlobalVariable::ExternalLinkage,
+                                                 GlobalVariable::InternalLinkage,
                                                  nullptr, NEW_VTABLE_NAME(vtbl));
   newVtable->setAlignment(WORD_WIDTH);
   newVtable->setInitializer(newVtableInit);
+  newVtable->setUnnamedAddr(true);
+
+  cloudStartMap[NEW_VTABLE_NAME(vtbl)] = newVtable;
 
   // to start changing the original uses of the vtables, first get all the classes in the cloud
   order_t cloud;
@@ -1956,6 +2109,9 @@ SDModule::vtbl_t SDModule::getFirstDefinedChild(const vtbl_t &vtbl) {
   // If we get here then there is an undefined class with no
   // defined subclasses.
   std::cerr << vtbl.first << "," << vtbl.second << " doesn't have first defined child\n";
+  for (const vtbl_t& c : order) {
+    std::cerr << c.first << "," << c.second << " isn't defined\n";
+  }
   assert(false); // unreachable
 }
 
@@ -2001,7 +2157,13 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
     llvm::Value* newConsIntInd = llvm::ConstantInt::get(intType, newIndex);
 
     // since the result of the call instruction is i64, replace all of its occurence with this one
-    CI->replaceAllUsesWith(newConsIntInd);
+    IRBuilder<> B(CI);
+    llvm::Value *Args[] = {newConsIntInd};
+    llvm::Value* newIntr = B.CreateCall(Intrinsic::getDeclaration(M,
+          Intrinsic::sd_subst_vtbl_index),
+          Args);
+
+    CI->replaceAllUsesWith(newIntr);
     CI->eraseFromParent();
   }
 }
@@ -2012,15 +2174,12 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
   Function *sd_vtbl_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
   const DataLayout &DL = M->getDataLayout();
-
-  llvm::Type *i64ty = llvm::IntegerType::get(M->getContext(), 64);
+  llvm::LLVMContext& C = M->getContext();
+  Type *IntPtrTy = DL.getIntPtrType(C, 0);
 
   // if the function doesn't exist, do nothing
   if (!sd_vtbl_indexF)
     return;
-
-  llvm::LLVMContext& C = M->getContext();
-  Type* intType = IntegerType::getInt64Ty(C);
 
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
@@ -2063,45 +2222,43 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       builder.SetInsertPoint(CI);
 
       std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
+        
+      // The shift here is implicit since rangeWidth is in terms of indices, not bytes
+      llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
+      llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
+      llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
+      llvm::Value *Args[] = {castVptr, start, width};
+      llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
+            Intrinsic::sd_subst_check_range),
+            Args);
+
+      CI->replaceAllUsesWith(newIntr);
+      CI->eraseFromParent();
+      /*
       if (rangeWidth > 1) {
-        // Shift start and range by 3 bytes (since they are all 8-byte aligned)
-        llvm::Value *startInt = llvm::ConstantExpr::getLShr(
-          llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C)), 
-          llvm::ConstantInt::get(IntegerType::getInt64Ty(C), 3));
-          
         // The shift here is implicit since rangeWidth is in terms of indices, not bytes
-        llvm::Value *width = llvm::ConstantInt::get(startInt->getType(), rangeWidth);
+        llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
 
         // Rotate right by 3 to push the lowest order bits into the higher order bits
-        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
-        llvm::Value *vptrIntShr = builder.CreateLShr(vptrInt, 3);
-        llvm::Value *vptrIntShl = builder.CreateShl(vptrInt, DL.getPointerSizeInBits(0) - 3);
-        llvm::Value *vptrIntRor = builder.CreateOr(vptrIntShr, vptrIntShl);
-
-        llvm::Value *diff = builder.CreateSub(vptrIntRor, startInt);
-        llvm::Value *inRange = builder.CreateICmpULE(diff, width);
-          
-        /*
-        llvm::Value *startInt = 
-          llvm::ConstantExpr::getPtrToInt(start, IntegerType::getInt64Ty(C));
-          
-        llvm::Value *width = llvm::ConstantInt::get(startInt->getType(), rangeWidth * WORD_WIDTH);
-        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
         llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
-        llvm::Value *inRange = builder.CreateICmpULE(diff, width);
-        */
-        
+        llvm::Value *diffShr = builder.CreateLShr(diff, 3);
+        llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - 3);
+        llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
+
+        llvm::Value *inRange = builder.CreateICmpULE(diffRor, width);
           
         CI->replaceAllUsesWith(inRange);
         CI->eraseFromParent();
       } else {
-        llvm::Value *startInt = builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
-        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntegerType::getInt64Ty(C));
+        llvm::Value *startInt = start; //builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
+        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
         llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, startInt);
 
         CI->replaceAllUsesWith(inRange);
         CI->eraseFromParent();
       }        
+      */
     } else {
       std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
         << std::endl;

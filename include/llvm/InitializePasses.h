@@ -301,6 +301,8 @@ void initializeFloat2IntPass(PassRegistry&);
 // safedispatch additions
 void initializeSafeDispatch(PassRegistry&);
 void initializeSDModulePass(PassRegistry&);
+void initializeSDPrintMDModulePass(PassRegistry&);
+void initializeSDSubstModulePass(PassRegistry&);
 void initializeSDChangeIndicesPass(PassRegistry&);
 void initializeSDFixPass(PassRegistry&);
 }

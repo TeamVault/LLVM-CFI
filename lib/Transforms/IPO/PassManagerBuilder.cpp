@@ -520,6 +520,15 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (LibraryInfo)
     PM.add(new TargetLibraryInfoWrapperPass(*LibraryInfo));
 
+  if (EmitIVTBLs) {
+    // Lets get the sd passes out of the way
+    PM.add(llvm::createSDModulePass());
+    PM.add(llvm::createSDFixPass());
+    PM.add(llvm::createSDPrintMDModulePass());
+    PM.add(llvm::createSDChangeIndicesPass());
+    PM.add(llvm::createSDSubstModulePass());
+  }
+
   if (VerifyInput)
     PM.add(createVerifierPass());
 
@@ -527,9 +536,6 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
     addLTOOptimizationPasses(PM);
 
   if (EmitIVTBLs) {
-    // Lets get the sd passes out of the way
-    PM.add(llvm::createSDFixPass());
-    PM.add(llvm::createSDChangeIndicesPass());
   } else {
   // Lower bit sets to globals. This pass supports Clang's control flow
   // integrity mechanisms (-fsanitize=cfi*) and needs to run at link time if CFI

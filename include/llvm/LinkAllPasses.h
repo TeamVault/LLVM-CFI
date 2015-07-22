@@ -187,6 +187,7 @@ namespace {
 
       (void) llvm::createSDChangeIndicesPass();
       (void) llvm::createSDModulePass();
+      (void) llvm::createSDPrintMDModulePass();
       (void) llvm::createSDFixPass();
     }
   } ForcePassLinking; // Force link by creating a global definition.
