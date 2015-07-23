@@ -1,0 +1,172 @@
+#      Compiler name/version:       [gcc,g++,gfortran 4.3 release]
+#      Operating system version:    [SLES 10 SP1 for AMD64]
+#      Hardware:                    [Opteron]
+#
+# If your platform uses different versions, different
+# hardware or operates in a different mode (for
+# example, 32- vs. 64-bit mode), there is the possibiliy
+# that this configuration file may not work as-is.
+#
+# Note that issues with compilation should be directed
+# to the compiler vendor. Information about SPEC techncial
+# support can be found in the techsupport document in the
+# Docs directory of your benchmark installation.
+#
+# Also note that this is a sample configuration. It
+# is expected to work for the environment in which
+# it was tested; it is not guaranteed that this is
+# the config file that will provide the best performance.
+
+# Note that you might find a more recent config file for
+# your platform with the posted results at
+# www.spec.org/cpu2006
+####################################################################
+# AMD64 (64-bit) FSF's gcc 4.3 config file 
+# Sample Config file for CPU2006 
+#####################################################################
+
+ignore_errors = yes
+strict_rundir_verify = 0
+tune          = base
+ext           = llvm-vanilla-lto
+output_format = asc
+reportable    = 1
+teeout        = yes
+teerunout     = yes
+hw_avail = Dec-9999
+license_num = 0
+test_sponsor = Turbo Computers
+prepared_by = 
+tester      =
+
+default=default=default=default:
+
+#####################################################################
+#
+# SafeDispatch Configuration
+#
+#####################################################################
+LLVM_BUILD_DIR     =
+BINUTILS_BUILD_DIR =
+SD_DYNCAST_DIR     =
+
+#####################################################################
+#
+# Compiler selection
+#
+#####################################################################
+CC           = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang
+CXX          = $(LLVM_BUILD_DIR)/Release+Asserts/bin/clang++
+FC           = /usr/bin/gfortran
+LD           = $(BINUTILS_BUILD_DIR)/gold/ld-new
+
+## HW config
+hw_model     = Tyan Thunder KKQS Pro (S4882)
+hw_cpu_name  = AMD Opteron 256
+hw_cpu_char  =
+hw_cpu_mhz   = 3000
+hw_fpu       = Integrated
+hw_nchips	= 1
+hw_ncores	= 1
+hw_ncoresperchip= 1
+hw_nthreadspercore = 1
+hw_ncpuorder = 1 chip
+hw_pcache    = 64 KB I + 64 KB D on chip per chip
+hw_scache    = 1 MB I+D on chip per chip
+hw_tcache    = None
+hw_ocache    = None
+hw_memory	= 2 GB (2 x 1GB DDR333 CL2.5)
+hw_disk  	= SATA
+hw_vendor	= Tyan
+hw_other	= None
+
+## SW config
+sw_os        = SUSE Linux Enterprise Server 10 (x86_64) SP1, Kernel 2.6.16.46-0.12-smp
+sw_file      = ext3
+sw_state     = Runlevel 3 (Full multiuser with network)
+sw_compiler  = gcc, g++ & gfortran 4.3.0 (for AMD64)
+sw_avail = Mar-2008
+sw_other = None
+sw_base_ptrsize = 64-bit
+sw_peak_ptrsize = Not Applicable
+
+#####################################################################
+# Optimization
+#####################################################################
+
+## Base is low opt
+default=base=default=default:
+COPTIMIZE    = -O2 -fno-strict-aliasing 
+CXXOPTIMIZE  = -O2 -fno-strict-aliasing -flto
+FOPTIMIZE    = -O2 -fno-strict-aliasing 
+LDOPT        = -B $(BINUTILS_BUILD_DIR)/gold
+
+#####################################################################
+# 32/64 bit Portability Flags - all
+#####################################################################
+
+default=base=default=default:
+PORTABILITY = -DSPEC_CPU_LP64 
+
+#####################################################################
+# Portability Flags
+#####################################################################
+
+400.perlbench=default=default=default:
+CPORTABILITY = -DSPEC_CPU_LINUX_X64
+
+462.libquantum=default=default=default:
+CPORTABILITY=  -DSPEC_CPU_LINUX
+
+483.xalancbmk=default=default=default:
+CXXPORTABILITY= -DSPEC_CPU_LINUX
+
+481.wrf=default=default=default:
+CPORTABILITY = -DSPEC_CPU_CASE_FLAG -DSPEC_CPU_LINUX
+
+__MD5__
+471.omnetpp=base=llvm-vanilla-lto=default:
+# Last updated Fri Jul 10 16:07:51 2015
+optmd5=80f9131bc3667a7135a3c2354057e73d
+baggage=
+compile_options=\
+@eNqtUltvgjAUfudXNH01tWZb9mDURJA5NgSimLi9EC7VdZZ2aYvL/r0V1LjsYhbXBNLCOf1uJxAc\
+lemaLCkjQLxpKrjqWkpLmutEVrygMtkQSZcffdiBlhNOoi7AL6IkuKClwO9CrrEqrtsdzNimRFlF\
+WYGnhJFUkdZQKSK1whnlOGcpX7VaAOUAiQNUWwA0mkWukzjR3GyDkWvPxwB5bfOIkhOdUJ6zqiDm\
+zGimMOEbKgEAKLwCaMkFariilNFUUb4yH5kWu4LjvYkf3d6AZvWUqGROBpbTBc5i0YeXaIH7W0L7\
+IYziPvwkDVrGKYN+5w/HM/Pvq8y6wnYD5z45FJ3RDa2wAYxib+I9u6bjVxtqhCicxkPb87346ZRG\
+7Qq0fC94vDDR82F8nwXoieyV5FoNwHEh+wcuBrDSlKk9n5UwrxO3d0n4o0vj/Hd3a1bNbPxF2KFx\
+vms8magt2xAolA==
+exemd5=38e0299abc297e3ea016098c427560f1
+
+483.xalancbmk=base=llvm-vanilla-lto=default:
+# Last updated Wed Jul 15 19:00:14 2015
+optmd5=8c3240cb350bca88beb305cef679c6b0
+baggage=
+compile_options=\
+@eNrtVFtvmzAUfudXWLxGxNVW7SFqKznAUjrACEPF9mIRcDKvYFeYZO2/r4GQkU3dRdG0l1kCzs3H\
+x+f7DqEUVp0/sA2vGJCPLZdCLQzVNrxoabMTJW/onjV883xtXpiGjYNoAeBnWTNY8lrCr7J5gKp8\
+O7+AVbWvrfWOVyWMWcVyxWZIKda0Cq65gEWVi+1sBqwCWHI8ai6B5ZDItakdpVoMHXeZroCWUBTR\
+ENPkNnaRQ7QhQz4KqRcGbkADsqI+Ro4bA8ub6+eJNQVTxTcJlrI+1SCvH6uJSeVPE23X8goGauvL\
+vGSNgp4IWC2b5+9DkiYXqpBDTCHFvgvI9dUKyEVR7UqmS41ifEezwI9QTLoSj4Y08fxRHZxkVAnK\
+Lu2J8maUHRyM4j3yPQcluN+l09GUuDREiXfv0iRGIbFx35Kj79AtlxC0cg8NAxbWuTdCWgPKVl7x\
+XHGx1caqlQBMEKF+9O7yRPfCNAP9ulJypxtzY9gLYGfZtXkOK8xDFry8w1FybZ6QxDQ05/Tp7320\
+Itr3I2H6iKUb2rdUJznG/efQ3+GQaeABrSjxAu+Tq3v9U0718EQ4TtDS873k4xTDnmIDwln2akxH\
+O9PQnw9n/n1+Tf/fYz+4kusvrGjVDTgua/lKbbqADnh1qG8r9WvC7477vnPuAP0bSPrSh5H9k9uP\
+G9Nu42TQXwDmbA1a
+exemd5=88ba694c04f223e5ce7306decd4ae600
+
+473.astar=base=llvm-vanilla-lto=default:
+# Last updated Wed Jul 22 14:28:43 2015
+optmd5=c5db7b5f475a4af481e6e99633b65b62
+baggage=
+compile_options=\
+@eNqtUltrwjAUfu+vCHmVmLGNDUSF3ua61bZoBbeXUtuo2dJGkij475e2c6s4NgYNBMLJuXyXE/AS\
+Fek7WVNGAN8pyks5MKQSNFOJ2Jc5FcmBCLo+juAVNOxwGg0A3vKCYJljKbL6qi0VebJLhTpixg4F\
+Wu0py9FN/x7PCCOpJD1TSiKUxCta4oyl5abXAygDiJ+m9jlAzjxy7cSOFvoZOK61mLRiie/Fse8m\
+buB4ZgAAQOE1QOuSowYuShlNJS03OsgUrxJatdHdLWjOUPK9yMjYsAfAXi5HsCM68LNhaD2FUTyC\
+Z+ygoXXTQB58czLXf5dM6wzLDezH5CLpnDo0wmZQFHtT79XVmb8qUXeOwllsWp5u9HLeWQsDDd8L\
+nrvz9W9rfnYGDPnqjWRKjsHXQdY3LJEWtMZRAdAD94oy2WDCG87ylt6VF77TobedS14DbBblHxRP\
+dYuqrrVdH/i/MM4=
+exemd5=eeb7cae3477ee656902c7eb938105f2e
+
