@@ -135,10 +135,6 @@ namespace {
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
       buildClouds(M);          // part 1
-      std::cerr << "Undefined vtables: \n";
-      for (auto i : undefinedVTables) {
-        std::cerr << i << "\n";
-      }
       //printClouds();
       interleaveClouds(M);     // part 2
 
@@ -251,7 +247,6 @@ namespace {
       Constant* offsetVal     = ConstantInt::get(IntPtrTy, addrPtOff * WORD_WIDTH);
       Constant* gvOffInt      = ConstantExpr::getAdd(gvInt, offsetVal);
 
-      gvOffInt->dump();
       return gvOffInt;
     }
 
@@ -386,6 +381,8 @@ namespace {
     llvm::Constant* getVTableRangeStart(const vtbl_t& vtbl);
     vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
+    bool validConstVptr(const vtbl_name_t &v, const DataLayout &DL, Value *V,
+        uint64_t off);
   };
 
   /**
@@ -407,6 +404,11 @@ namespace {
       assert(sdModule);
 
       sd_print("inside the 2nd pass\n");
+
+      nConstTrue = 0;
+      nConstFalse = 0;
+      nEq = 0;
+      nRange = 0;
 
       classNameMDId = M.getMDKindID(SD_MD_VFUN_CALL);
       castFromMDId  = M.getMDKindID(SD_MD_CAST_FROM);
@@ -431,8 +433,8 @@ namespace {
         currFunctionInd++;
 
         if (pct > lastpct) {
-          fprintf(stderr, "\rSD] Progress: %3d%%", pct);
-          fflush(stderr);
+          //fprintf(stderr, "\rSD] Progress: %3d%%", pct);
+          //fflush(stderr);
           lastpct = pct;
         }
 
@@ -448,6 +450,8 @@ namespace {
       sdModule->clearAnalysisResults();
 
       sd_print("removed thunks...\n");
+      sd_print("Summary: const true: %d const false: %d eq check: %d range check %d\n",
+        nConstTrue, nConstFalse, nEq, nRange);
 
       return true;
     }
@@ -459,6 +463,11 @@ namespace {
   private:
 
     SDModule* sdModule;
+
+    uint64_t nConstTrue;
+    uint64_t nConstFalse;
+    uint64_t nEq;
+    uint64_t nRange;
 
     /// these are used to make sure that an instruction is modified only
     /// at one place in the program
@@ -567,7 +576,7 @@ namespace {
     }
 
     bool runOnModule(Module &M) {
-      int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0;
+      int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0, constPtr = 0;
       Function *sd_subst_indexF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
        Function *sd_subst_rangeF =
@@ -603,6 +612,9 @@ namespace {
           llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
           assert(vptr && start && width);
 
+          if (isConstVptr(DL, vptr, 0))
+            constPtr ++;
+
           int64_t widthInt = width->getSExtValue();
 
           if (widthInt > 1) {
@@ -630,10 +642,42 @@ namespace {
         }
       }
 
-      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d\n", indexSubst, rangeSubst, eqSubst);
+      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d\n", indexSubst, rangeSubst, eqSubst, constPtr);
       return indexSubst > 0 || rangeSubst > 0;
     }
+
+    bool isConstVptr(const DataLayout &DL, Value *V,uint64_t off);
+
   };
+
+  // This code is adapted from LowerBitSets.cpp
+  bool SDSubstModule::isConstVptr(const DataLayout &DL, Value *V,
+      uint64_t off) {
+    if (auto GV = dyn_cast<GlobalVariable>(V)) {
+      return true;
+    }
+
+    if (auto GEP = dyn_cast<GEPOperator>(V)) {
+      APInt APOffset(DL.getPointerSizeInBits(0), 0);
+      bool Result = GEP->accumulateConstantOffset(DL, APOffset);
+      if (!Result)
+        return false;
+
+      off += APOffset.getZExtValue();
+      return isConstVptr(DL, GEP->getPointerOperand(), off);
+    }
+
+    if (auto Op = dyn_cast<Operator>(V)) {
+      if (Op->getOpcode() == Instruction::BitCast)
+        return isConstVptr(DL, Op->getOperand(0), off);
+
+      if (Op->getOpcode() == Instruction::Select)
+        return isConstVptr(DL, Op->getOperand(1), off) &&
+               isConstVptr(DL, Op->getOperand(2), off);
+    }
+
+    return false;
+  }
 
   /**
    * Module pass for printing the SafeDispatch metadata
@@ -739,6 +783,48 @@ Function* SDModule::getVthunkFunction(Constant* vtblElement) {
 
   return NULL;
 }
+
+// This code is adapted from LowerBitSets.cpp
+bool SDModule::validConstVptr(const vtbl_name_t &v, const DataLayout &DL, Value *V,
+    uint64_t off) {
+  if (auto GV = dyn_cast<GlobalVariable>(V)) {
+    vtbl_t t(v, 0);
+    vtbl_name_t root = ancestorMap[t];
+
+    if (GV != cloudStartMap[NEW_VTABLE_NAME(root)])
+      return false;
+
+    if (off % 8 != 0)
+      return false;
+
+    int64_t relStart = newLayoutInds[t][addrPtMap[v][0]];
+    int64_t relEnd = relStart + cloudSizeMap[v];
+    uint64_t ind = off/8;
+    return relStart <= ind && ind < relEnd;
+  }
+
+  if (auto GEP = dyn_cast<GEPOperator>(V)) {
+    APInt APOffset(DL.getPointerSizeInBits(0), 0);
+    bool Result = GEP->accumulateConstantOffset(DL, APOffset);
+    if (!Result)
+      return false;
+
+    off += APOffset.getZExtValue();
+    return validConstVptr(v, DL, GEP->getPointerOperand(), off);
+  }
+
+  if (auto Op = dyn_cast<Operator>(V)) {
+    if (Op->getOpcode() == Instruction::BitCast)
+      return validConstVptr(v, DL, Op->getOperand(0), off);
+
+    if (Op->getOpcode() == Instruction::Select)
+      return validConstVptr(v, DL, Op->getOperand(1), off) &&
+             validConstVptr(v, DL, Op->getOperand(2), off);
+  }
+
+  return false;
+}
+
 
 void SDModule::updateVcallOffset(Instruction *inst, const vtbl_name_t& className, unsigned order) {
   BitCastInst* bcInst = dyn_cast<BitCastInst>(inst);
@@ -2213,7 +2299,6 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       // should never be able to create an instance of this.
       start = NULL;
       rangeWidth = 0;
-      std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
     }
     LLVMContext& C = CI->getContext();
 
@@ -2221,49 +2306,32 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       IRBuilder<> builder(CI);
       builder.SetInsertPoint(CI);
 
-      std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
-        
-      // The shift here is implicit since rangeWidth is in terms of indices, not bytes
-      llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
-      llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
-      llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
-      llvm::Value *Args[] = {castVptr, start, width};
-      llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
-            Intrinsic::sd_subst_check_range),
-            Args);
-
-      CI->replaceAllUsesWith(newIntr);
-      CI->eraseFromParent();
-      /*
-      if (rangeWidth > 1) {
+      if (sdModule->validConstVptr(className, DL, vptr, 0)) {
+        // Can statically discharge this check
+        CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
+        CI->eraseFromParent();
+        nConstTrue++;
+      } else {
         // The shift here is implicit since rangeWidth is in terms of indices, not bytes
         llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
+        llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
+        llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
+        llvm::Value *Args[] = {castVptr, start, width};
+        llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
+              Intrinsic::sd_subst_check_range),
+              Args);
 
-        // Rotate right by 3 to push the lowest order bits into the higher order bits
-        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
-        llvm::Value *diff = builder.CreateSub(vptrInt, startInt);
-        llvm::Value *diffShr = builder.CreateLShr(diff, 3);
-        llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - 3);
-        llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
-
-        llvm::Value *inRange = builder.CreateICmpULE(diffRor, width);
-          
-        CI->replaceAllUsesWith(inRange);
+        CI->replaceAllUsesWith(newIntr);
         CI->eraseFromParent();
-      } else {
-        llvm::Value *startInt = start; //builder.CreatePtrToInt(start, IntegerType::getInt64Ty(C));
-        llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
-        llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, startInt);
-
-        CI->replaceAllUsesWith(inRange);
-        CI->eraseFromParent();
-      }        
-      */
+        if (rangeWidth == 1)
+          nEq ++;
+        else
+          nRange ++;
+      }
     } else {
-      std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
-        << std::endl;
       CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
       CI->eraseFromParent();
+      nConstFalse ++;
     }
   }
 }

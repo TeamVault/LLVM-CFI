@@ -522,9 +522,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
 
   if (EmitIVTBLs) {
     // Lets get the sd passes out of the way
-    PM.add(llvm::createSDModulePass());
     PM.add(llvm::createSDFixPass());
-    PM.add(llvm::createSDPrintMDModulePass());
     PM.add(llvm::createSDChangeIndicesPass());
     PM.add(llvm::createSDSubstModulePass());
   }
