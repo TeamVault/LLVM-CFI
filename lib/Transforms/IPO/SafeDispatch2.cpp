@@ -26,6 +26,7 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <math.h>
 #include <algorithm>
 
 // you have to modify the following files for each additional LLVM pass
@@ -101,6 +102,8 @@ namespace {
     cloud_start_map_t cloudStartMap;                   // Mapping from new vtable names to their corresponding cloud starts
 
     vtbl_t dummyVtable;
+
+    std::map<vtbl_name_t, unsigned> alignmentMap;
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
@@ -606,16 +609,19 @@ namespace {
           llvm::Value* vptr = CI->getArgOperand(0);
           llvm::Constant* start = dyn_cast<Constant>(CI->getArgOperand(1));
           llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
+          llvm::ConstantInt* alignment = dyn_cast<ConstantInt>(CI->getArgOperand(3));
           assert(vptr && start && width);
 
           int64_t widthInt = width->getSExtValue();
+          int64_t alignmentInt = alignment->getSExtValue();
+          int alignmentBits = floor(log(alignmentInt + 0.5)/log(2.0));
 
           if (widthInt > 1) {
             // Rotate right by 3 to push the lowest order bits into the higher order bits
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
             llvm::Value *diff = builder.CreateSub(vptrInt, start);
-            llvm::Value *diffShr = builder.CreateLShr(diff, 3);
-            llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - 3);
+            llvm::Value *diffShr = builder.CreateLShr(diff, alignmentBits);
+            llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - alignmentBits);
             llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
 
             llvm::Value *inRange = builder.CreateICmpULE(diffRor, width);
@@ -889,6 +895,10 @@ void SDModule2::orderCloud(SDModule2::vtbl_name_t& vtbl) {
                     // of bits in the original number, plus 1. That's the
                     // next highest power of 2.
 
+  alignmentMap[vtbl] = max * WORD_WIDTH;
+
+  sd_print("ALIGNMENT: %s, %u\n", vtbl.data(), max*WORD_WIDTH);
+
   for(const vtbl_t child : pre) {
     range_t r = rangeMap[child.first][child.second];
     uint64_t size = r.second - r.first + 1;
@@ -928,6 +938,9 @@ bool SDModule2::verifyInterleavedCloud(vtbl_name_t& vtbl) {
   // Build a map (vtbl_t -> (uint64_t -> uint64_t)) with the old-to-new index mapping encoded in the
   // interleaving
   for (auto elem : interleaving) {
+    if (elem.first == dummyVtable)
+      continue;
+
     vtbl_t &v = elem.first;
     uint64_t oldPos = elem.second;
 
@@ -1089,7 +1102,8 @@ void SDModule2::createNewVTable(Module& M, SDModule2::vtbl_name_t& vtbl){
   GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
                                                  GlobalVariable::InternalLinkage,
                                                  nullptr, NEW_VTABLE_NAME(vtbl));
-  newVtable->setAlignment(WORD_WIDTH);
+  assert(alignmentMap.count(vtbl));
+  newVtable->setAlignment(alignmentMap[vtbl]);
   newVtable->setInitializer(newVtableInit);
   newVtable->setUnnamedAddr(true);
 
@@ -2244,7 +2258,13 @@ void SDChangeIndices2::handleSDCheckVtbl(Module* M) {
       llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
       llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
       llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
-      llvm::Value *Args[] = {castVptr, start, width};
+
+      assert(sdModule->ancestorMap.count(vtbl));
+      SDModule2::vtbl_name_t root = sdModule->ancestorMap[vtbl];
+      assert(sdModule->alignmentMap.count(root));
+
+      llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, sdModule->alignmentMap[root]);
+      llvm::Value *Args[] = {castVptr, start, width, alignment};
       llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
             Intrinsic::sd_subst_check_range),
             Args);

@@ -16,8 +16,9 @@ ENABLE_LLVM_CFI = False
 # Enabled linker flags
 sd_config = {
   # SafeDispatch options
-  "SD_ENABLE_INTERLEAVING" : True,  # interleave the vtables and add the range checks
-  "SD_ENABLE_CHECKS"       : True,  # interleave the vtables and add the range checks
+  "SD_ENABLE_INTERLEAVING" : False,  # interleave the vtables
+  "SD_ENABLE_ORDERING"     : True,  # order the vtables
+  "SD_ENABLE_CHECKS"       : True,  # add the range checks
 
   # LLVM's cfi sanitizer option
   "SD_LLVM_CFI"            : False, # compile with llvm's cfi technique
@@ -41,12 +42,13 @@ for k in sd_config:
   if env_value is not None:
     sd_config[k] = isTrue(env_value)
 
-assert not sd_config["SD_ENABLE_CHECKS"] or sd_config["SD_ENABLE_INTERLEAVING"]
+#assert not sd_config["SD_ENABLE_CHECKS"] or sd_config["SD_ENABLE_INTERLEAVING"]
 
 # corresponding plugin options of the linker flags
 linker_flag_opt_map = {
   "SD_ENABLE_INTERLEAVING" : "-plugin-opt=sd-ivtbl",
-  "SD_ENABLE_CHECKS" : "",
+  "SD_ENABLE_ORDERING"     : "-plugin-opt=sd-ovtbl",
+  "SD_ENABLE_CHECKS"       : "",
   "SD_LTO_EMIT_LLVM"       : "-plugin-opt=emit-llvm",
   "SD_LTO_SAVE_TEMPS"      : "-plugin-opt=save-temps",
 }
@@ -116,7 +118,7 @@ def read_config():
       "MY_GCC_VER"         : "4.7.3"
     }
 
-  elif is_on_fry(): # fry 
+  elif is_on_fry(): # fry
     clang_config = {
       "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
@@ -124,7 +126,7 @@ def read_config():
       "SD_DIR"             : os.environ["HOME"] + "/work/sd2.0/scripts",
       "MY_GCC_VER"         : "4.7.3"
     }
-  elif is_on_bender(): # fry 
+  elif is_on_bender(): # fry
     clang_config = {
       "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
@@ -172,7 +174,9 @@ if __name__ == '__main__':
     key = sys.argv[1].upper()
 
     if key == "ENABLE_SD":
-      print d["SD_ENABLE_INTERLEAVING"] or d["SD_ENABLE_CHECKS"]
+      print d["SD_ENABLE_INTERLEAVING"] or \
+              d["SD_ENABLE_CHECKS"] or \
+              d["SD_ENABLE_ORDERING"]
       sys.exit(0)
 
     assert key in d

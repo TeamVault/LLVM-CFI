@@ -2316,7 +2316,8 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
         llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
         llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
         llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
-        llvm::Value *Args[] = {castVptr, start, width};
+        llvm::Constant* eight = llvm::ConstantInt::get(IntPtrTy, 8);
+        llvm::Value *Args[] = {castVptr, start, width, eight};
         llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
               Intrinsic::sd_subst_check_range),
               Args);

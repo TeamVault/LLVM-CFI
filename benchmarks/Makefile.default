@@ -10,8 +10,7 @@ else
 CC = "$(LLVM_SCRIPTS_DIR)/clang_wrapper.sh"
 LD = $(CC)
 AR = $(shell $(LLVM_SCRIPTS_DIR)/config.py AR)
-#CFLAGS = -O2 -g -femit-ivtbl -femit-vtbl-checks
-CFLAGS = -O2 -g -femit-ivtbl
+CFLAGS = -O2 -g -femit-ivtbl -femit-vtbl-checks
 endif
 
 CC += $(OPT)
