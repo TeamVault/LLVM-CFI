@@ -210,6 +210,12 @@ ModulePass* createSDPrintMDModulePass();
 ModulePass* createSDSubstModulePass();
 ModulePass* createSDFixPass();
 
+// safedispatch additions
+ModulePass* createSDChangeIndices2Pass();
+ModulePass* createSDModule2Pass();
+ModulePass* createSDPrintMDModule2Pass();
+ModulePass* createSDSubstModule2Pass();
+
 } // End llvm namespace
 
 #endif
