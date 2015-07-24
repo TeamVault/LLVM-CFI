@@ -259,7 +259,6 @@ namespace {
       Constant* offsetVal     = ConstantInt::get(IntPtrTy, addrPtOff * WORD_WIDTH);
       Constant* gvOffInt      = ConstantExpr::getAdd(gvInt, offsetVal);
 
-      gvOffInt->dump();
       return gvOffInt;
     }
 
@@ -1484,15 +1483,21 @@ int64_t SDModule2::oldIndexToNew(SDModule2::vtbl_name_t vtbl, int64_t offset,
                                 bool isRelative = true) {
   vtbl_t name(vtbl,0);
 
+//  sd_print("before: %s\n", name.first.data());
   if (isUndefined(name)) {
     name = getFirstDefinedChild(name);
   }
+//  sd_print("after: %s\n", name.first.data());
 
   // if the class doesn't have any vtable defined,
   // use one of its children to calculate function ptr offset
   if (newLayoutInds.find(name) == newLayoutInds.end()) {
     // i don't know if works for negative offsets too
-    assert(isRelative && offset >= 0);
+    assert(isRelative);
+    if(offset < 0) {
+      sd_print("offset: %ld\n", offset);
+      assert(false);
+    }
 
     // this is a class we don't have any metadata about (i.e. there is no child of its
     // that has a defined vtable). We assume this should never get called in a
