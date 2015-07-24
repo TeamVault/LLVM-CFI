@@ -259,7 +259,6 @@ namespace {
       Constant* offsetVal     = ConstantInt::get(IntPtrTy, addrPtOff * WORD_WIDTH);
       Constant* gvOffInt      = ConstantExpr::getAdd(gvInt, offsetVal);
 
-      gvOffInt->dump();
       return gvOffInt;
     }
 
@@ -882,6 +881,11 @@ void SDModule2::orderCloud(SDModule2::vtbl_name_t& vtbl) {
     uint64_t size = r.second - r.first + 1;
     if (size > max)
       max = size;
+
+    // record which cloud the current sub-vtable belong to
+    if (ancestorMap.find(child) == ancestorMap.end()) {
+      ancestorMap[child] = vtbl;
+    }
   }
 
   max--;
@@ -895,16 +899,21 @@ void SDModule2::orderCloud(SDModule2::vtbl_name_t& vtbl) {
                     // of bits in the original number, plus 1. That's the
                     // next highest power of 2.
 
+  assert((max & (max-1)) == 0 && "max is not a power of 2");
+
   alignmentMap[vtbl] = max * WORD_WIDTH;
 
   sd_print("ALIGNMENT: %s, %u\n", vtbl.data(), max*WORD_WIDTH);
 
   for(const vtbl_t child : pre) {
+    if(undefinedVTables.count(child.first))
+      continue;
+
     range_t r = rangeMap[child.first][child.second];
     uint64_t size = r.second - r.first + 1;
     uint64_t addrpt = addrPtMap[child.first][child.second] - r.first;
     uint64_t padEntries = orderedVtbl.size() + addrpt;
-    uint64_t padSize = max - (padEntries % max);
+    uint64_t padSize = (padEntries % max == 0) ? 0 : max - (padEntries % max);
 
     for(unsigned i=0; i<padSize; i++) {
       orderedVtbl.push_back(interleaving_t(dummyVtable,0));
@@ -1043,11 +1052,6 @@ void SDModule2::calculateNewLayoutInds(SDModule2::vtbl_name_t& vtbl){
 
   uint64_t currentIndex = 0;
   for (const interleaving_t& ivtbl : interleavingMap[vtbl]) {
-    // record which cloud the current sub-vtable belong to
-    if (ancestorMap.find(ivtbl.first) == ancestorMap.end()) {
-      ancestorMap[ivtbl.first] = vtbl;
-    }
-
     if(ivtbl.first != dummyVtable) {
       // record the new index of the vtable element coming from the current vtable
       newLayoutInds[ivtbl.first].push_back(currentIndex++);
@@ -1479,15 +1483,21 @@ int64_t SDModule2::oldIndexToNew(SDModule2::vtbl_name_t vtbl, int64_t offset,
                                 bool isRelative = true) {
   vtbl_t name(vtbl,0);
 
+//  sd_print("before: %s\n", name.first.data());
   if (isUndefined(name)) {
     name = getFirstDefinedChild(name);
   }
+//  sd_print("after: %s\n", name.first.data());
 
   // if the class doesn't have any vtable defined,
   // use one of its children to calculate function ptr offset
   if (newLayoutInds.find(name) == newLayoutInds.end()) {
     // i don't know if works for negative offsets too
-    assert(isRelative && offset >= 0);
+    assert(isRelative);
+    if(offset < 0) {
+      sd_print("offset: %ld\n", offset);
+      assert(false);
+    }
 
     // this is a class we don't have any metadata about (i.e. there is no child of its
     // that has a defined vtable). We assume this should never get called in a
@@ -2259,7 +2269,10 @@ void SDChangeIndices2::handleSDCheckVtbl(Module* M) {
       llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
       llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
 
-      assert(sdModule->ancestorMap.count(vtbl));
+      if(! sdModule->ancestorMap.count(vtbl)) {
+        sd_print("%s\n", vtbl.first.data());
+        assert(false);
+      }
       SDModule2::vtbl_name_t root = sdModule->ancestorMap[vtbl];
       assert(sdModule->alignmentMap.count(root));
 

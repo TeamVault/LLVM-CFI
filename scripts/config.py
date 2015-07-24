@@ -10,7 +10,7 @@ import sys
 ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 
 # When this is False, we remove any optimization flag from the compiler command
-ENABLE_COMPILER_OPT = False
+ENABLE_COMPILER_OPT = True
 ENABLE_LLVM_CFI = False
 
 # Enabled linker flags
@@ -24,7 +24,7 @@ sd_config = {
   "SD_LLVM_CFI"            : False, # compile with llvm's cfi technique
 
   # Common options
-  "SD_ENABLE_LINKER_O2"    : True,  # runs O2 level optimizations during linking
+  "SD_ENABLE_LINKER_O2"    : False,  # runs O2 level optimizations during linking
   "SD_ENABLE_LTO"          : True,  # runs link time optimization passes
   "SD_LTO_SAVE_TEMPS"      : True,  # save bitcode before & after linker passes
   "SD_LTO_EMIT_LLVM"       : False, # emit bitcode rather than machine code
@@ -165,6 +165,11 @@ def read_config():
     clang_config["CXX_FLAGS"].append('-fsanitize=cfi-vcall')
     clang_config["SD_LIB_FOLDERS"] = []
     clang_config["SD_LIBS"] = []
+
+  if sd_config["SD_ENABLE_INTERLEAVING"] or sd_config["SD_ENABLE_ORDERING"]:
+    clang_config["CXX_FLAGS"].append('-femit-ivtbl')
+  if sd_config["SD_ENABLE_CHECKS"]:
+    clang_config["CXX_FLAGS"].append('-femit-vtbl-checks')
 
   return clang_config
 
