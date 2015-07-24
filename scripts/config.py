@@ -85,6 +85,9 @@ def is_on_rami_chromebuild():
 def is_on_rami_local():
   return get_username() == "gokhan" and get_hostname() == "gokhan-ativ9"
 
+def is_on_zoidberg():
+  return get_hostname() == "zoidberg" and get_username() == "rami"
+
 # ----------------------------------------------------------------------
 
 def read_config():
@@ -93,7 +96,7 @@ def read_config():
 
   if is_on_rami_local(): # rami's laptop
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/libs/llvm3.7/llvm/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/libs/llvm3.7/llvm",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/libs/llvm3.7/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/libs/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/libs/safedispatch-scripts",
@@ -102,25 +105,34 @@ def read_config():
 
   elif is_on_rami_chrome(): # VM at goto
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/libs/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
       "MY_GCC_VER"         : "4.8.1"
     }
 
-  elif is_on_rami_chromebuild(): # zoidberg
+  elif is_on_rami_chromebuild(): # sd @ zoidberg
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/src/src/third_party/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/src/src/third_party/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/src/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
       "MY_GCC_VER"         : "4.7.3"
     }
 
+  elif is_on_zoidberg(): # zoidberg
+    clang_config = {
+      "LLVM_DIR"           : os.environ["HOME"] + "/llvm",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/llvm-build",
+      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/binutils-build",
+      "SD_DIR"             : os.environ["HOME"] + "/safedispatch-scripts",
+      "MY_GCC_VER"         : "4.8.4"
+    }
+
   elif is_on_fry(): # fry
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/work/sd3.0/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd2.0/scripts",
@@ -128,7 +140,7 @@ def read_config():
     }
   elif is_on_bender(): # fry
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/work/sd3.0/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd3.0/safedispatch-scripts",
@@ -139,6 +151,7 @@ def read_config():
     return None
 
   clang_config.update({
+    "LLVM_SCRIPTS_DIR"    : clang_config["LLVM_DIR"] + "/scripts",
     "ENABLE_COMPILER_OPT" : ENABLE_COMPILER_OPT,
     "GOLD_PLUGIN"         : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/lib/LLVMgold.so",
     })
@@ -149,7 +162,7 @@ def read_config():
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : [],
-    "SD_LIB_FOLDERS"  : ["-L" + clang_config["SD_DIR"] + "/libdyncast"],
+    "SD_LIB_FOLDERS"  : ["-L" + clang_config["LLVM_DIR"] + "/libdyncast"],
     "SD_LIBS"         : ["-ldyncast"],
     "LD_PLUGIN"       : [opt for (key,opt) in linker_flag_opt_map.items()
                          if sd_config[key]],
