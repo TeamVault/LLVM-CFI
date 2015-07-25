@@ -134,3 +134,21 @@ void LLVMAddSDChangeIndicesPass(LLVMPassManagerRef PM) {
 void LLVMAddSDFixPass(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createSDFixPass());
 }
+
+void llvm::initializeSafeDispatch2(PassRegistry &Registry) {
+  initializeSDModule2Pass(Registry);
+  initializeSDChangeIndices2Pass(Registry);
+  initializeSDFixPass(Registry);
+}
+
+void LLVMInitializeSafeDispatch2(LLVMPassRegistryRef R) {
+  initializeSafeDispatch2(*unwrap(R));
+}
+
+void LLVMAddSDModule2Pass(LLVMPassManagerRef PM) {
+  unwrap(PM)->add(createSDModule2Pass());
+}
+
+void LLVMAddSDChangeIndices2Pass(LLVMPassManagerRef PM) {
+  unwrap(PM)->add(createSDChangeIndices2Pass());
+}

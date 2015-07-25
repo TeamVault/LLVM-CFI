@@ -10,20 +10,21 @@ import sys
 ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 
 # When this is False, we remove any optimization flag from the compiler command
-ENABLE_COMPILER_OPT = False
+ENABLE_COMPILER_OPT = True
 ENABLE_LLVM_CFI = False
 
 # Enabled linker flags
 sd_config = {
   # SafeDispatch options
-  "SD_ENABLE_INTERLEAVING" : True,  # interleave the vtables and add the range checks
-  "SD_ENABLE_CHECKS"       : True,  # interleave the vtables and add the range checks
+  "SD_ENABLE_INTERLEAVING" : False,  # interleave the vtables
+  "SD_ENABLE_ORDERING"     : True,  # order the vtables
+  "SD_ENABLE_CHECKS"       : True,  # add the range checks
 
   # LLVM's cfi sanitizer option
   "SD_LLVM_CFI"            : False, # compile with llvm's cfi technique
 
   # Common options
-  "SD_ENABLE_LINKER_O2"    : True,  # runs O2 level optimizations during linking
+  "SD_ENABLE_LINKER_O2"    : False,  # runs O2 level optimizations during linking
   "SD_ENABLE_LTO"          : True,  # runs link time optimization passes
   "SD_LTO_SAVE_TEMPS"      : True,  # save bitcode before & after linker passes
   "SD_LTO_EMIT_LLVM"       : False, # emit bitcode rather than machine code
@@ -41,12 +42,13 @@ for k in sd_config:
   if env_value is not None:
     sd_config[k] = isTrue(env_value)
 
-assert not sd_config["SD_ENABLE_CHECKS"] or sd_config["SD_ENABLE_INTERLEAVING"]
+#assert not sd_config["SD_ENABLE_CHECKS"] or sd_config["SD_ENABLE_INTERLEAVING"]
 
 # corresponding plugin options of the linker flags
 linker_flag_opt_map = {
   "SD_ENABLE_INTERLEAVING" : "-plugin-opt=sd-ivtbl",
-  "SD_ENABLE_CHECKS" : "",
+  "SD_ENABLE_ORDERING"     : "-plugin-opt=sd-ovtbl",
+  "SD_ENABLE_CHECKS"       : "",
   "SD_LTO_EMIT_LLVM"       : "-plugin-opt=emit-llvm",
   "SD_LTO_SAVE_TEMPS"      : "-plugin-opt=save-temps",
 }
@@ -83,6 +85,9 @@ def is_on_rami_chromebuild():
 def is_on_rami_local():
   return get_username() == "gokhan" and get_hostname() == "gokhan-ativ9"
 
+def is_on_zoidberg():
+  return get_hostname() == "zoidberg" and get_username() == "rami"
+
 # ----------------------------------------------------------------------
 
 def read_config():
@@ -91,7 +96,7 @@ def read_config():
 
   if is_on_rami_local(): # rami's laptop
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/libs/llvm3.7/llvm/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/libs/llvm3.7/llvm",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/libs/llvm3.7/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/libs/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/libs/safedispatch-scripts",
@@ -100,33 +105,42 @@ def read_config():
 
   elif is_on_rami_chrome(): # VM at goto
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/rami/chrome/cr33/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/libs/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
       "MY_GCC_VER"         : "4.8.1"
     }
 
-  elif is_on_rami_chromebuild(): # zoidberg
+  elif is_on_rami_chromebuild(): # sd @ zoidberg
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/src/src/third_party/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/src/src/third_party/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/src/src/third_party/llvm-build-3.7",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/rami/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/rami/safedispatch-scripts",
       "MY_GCC_VER"         : "4.7.3"
     }
 
-  elif is_on_fry(): # fry 
+  elif is_on_zoidberg(): # zoidberg
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/llvm",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/llvm-build",
+      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/binutils-build",
+      "SD_DIR"             : os.environ["HOME"] + "/safedispatch-scripts",
+      "MY_GCC_VER"         : "4.8.4"
+    }
+
+  elif is_on_fry(): # fry
+    clang_config = {
+      "LLVM_DIR"           : os.environ["HOME"] + "/work/sd3.0/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd2.0/scripts",
       "MY_GCC_VER"         : "4.7.3"
     }
-  elif is_on_bender(): # fry 
+  elif is_on_bender(): # fry
     clang_config = {
-      "LLVM_SCRIPTS_DIR"   : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "LLVM_DIR"           : os.environ["HOME"] + "/work/sd3.0/llvm-3.7",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd3.0/safedispatch-scripts",
@@ -137,6 +151,7 @@ def read_config():
     return None
 
   clang_config.update({
+    "LLVM_SCRIPTS_DIR"    : clang_config["LLVM_DIR"] + "/scripts",
     "ENABLE_COMPILER_OPT" : ENABLE_COMPILER_OPT,
     "GOLD_PLUGIN"         : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/lib/LLVMgold.so",
     })
@@ -147,7 +162,7 @@ def read_config():
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : [],
-    "SD_LIB_FOLDERS"  : ["-L" + clang_config["SD_DIR"] + "/libdyncast"],
+    "SD_LIB_FOLDERS"  : ["-L" + clang_config["LLVM_DIR"] + "/libdyncast"],
     "SD_LIBS"         : ["-ldyncast"],
     "LD_PLUGIN"       : [opt for (key,opt) in linker_flag_opt_map.items()
                          if sd_config[key]],
@@ -164,6 +179,11 @@ def read_config():
     clang_config["SD_LIB_FOLDERS"] = []
     clang_config["SD_LIBS"] = []
 
+  if sd_config["SD_ENABLE_INTERLEAVING"] or sd_config["SD_ENABLE_ORDERING"]:
+    clang_config["CXX_FLAGS"].append('-femit-ivtbl')
+  if sd_config["SD_ENABLE_CHECKS"]:
+    clang_config["CXX_FLAGS"].append('-femit-vtbl-checks')
+
   return clang_config
 
 if __name__ == '__main__':
@@ -172,7 +192,9 @@ if __name__ == '__main__':
     key = sys.argv[1].upper()
 
     if key == "ENABLE_SD":
-      print d["SD_ENABLE_INTERLEAVING"] or d["SD_ENABLE_CHECKS"]
+      print d["SD_ENABLE_INTERLEAVING"] or \
+              d["SD_ENABLE_CHECKS"] or \
+              d["SD_ENABLE_ORDERING"]
       sys.exit(0)
 
     assert key in d

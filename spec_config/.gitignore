@@ -1,3 +1,1 @@
-llvm-llvmcfi.cfg
-llvm-sd3.0.cfg
-llvm-vanilla.cfg
+*.cfg

@@ -104,6 +104,7 @@ namespace options {
   static std::vector<const char *> extra;
 
   static bool RunSDIVTBLPass = false;
+  static bool RunSDOVTBLPass = false;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -125,6 +126,8 @@ namespace options {
       TheOutputType = OT_BC_ONLY;
     } else if (opt == "sd-ivtbl") {
       RunSDIVTBLPass = true;
+    } else if (opt == "sd-ovtbl") {
+      RunSDOVTBLPass = true;
     } else if (opt == "save-temps") {
       TheOutputType = OT_SAVE_TEMPS;
     } else if (opt == "disable-output") {
@@ -752,6 +755,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.LoopVectorize = true;
   PMB.SLPVectorize = true;
   PMB.EmitIVTBLs = options::RunSDIVTBLPass;
+  PMB.EmitOVTBLs = options::RunSDOVTBLPass;
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);
