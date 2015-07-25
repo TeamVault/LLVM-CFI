@@ -28,7 +28,7 @@
 #ignore_errors = yes
 strict_rundir_verify = 0
 tune          = base
-ext           = llvm-ordered
+ext           = llvm-sd3.0_wo_checks
 output_format = asc
 reportable    = 1
 teeout        = yes
@@ -97,9 +97,9 @@ sw_peak_ptrsize = Not Applicable
 ## Base is low opt
 default=base=default=default:
 COPTIMIZE    = -O2 -fno-strict-aliasing 
-CXXOPTIMIZE  = -O2 -fno-strict-aliasing -flto -femit-ivtbl -femit-vtbl-checks
+CXXOPTIMIZE  = -O2 -fno-strict-aliasing -flto -femit-ivtbl
 FOPTIMIZE    = -O2 -fno-strict-aliasing 
-LDOPT        = -B $(BINUTILS_BUILD_DIR)/gold -Wl,-plugin-opt=save-temps -Wl,-plugin-opt=sd-ovtbl -L$(SD_DYNCAST_DIR) -ldyncast
+LDOPT        = -B $(BINUTILS_BUILD_DIR)/gold -Wl,-plugin-opt=save-temps -Wl,-plugin-opt=sd-ivtbl -L$(SD_DYNCAST_DIR) -ldyncast
 
 #####################################################################
 # 32/64 bit Portability Flags - all
