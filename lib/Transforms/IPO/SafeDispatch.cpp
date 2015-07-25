@@ -380,6 +380,7 @@ namespace {
      */
     llvm::Constant* getVTableRangeStart(const vtbl_t& vtbl);
     vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
+    bool hasDefinedChild(const vtbl_t &vtbl);
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
     bool validConstVptr(const vtbl_name_t &v, const DataLayout &DL, Value *V,
         uint64_t off);
@@ -1513,7 +1514,7 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
                                 bool isRelative = true) {
   vtbl_t name(vtbl,0);
 
-  if (isUndefined(name)) {
+  if (isUndefined(name) && hasDefinedChild(name)) {
     name = getFirstDefinedChild(name);
   }
 
@@ -1526,7 +1527,7 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
     // this is a class we don't have any metadata about (i.e. there is no child of its
     // that has a defined vtable). We assume this should never get called in a
     // statically linked binary.
-    assert(!knowsAbout(name));
+    assert(!knowsAbout(name) || !hasDefinedChild(name));
     return offset;
   }
 
@@ -2201,6 +2202,17 @@ SDModule::vtbl_t SDModule::getFirstDefinedChild(const vtbl_t &vtbl) {
   assert(false); // unreachable
 }
 
+bool SDModule::hasDefinedChild(const vtbl_t &vtbl) {
+  order_t const &order = preorder(vtbl);
+
+  for (const vtbl_t& c : order) {
+    if (isDefined(c))
+      return true;
+  }
+
+  return false;
+}
+
 bool SDModule::knowsAbout(const vtbl_t &vtbl) {
   return cloudMap.find(vtbl) != cloudMap.end();
 }
@@ -2287,7 +2299,7 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
     llvm::Constant *start;
     int64_t rangeWidth;
 
-    if (sdModule->knowsAbout(vtbl)) {
+    if (sdModule->knowsAbout(vtbl) && sdModule->hasDefinedChild(vtbl)) {
       // calculate the new index
       start = sdModule->isUndefined(vtbl) ?
         sdModule->getVTableRangeStart(sdModule->getFirstDefinedChild(vtbl)) :
@@ -2295,7 +2307,7 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       rangeWidth = sdModule->getCloudSize(vtbl.first);
     } else {
       // This is a class we have no metadata about (i.e. doesn't have any
-      // non-virtuall subclasses). In a fully statically linked binary we
+      // non-virtuall subclasses) or has been elimintated by DCE. In a fully statically linked binary we
       // should never be able to create an instance of this.
       start = NULL;
       rangeWidth = 0;
