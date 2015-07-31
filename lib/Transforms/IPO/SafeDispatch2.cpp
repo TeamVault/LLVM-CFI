@@ -574,7 +574,7 @@ namespace {
     }
 
     bool runOnModule(Module &M) {
-      int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0;
+      int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0, constPtr = 0;
       Function *sd_subst_indexF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
        Function *sd_subst_rangeF =
@@ -615,6 +615,16 @@ namespace {
           int64_t alignmentInt = alignment->getSExtValue();
           int alignmentBits = floor(log(alignmentInt + 0.5)/log(2.0));
 
+          llvm::Constant* rootVtblInt = dyn_cast<llvm::Constant>(start->getOperand(0));
+          llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(
+            rootVtblInt->getOperand(0));
+          llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
+
+          if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
+            CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
+            CI->eraseFromParent();
+            constPtr++;
+          } else
           if (widthInt > 1) {
             // Rotate right by 3 to push the lowest order bits into the higher order bits
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
@@ -640,8 +650,42 @@ namespace {
         }
       }
 
-      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d\n", indexSubst, rangeSubst, eqSubst);
-      return indexSubst > 0 || rangeSubst > 0;
+      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d\n", indexSubst, rangeSubst, eqSubst, constPtr);
+      return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
+    }
+
+    bool validConstVptr(GlobalVariable *rootVtbl, int64_t start, int64_t width,
+        const DataLayout &DL, Value *V, uint64_t off) {
+      if (auto GV = dyn_cast<GlobalVariable>(V)) {
+        if (GV != rootVtbl)
+          return false;
+
+        if (off % 8 != 0)
+          return false;
+
+        return start <= off && off < (start + width * 8);
+      }
+
+      if (auto GEP = dyn_cast<GEPOperator>(V)) {
+        APInt APOffset(DL.getPointerSizeInBits(0), 0);
+        bool Result = GEP->accumulateConstantOffset(DL, APOffset);
+        if (!Result)
+          return false;
+
+        off += APOffset.getZExtValue();
+        return validConstVptr(rootVtbl, start, width, DL, GEP->getPointerOperand(), off);
+      }
+
+      if (auto Op = dyn_cast<Operator>(V)) {
+        if (Op->getOpcode() == Instruction::BitCast)
+          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(0), off);
+
+        if (Op->getOpcode() == Instruction::Select)
+          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(1), off) &&
+                 validConstVptr(rootVtbl, start, width, DL, Op->getOperand(2), off);
+      }
+
+      return false;
     }
   };
 

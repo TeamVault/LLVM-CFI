@@ -581,12 +581,14 @@ namespace {
        Function *sd_subst_rangeF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
 
+      /*
       std::cerr << "Before subst=============================\n";
       for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
         if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
           f_itr->dump();
         }
       }
+      */
 
 
       if (sd_subst_indexF) {
@@ -656,14 +658,16 @@ namespace {
         }
       }
 
+      /*
       std::cerr << "After subst=============================\n";
       for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
         if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
           f_itr->dump();
         }
       }
+      */
       sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d\n", indexSubst, rangeSubst, eqSubst, constPtr);
-      return indexSubst > 0 || rangeSubst > 0;
+      return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
     }
 
     bool isConstVptr(const DataLayout &DL, Value *V,uint64_t off);
