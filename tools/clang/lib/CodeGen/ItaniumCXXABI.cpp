@@ -82,6 +82,34 @@ llvm::Value* sd_IsVPtrInRange(CodeGenModule& CGM, CGBuilderTy& builder,
               castPointer,
               mdValue);
 }
+
+llvm::Value* sd_getRangeStart(CodeGenModule& CGM, CGBuilderTy& builder,
+                            llvm::GlobalVariable* VTableGV, const std::string& className) {
+  llvm::Module& M = CGM.getModule();
+  llvm::LLVMContext& C = M.getContext();
+
+  llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
+  llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+  llvm::Value* Args[] = { mdValue };
+
+  return builder.CreateCall(
+              CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_start),
+              Args);
+}
+
+llvm::Value* sd_getRangeEnd(CodeGenModule& CGM, CGBuilderTy& builder,
+                            llvm::GlobalVariable* VTableGV, const std::string& className) {
+  llvm::Module& M = CGM.getModule();
+  llvm::LLVMContext& C = M.getContext();
+
+  llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
+  llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+  llvm::Value* Args[] = { mdValue };
+
+  return builder.CreateCall(
+              CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_end),
+              Args);
+}
 }
 
 namespace {
@@ -1608,11 +1636,40 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   // do the branch
   CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
 
-  CGF.addDeferredVTableFailBlock(checkFailed);
+  CGF.EmitBlock(checkFailed);
+  //CGF.addDeferredVTableFailBlock(checkFailed);
+  CGF.Builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::trap));
+  CGF.Builder.CreateUnreachable();
 
   // Continue function emittance in the vtblCheck.success bb
   CGF.EmitBlock(checkSuccess);
   return VTableAP;
+}
+
+static llvm::Value*
+sd_getCheckedVTable2(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+  assert(MD && "Non-null method decl");
+  assert(MD->isInstance() && "Shouldn't see a static method");
+
+  // get the vtable
+  const CXXRecordDecl* RD = MD->getParent();
+  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(), RD) ?
+              CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
+              NULL;
+  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+
+  llvm::Module& M = CGM.getModule();
+  llvm::LLVMContext& C = M.getContext();
+
+  llvm::MDNode* md = sd_getClassNameMetadata(Name, M, VTable);
+  llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+  llvm::Value* castPointer = CGF.Builder.CreatePointerCast(VTableAP, CGM.Int8PtrTy);
+
+  llvm::Value *checkedVPtrI8 = CGF.Builder.CreateCall2(
+              CGM.getIntrinsic(llvm::Intrinsic::sd_get_checked_vptr),
+              castPointer,
+              mdValue);
+  return CGF.Builder.CreatePointerCast(checkedVPtrI8, VTableAP->getType());
 }
 
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,

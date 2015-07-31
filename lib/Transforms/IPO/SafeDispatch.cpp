@@ -12,6 +12,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/CallSite.h"
 
@@ -379,6 +380,7 @@ namespace {
      * In practice we are always interested in primary vtables here.
      */
     llvm::Constant* getVTableRangeStart(const vtbl_t& vtbl);
+    llvm::Constant* getVTableRangeEnd(const vtbl_t& vtbl, const SDModule::vtbl_name_t &rootName);
     vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
     bool hasDefinedChild(const vtbl_t &vtbl);
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
@@ -421,29 +423,24 @@ namespace {
       memptrOptMdId = M.getMDKindID(SD_MD_MEMPTR_OPT);
       checkMdId     = M.getMDKindID(SD_MD_CHECK);
 
+      std::cerr << "Before change indices=============================\n";
+      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
+        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
+          f_itr->dump();
+        }
+      }
+
       handleSDGetVtblIndex(&M);
+      handleSDGetCheckedVPtr(&M);
       handleSDCheckVtbl(&M);
       handleRemainingSDGetVcallIndex(&M);
 
-      uint64_t noOfFunctions = M.getFunctionList().size();
-      uint64_t currFunctionInd = 1;
-      int pct, lastpct=0;
-
+      std::cerr << "After change indices===============================\n";
       for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
-        pct = ((double) currFunctionInd / noOfFunctions) * 100;
-        currFunctionInd++;
-
-        if (pct > lastpct) {
-          //fprintf(stderr, "\rSD] Progress: %3d%%", pct);
-          //fflush(stderr);
-          lastpct = pct;
-        }
-
-        for(Function:: iterator bb_itr = f_itr->begin(); bb_itr != f_itr->end(); bb_itr++) {
-          updateBasicBlock2(&M, *bb_itr);
+        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
+          f_itr->dump();
         }
       }
-      fprintf(stderr, "\n");
       sd_print("Finished running the 2nd pass...\n");
 
       sdModule->removeVtablesAndThunks(M);
@@ -557,6 +554,7 @@ namespace {
 
     void handleSDGetVtblIndex(Module* M);
     void handleSDCheckVtbl(Module* M);
+    void handleSDGetCheckedVPtr(Module* M);
     void handleRemainingSDGetVcallIndex(Module* M);
   };
 }
@@ -583,6 +581,14 @@ namespace {
        Function *sd_subst_rangeF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
 
+      std::cerr << "Before subst=============================\n";
+      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
+        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
+          f_itr->dump();
+        }
+      }
+
+
       if (sd_subst_indexF) {
         for (const Use &U : sd_subst_indexF->uses()) {
           // get the call inst
@@ -605,19 +611,26 @@ namespace {
         for (const Use &U : sd_subst_rangeF->uses()) {
           // get the call inst
           llvm::CallInst* CI = cast<CallInst>(U.getUser());
+          llvm::Function *curFn = CI->getParent()->getParent();
           IRBuilder<> builder(CI);
-
           // get the arguments
           llvm::Value* vptr = CI->getArgOperand(0);
           llvm::Constant* start = dyn_cast<Constant>(CI->getArgOperand(1));
           llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
           assert(vptr && start && width);
 
-          if (isConstVptr(DL, vptr, 0))
-            constPtr ++;
+          llvm::Constant* rootVtblInt = dyn_cast<llvm::Constant>(start->getOperand(0));
+          llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(
+            rootVtblInt->getOperand(0));
+          llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
 
           int64_t widthInt = width->getSExtValue();
 
+          if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
+            CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
+            CI->eraseFromParent();
+            constPtr++;
+          } else
           if (widthInt > 1) {
             // Rotate right by 3 to push the lowest order bits into the higher order bits
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
@@ -643,12 +656,19 @@ namespace {
         }
       }
 
+      std::cerr << "After subst=============================\n";
+      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
+        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
+          f_itr->dump();
+        }
+      }
       sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d\n", indexSubst, rangeSubst, eqSubst, constPtr);
       return indexSubst > 0 || rangeSubst > 0;
     }
 
     bool isConstVptr(const DataLayout &DL, Value *V,uint64_t off);
-
+    bool validConstVptr(GlobalVariable* rootVtbl, int64_t start, int64_t width,
+        const DataLayout &DL, Value *V, uint64_t off);
   };
 
   // This code is adapted from LowerBitSets.cpp
@@ -821,6 +841,40 @@ bool SDModule::validConstVptr(const vtbl_name_t &v, const DataLayout &DL, Value 
     if (Op->getOpcode() == Instruction::Select)
       return validConstVptr(v, DL, Op->getOperand(1), off) &&
              validConstVptr(v, DL, Op->getOperand(2), off);
+  }
+
+  return false;
+}
+
+bool SDSubstModule::validConstVptr(GlobalVariable *rootVtbl, int64_t start, int64_t width,
+    const DataLayout &DL, Value *V, uint64_t off) {
+  if (auto GV = dyn_cast<GlobalVariable>(V)) {
+    if (GV != rootVtbl)
+      return false;
+
+    if (off % 8 != 0)
+      return false;
+
+    return start <= off && off < (start + width * 8);
+  }
+
+  if (auto GEP = dyn_cast<GEPOperator>(V)) {
+    APInt APOffset(DL.getPointerSizeInBits(0), 0);
+    bool Result = GEP->accumulateConstantOffset(DL, APOffset);
+    if (!Result)
+      return false;
+
+    off += APOffset.getZExtValue();
+    return validConstVptr(rootVtbl, start, width, DL, GEP->getPointerOperand(), off);
+  }
+
+  if (auto Op = dyn_cast<Operator>(V)) {
+    if (Op->getOpcode() == Instruction::BitCast)
+      return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(0), off);
+
+    if (Op->getOpcode() == Instruction::Select)
+      return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(1), off) &&
+             validConstVptr(rootVtbl, start, width, DL, Op->getOperand(2), off);
   }
 
   return false;
@@ -1542,6 +1596,12 @@ llvm::Constant* SDModule::getVTableRangeStart(const SDModule::vtbl_t& vtbl) {
   return newVTableStartAddrMap[vtbl];
 }
 
+llvm::Constant* SDModule::getVTableRangeEnd(const SDModule::vtbl_t& vtbl, const SDModule::vtbl_name_t &rootName) {
+  llvm::Constant* start = newVTableStartAddrMap[vtbl];
+  int64_t size = getCloudSize(rootName);
+  return llvm::ConstantExpr::getAdd(start, llvm::ConstantInt::get(start->getType(), size * WORD_WIDTH));
+}
+
 uint32_t SDModule::calculateChildrenCounts(const SDModule::vtbl_t& root){
   uint32_t count = isDefined(root) ? 1 : 0;
   if (cloudMap.find(root) != cloudMap.end()) {
@@ -2232,7 +2292,6 @@ void SDChangeIndices::handleSDGetVtblIndex(Module* M) {
   for (const Use &U : sd_vtbl_indexF->uses()) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-
     // get the arguments
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
     assert(arg1);
@@ -2283,7 +2342,6 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
   for (const Use &U : sd_vtbl_indexF->uses()) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-
     // get the arguments
     llvm::Value* vptr = CI->getArgOperand(0);
     assert(vptr);
@@ -2318,12 +2376,7 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       IRBuilder<> builder(CI);
       builder.SetInsertPoint(CI);
 
-      if (sdModule->validConstVptr(className, DL, vptr, 0)) {
-        // Can statically discharge this check
-        CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
-        CI->eraseFromParent();
-        nConstTrue++;
-      } else {
+      {
         // The shift here is implicit since rangeWidth is in terms of indices, not bytes
         llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
         llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
@@ -2349,6 +2402,117 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
   }
 }
 
+void SDChangeIndices::handleSDGetCheckedVPtr(Module* M) {
+  Function *sd_get_vptrF =
+      M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
+  const DataLayout &DL = M->getDataLayout();
+  llvm::LLVMContext& C = M->getContext();
+  Type *IntPtrTy = DL.getIntPtrType(C, 0);
+
+  // if the function doesn't exist, do nothing
+  if (!sd_get_vptrF)
+    return;
+
+  std::vector<llvm::CallInst*> uses;
+
+  for (const Use &U : sd_get_vptrF->uses()) {
+    uses.push_back(cast<CallInst>(U.getUser()));
+  }
+
+  // for each use of the function
+  for (auto CI : uses) {
+    llvm::Function* curFn = CI->getParent()->getParent();
+    // get the arguments
+    llvm::Value* vptr = CI->getArgOperand(0);
+    assert(vptr);
+    llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
+    assert(arg2);
+    MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
+    assert(mdNode);
+
+    // second one is the tuple that contains the class name and the corresponding global var.
+    // note that the global variable isn't always emitted
+    std::string className = sd_getClassNameFromMD(mdNode,0);
+    SDModule::vtbl_t vtbl(className, 0);
+    llvm::Constant *start, *end;
+    int64_t rangeWidth;
+
+    if (sdModule->knowsAbout(vtbl) && sdModule->hasDefinedChild(vtbl)) {
+      // calculate the new index
+      SDModule::vtbl_t definedRepr = sdModule->isUndefined(vtbl) ?
+        sdModule->getFirstDefinedChild(vtbl) : vtbl;
+
+      start = sdModule->getVTableRangeStart(definedRepr);
+      end = sdModule->getVTableRangeEnd(definedRepr, vtbl.first);
+      rangeWidth = sdModule->getCloudSize(vtbl.first);
+    } else {
+      // This is a class we have no metadata about (i.e. doesn't have any
+      // non-virtuall subclasses) or has been elimintated by DCE. In a fully statically linked binary we
+      // should never be able to create an instance of this.
+      start = NULL;
+      end = NULL;
+      rangeWidth = 0;
+    }
+    LLVMContext& C = CI->getContext();
+
+    if (start) {
+
+      if (sdModule->validConstVptr(className, DL, vptr, 0)) {
+        // Can statically discharge this check
+        CI->replaceAllUsesWith(vptr);
+        CI->eraseFromParent();
+        nConstTrue++;
+      } else {
+        BasicBlock* oldBB = CI->getParent();
+        BasicBlock* successBB = oldBB->splitBasicBlock(CI, "vtblCheck.success");
+        BasicBlock* trapBB = BasicBlock::Create(C, "", curFn, successBB);
+
+        // After splitting the old block ends in an unconditional jump
+        llvm::Instruction* oldBBTerm = oldBB->getTerminator();
+        
+        if (rangeWidth == 1) {
+          // Emit single cmp
+          IRBuilder<> builder(oldBBTerm);
+          builder.SetInsertPoint(oldBBTerm);
+          llvm::Value* vptrInt = builder.CreatePtrToInt(vptr, start->getType());
+
+          Value *isEq = builder.CreateICmpNE(start, vptrInt);
+          builder.CreateCondBr(isEq, trapBB, successBB);
+          nEq ++;
+        } else {
+          // Emit the range check
+          BasicBlock *isOverMinBB = BasicBlock::Create(C, "vtblCheck.isOverMin", curFn, successBB);
+          IRBuilder<> builder(oldBBTerm);
+          builder.SetInsertPoint(oldBBTerm);
+
+          llvm::Value* vptrInt = builder.CreatePtrToInt(vptr, start->getType());
+          Value *isOverMin = builder.CreateICmpUGT(start, vptrInt);
+          builder.CreateCondBr(isOverMin, trapBB, isOverMinBB);
+          builder.SetInsertPoint(isOverMinBB);
+          Value *isUnderMax = builder.CreateICmpULT(end, vptrInt);
+          builder.CreateCondBr(isUnderMax, trapBB, successBB);
+          nRange ++;
+        }
+
+        oldBBTerm->eraseFromParent();
+        CI->replaceAllUsesWith(vptr);
+        CI->eraseFromParent();
+
+        IRBuilder<> trapBuilder(trapBB);
+        trapBuilder.CreateCall(Intrinsic::getDeclaration(M, llvm::Intrinsic::trap));
+        trapBuilder.CreateUnreachable();
+      }
+    } else {
+      IRBuilder<> builder(CI);
+      builder.CreateCall(Intrinsic::getDeclaration(M, llvm::Intrinsic::trap));
+      builder.CreateUnreachable();
+      CI->replaceAllUsesWith(llvm::ConstantPointerNull::get(IntegerType::getInt8PtrTy(C)));
+      CI->eraseFromParent();
+      nConstFalse ++;
+    }
+  }
+}
+
 void SDChangeIndices::handleRemainingSDGetVcallIndex(Module* M) {
   Function *sd_vcall_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
@@ -2361,7 +2525,6 @@ void SDChangeIndices::handleRemainingSDGetVcallIndex(Module* M) {
   for (const Use &U : sd_vcall_indexF->uses()) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-
     // get the arguments
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
     assert(arg1);

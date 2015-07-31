@@ -36,7 +36,7 @@ run_link_command() {
   local SD_LIBS=$("$SCRIPTS_DIR/config.py" SD_LIBS)
 
   local -a args=($($CXX -### -flto "${@}" 2>&1 | tail -n 1 | sed 's/\"//g'))
-  >&2 echo "LD: $LD $LD_FLAGS $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN"
+  >&2 echo "LD: LD_PRELOAD=/lib/x86_64-linux-gnu/libpthread.so.0 gdb -ex run --args  $LD $LD_FLAGS $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN"
   $LD $LD_FLAGS $SD_LIB_FOLDERS ${args[@]:1} $SD_LIBS $LD_PLUGIN
 }
 
