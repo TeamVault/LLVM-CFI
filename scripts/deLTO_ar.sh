@@ -28,7 +28,7 @@ LLC="${LLVM_BIN_DIR}/llc"
 pushd $TMP_DIR > /dev/null
 
 # get the files inside the archive
-FILES=$($AR tP $LIB)
+FILES=$(/usr/bin/ar tP $LIB)
 
 # lower each bitcode into machine code
 for obj in $FILES; do

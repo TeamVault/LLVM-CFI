@@ -947,7 +947,7 @@ void SDModule2::orderCloud(SDModule2::vtbl_name_t& vtbl) {
 
   alignmentMap[vtbl] = max * WORD_WIDTH;
 
-  sd_print("ALIGNMENT: %s, %u\n", vtbl.data(), max*WORD_WIDTH);
+  //sd_print("ALIGNMENT: %s, %u\n", vtbl.data(), max*WORD_WIDTH);
 
   for(const vtbl_t child : pre) {
     if(undefinedVTables.count(child.first))
@@ -2298,7 +2298,7 @@ void SDChangeIndices2::handleSDCheckVtbl(Module* M) {
       // should never be able to create an instance of this.
       start = NULL;
       rangeWidth = 0;
-      std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
+      //std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
     }
     LLVMContext& C = CI->getContext();
 
@@ -2306,7 +2306,7 @@ void SDChangeIndices2::handleSDCheckVtbl(Module* M) {
       IRBuilder<> builder(CI);
       builder.SetInsertPoint(CI);
 
-      std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
+      //std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
         
       // The shift here is implicit since rangeWidth is in terms of indices, not bytes
       llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
@@ -2354,8 +2354,8 @@ void SDChangeIndices2::handleSDCheckVtbl(Module* M) {
       }        
       */
     } else {
-      std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
-        << std::endl;
+      //std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
+        //<< std::endl;
       CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
       CI->eraseFromParent();
     }

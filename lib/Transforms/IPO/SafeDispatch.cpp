@@ -1580,7 +1580,7 @@ int64_t SDModule::oldIndexToNew(SDModule::vtbl_name_t vtbl, int64_t offset,
   // use one of its children to calculate function ptr offset
   if (newLayoutInds.find(name) == newLayoutInds.end()) {
     // i don't know if works for negative offsets too
-    assert(isRelative && offset >= 0);
+    //assert(isRelative && offset >= 0);
 
     // this is a class we don't have any metadata about (i.e. there is no child of its
     // that has a defined vtable). We assume this should never get called in a
