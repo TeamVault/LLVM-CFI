@@ -16,8 +16,8 @@ ENABLE_LLVM_CFI = False
 # Enabled linker flags
 sd_config = {
   # SafeDispatch options
-  "SD_ENABLE_INTERLEAVING" : True,  # interleave the vtables
-  "SD_ENABLE_ORDERING"     : False,  # order the vtables
+  "SD_ENABLE_INTERLEAVING" : False,  # interleave the vtables
+  "SD_ENABLE_ORDERING"     : True,  # order the vtables
   "SD_ENABLE_CHECKS"       : True,  # add the range checks
 
   # LLVM's cfi sanitizer option

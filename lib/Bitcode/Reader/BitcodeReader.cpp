@@ -34,8 +34,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include <deque>
-
-#include <iostream>
 using namespace llvm;
 
 namespace {

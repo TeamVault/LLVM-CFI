@@ -869,7 +869,6 @@ void SDModule2::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
       newThunkF->setName(newThunkName);
       M.getFunctionList().push_back(newThunkF);
 
-      bool foundMD = false;
       CallInst* CI = NULL;
 
       if(sd_vcall_indexF == NULL)
@@ -895,17 +894,11 @@ void SDModule2::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
 
             CI->replaceAllUsesWith(newValue);
 
-            foundMD = true;
           }
-//          if ((inst->getMetadata(vcallMDId))) {
-//            updateVcallOffset(inst, vtbl, order);
-//            foundMD = true;
-//          }
         }
       }
 
       // this function should have a metadata
-      //assert(foundMD);
     }
   }
 }

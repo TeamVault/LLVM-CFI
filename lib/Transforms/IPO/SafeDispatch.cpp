@@ -613,7 +613,6 @@ namespace {
         for (const Use &U : sd_subst_rangeF->uses()) {
           // get the call inst
           llvm::CallInst* CI = cast<CallInst>(U.getUser());
-          llvm::Function *curFn = CI->getParent()->getParent();
           IRBuilder<> builder(CI);
           // get the arguments
           llvm::Value* vptr = CI->getArgOperand(0);
@@ -678,7 +677,7 @@ namespace {
   // This code is adapted from LowerBitSets.cpp
   bool SDSubstModule::isConstVptr(const DataLayout &DL, Value *V,
       uint64_t off) {
-    if (auto GV = dyn_cast<GlobalVariable>(V)) {
+    if (dyn_cast<GlobalVariable>(V)) {
       return true;
     }
 
@@ -960,7 +959,6 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
       newThunkF->setName(newThunkName);
       M.getFunctionList().push_back(newThunkF);
 
-      bool foundMD = false;
       CallInst* CI = NULL;
 
       if(sd_vcall_indexF == NULL)
@@ -986,17 +984,11 @@ void SDModule::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
 
             CI->replaceAllUsesWith(newValue);
 
-            foundMD = true;
           }
-//          if ((inst->getMetadata(vcallMDId))) {
-//            updateVcallOffset(inst, vtbl, order);
-//            foundMD = true;
-//          }
         }
       }
 
       // this function should have a metadata
-      //assert(foundMD);
     }
   }
 }

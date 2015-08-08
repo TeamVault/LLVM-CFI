@@ -26,9 +26,6 @@ sd_getClassVtblGVMD(const std::string& className, const llvm::Module& M, llvm::G
     gv = M.getGlobalVariable(className, true);
   }
 
-//  if (gv == NULL ||
-//      (gv->getLinkage() != llvm::GlobalValue::InternalLinkage &&
-//       gv->getLinkage() != llvm::GlobalValue::PrivateLinkage)) {
   if (gv == NULL) {
     return llvm::MDNode::get(C,sd_getMDString(C, "NO_VTABLE"));
   } else {

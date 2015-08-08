@@ -1646,32 +1646,6 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   return VTableAP;
 }
 
-static llvm::Value*
-sd_getCheckedVTable2(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
-  assert(MD && "Non-null method decl");
-  assert(MD->isInstance() && "Shouldn't see a static method");
-
-  // get the vtable
-  const CXXRecordDecl* RD = MD->getParent();
-  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(), RD) ?
-              CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
-              NULL;
-  std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
-
-  llvm::Module& M = CGM.getModule();
-  llvm::LLVMContext& C = M.getContext();
-
-  llvm::MDNode* md = sd_getClassNameMetadata(Name, M, VTable);
-  llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
-  llvm::Value* castPointer = CGF.Builder.CreatePointerCast(VTableAP, CGM.Int8PtrTy);
-
-  llvm::Value *checkedVPtrI8 = CGF.Builder.CreateCall2(
-              CGM.getIntrinsic(llvm::Intrinsic::sd_get_checked_vptr),
-              castPointer,
-              mdValue);
-  return CGF.Builder.CreatePointerCast(checkedVPtrI8, VTableAP->getType());
-}
-
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                       GlobalDecl GD,
                                                       llvm::Value *This,
