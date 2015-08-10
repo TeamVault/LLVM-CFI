@@ -2334,6 +2334,9 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
   if (!sd_vtbl_indexF)
     return;
 
+  uint64_t total_targets = 0;
+  uint64_t check_count = 0;
+
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
     // get the call inst
@@ -2359,6 +2362,8 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
         sdModule->getVTableRangeStart(sdModule->getFirstDefinedChild(vtbl)) :
         sdModule->getVTableRangeStart(vtbl);
       rangeWidth = sdModule->getCloudSize(vtbl.first);
+      total_targets += rangeWidth;
+      check_count++;
     } else {
       // This is a class we have no metadata about (i.e. doesn't have any
       // non-virtuall subclasses) or has been elimintated by DCE. In a fully statically linked binary we
@@ -2395,6 +2400,12 @@ void SDChangeIndices::handleSDCheckVtbl(Module* M) {
       CI->eraseFromParent();
       nConstFalse ++;
     }
+  }
+
+  if(check_count){
+    sd_print("avg # targets : (%lu) %g\n", total_targets, total_targets * 1.0 / check_count);
+  } else {
+    sd_print("avg # targets : no vtbl check\n");
   }
 }
 
