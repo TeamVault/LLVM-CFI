@@ -424,11 +424,11 @@ namespace {
       checkMdId     = M.getMDKindID(SD_MD_CHECK);
 
       std::cerr << "Before change indices=============================\n";
-      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
-        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
-          f_itr->dump();
-        }
-      }
+//      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
+//        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
+//          f_itr->dump();
+//        }
+//      }
 
       handleSDGetVtblIndex(&M);
       handleSDGetCheckedVPtr(&M);
@@ -436,11 +436,11 @@ namespace {
       handleRemainingSDGetVcallIndex(&M);
 
       std::cerr << "After change indices===============================\n";
-      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
-        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
-          f_itr->dump();
-        }
-      }
+//      for(Module::iterator f_itr =M.begin(); f_itr != M.end(); f_itr++) {
+//        if (f_itr->getName().str() == "_ZN11EtherAppCli10sendPacketEv") {
+//          f_itr->dump();
+//        }
+//      }
       sd_print("Finished running the 2nd pass...\n");
 
       sdModule->removeVtablesAndThunks(M);
@@ -1430,6 +1430,8 @@ void SDModule::buildClouds(Module &M) {
     }
   }
   assert(build_undefinedVtables.size() == 0);
+
+  sd_print("# Classes: %u (known), %u (unknown)\n", oldVTables.size(), undefinedVTables.size());
 }
 
 void SDModule::handleUndefinedVtables(std::set<SDModule::vtbl_name_t>& undefVtbls) {
