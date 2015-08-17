@@ -953,6 +953,9 @@ void SDModule2::orderCloud(SDModule2::vtbl_name_t& vtbl) {
     uint64_t padSize = (padEntries % max == 0) ? 0 : max - (padEntries % max);
 
     for(unsigned i=0; i<padSize; i++) {
+      if (orderedVtbl.size() % max == 0 && orderedVtbl.size() != 0) {
+        std::cerr << "dummy entry is " << max << " aligned in cloud " << vtbl << std::endl;
+      }
       orderedVtbl.push_back(interleaving_t(dummyVtable,0));
     }
 
