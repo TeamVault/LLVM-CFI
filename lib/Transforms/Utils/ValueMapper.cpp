@@ -134,6 +134,9 @@ Value *llvm::MapValue(const Value *V, ValueToValueMapTy &VM, RemapFlags Flags,
     return VM[V] = ConstantArray::get(cast<ArrayType>(NewTy), Ops);
   if (isa<ConstantStruct>(C))
     return VM[V] = ConstantStruct::get(cast<StructType>(NewTy), Ops);
+  if (isa<ConstantMemberPointer>(C))
+    return VM[V] = ConstantMemberPointer::get(cast<StructType>(NewTy), Ops,
+      dyn_cast<ConstantMemberPointer>(C)->getClassName());
   if (isa<ConstantVector>(C))
     return VM[V] = ConstantVector::get(Ops);
   // If this is a no-operand constant, it must be because the type was remapped.
