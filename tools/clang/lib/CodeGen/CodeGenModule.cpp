@@ -398,6 +398,16 @@ llvm::User* sd_map(llvm::User* u, sd_map_callback_t<ArgT> callback, ArgT arg) {
   return callback(u, children, arg);
 }
 
+bool sd_ismemptr(bool isMemptr, unsigned ind, llvm::Value* val) {
+  return isMemptr || (llvm::dyn_cast_or_null<llvm::ConstantMemberPointer>(val) != NULL);
+}
+
+bool sd_contains_memptr(llvm::User* c) {
+  std::set<llvm::User*> seenUsers;
+  return  ((llvm::dyn_cast_or_null<llvm::ConstantMemberPointer>(c) != NULL) ||
+          sd_fold<bool>(c, sd_ismemptr, false, seenUsers));
+}
+
 struct sd_unfold_map_cb_arg_t {
   llvm::Module &M;
   CodeGenModule &CGM;
@@ -407,12 +417,22 @@ struct sd_unfold_map_cb_arg_t {
 llvm::User* sd_unfold_map_cb(llvm::User* root,
                              std::vector<llvm::Value*> children,
                              struct sd_unfold_map_cb_arg_t &arg) {
-  llvm::Constant* rootCons = dyn_cast<llvm::Constant>(root);
-  assert(rootCons);
+  llvm::Constant* rootConst = dyn_cast<llvm::Constant>(root);
   llvm::ConstantMemberPointer *cmptr;
 
   llvm::ConstantExpr* ce = NULL;
-  if ((cmptr = dyn_cast<llvm::ConstantMemberPointer>(rootCons))) {
+  llvm::ConstantVector* cv = NULL;
+  llvm::GlobalValue* gv = NULL;
+  llvm::ConstantDataSequential* cds = NULL;
+
+  bool allConst = true;
+  for (int i = 0; i < children.size(); i++)
+    if (!dyn_cast<llvm::Constant>(children[i]))
+      allConst = false;
+    else
+      assert(root->getOperand(i) == children[i] && "Const children must be unmodified");
+
+  if (rootConst && (cmptr = dyn_cast<llvm::ConstantMemberPointer>(rootConst))) {
     llvm::Value *args[2];
     llvm::Type *mptrType = cmptr->getType();
     llvm::Type *elType = cmptr->getOperand(0)->getType();
@@ -445,40 +465,74 @@ llvm::User* sd_unfold_map_cb(llvm::User* root,
     newMPtr = llvm::InsertValueInst::Create(newMPtr, cmptr->getOperand(1), indices, "", arg.insertPos);
     
     return newMPtr;
-  } else if ((ce = dyn_cast<llvm::ConstantExpr>(rootCons))) {
-    switch(ce->getOpcode()) {
-    case llvm::Instruction::Select: {
-      assert(children.size() == 3);
-      return llvm::SelectInst::Create(children[0], children[1], children[2],
-        "llvm.sd.unfolded.select", arg.insertPos);
-    }
-    case llvm::Instruction::GetElementPtr: {
-      llvm::Value* arr = children[0];
-      children.erase(children.begin());
+  } else if (rootConst && !allConst) {
+    // Current node is constant, but one of the children has been unrolled into a non-constant
+    // Value.
+    if ((ce = dyn_cast<llvm::ConstantExpr>(rootConst))) {
+        switch(ce->getOpcode()) {
+        case llvm::Instruction::Select: {
+          assert(children.size() == 3);
+          return llvm::SelectInst::Create(children[0], children[1], children[2],
+            "llvm.sd.unfolded.select", arg.insertPos);
+        }
+        case llvm::Instruction::GetElementPtr: {
+          llvm::Value* arr = children[0];
+          llvm::Type* pointeeType = dyn_cast<llvm::PointerType>(arr->getType())->getElementType();
+          children.erase(children.begin());
 
-      return llvm::GetElementPtrInst::Create(ce->getType(), arr, children,
-        "llvm.sd.unfolded.getelementptr", arg.insertPos);
-    }
-    default: {
-      rootCons->dump();
-      assert(false && "Unknown constant in unfolding");
-    }
+          return llvm::GetElementPtrInst::Create(pointeeType, arr, children,
+            "llvm.sd.unfolded.getelementptr", arg.insertPos);
+        }
+        case llvm::Instruction::PtrToInt: {
+          llvm::Type* intType = dyn_cast<llvm::IntegerType>(ce->getType());
+
+          return new llvm::PtrToIntInst(children[0], intType,
+            "llvm.sd.unfolded.ptrtoint", arg.insertPos);
+        }
+        default: {
+          rootConst->dump();
+          assert(false && "Unknown constant in unfolding");
+        }
+        }
+    } else if (gv = dyn_cast<llvm::GlobalValue>(rootConst)) {
+      if (sd_contains_memptr(rootConst)) {
+        std::cerr << "NYI Global Values\n";
+        rootConst->dump();
+        return rootConst;
+      }
+      //assert(!sd_contains_memptr(rootConst) && "NYI Global Values");
+      return rootConst;
+    } else if (cv = dyn_cast<llvm::ConstantVector>(rootConst)) {
+      assert(!sd_contains_memptr(rootConst) && "NYI Constant Vector");
+      return rootConst;
+    } else if (dyn_cast<llvm::ConstantStruct>(rootConst) ||
+               dyn_cast<llvm::ConstantArray>(rootConst)) {
+      llvm::User *newStruct = rootConst;
+
+      for (int i = 0; i < children.size(); i++) {
+        auto childConst = dyn_cast<llvm::Constant>(children[i]);
+        if (!childConst) {
+          unsigned int indices[1] = { i } ;
+          newStruct = llvm::InsertValueInst::Create(newStruct, children[i], indices, "", arg.insertPos);
+        }
+      }
+      return newStruct;
+    } else if (cds = dyn_cast<llvm::ConstantDataSequential>(rootConst)) {
+      assert(!sd_contains_memptr(rootConst) && "ConstantDataSequentual NYI");
+      return rootConst;
+    } else {
+      assert(!sd_contains_memptr(rootConst) && "Unkown Constant Type");
+      return rootConst;
     }
   } else {
+    if (!rootConst) {
+      for (int i = 0; i < children.size(); i++) {
+        root->setOperand(i, children[i]);
+      }
+    }
     return root;
   }
 }
-
-bool sd_ismemptr(bool isMemptr, unsigned ind, llvm::Value* val) {
-  return isMemptr || (llvm::dyn_cast_or_null<llvm::ConstantMemberPointer>(val) != NULL);
-}
-
-bool sd_contains_memptr(llvm::User* c) {
-  std::set<llvm::User*> seenUsers;
-  return  ((llvm::dyn_cast_or_null<llvm::ConstantMemberPointer>(c) != NULL) ||
-          sd_fold<bool>(c, sd_ismemptr, false, seenUsers));
-}
-
 
 static void
 sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
@@ -493,11 +547,8 @@ sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
         for(unsigned i=0; i < inst->getNumOperands(); i++) {
           llvm::User* arg = dyn_cast<llvm::User>(inst->getOperand(i));
           if (arg && sd_contains_memptr(arg)) {
-            llvm::Constant* consArg = dyn_cast<llvm::Constant>(arg);
             sd_unfold_map_cb_arg_t unfold_arg = {M, CGM, inst};
-            assert(consArg);
-
-            inst->setOperand(i, sd_map<sd_unfold_map_cb_arg_t&>(consArg, sd_unfold_map_cb, unfold_arg));
+            inst->setOperand(i, sd_map<sd_unfold_map_cb_arg_t&>(arg, sd_unfold_map_cb, unfold_arg));
           }
         }
       }
