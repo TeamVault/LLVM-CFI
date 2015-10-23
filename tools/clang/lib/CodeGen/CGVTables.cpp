@@ -659,6 +659,82 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
   return llvm::ConstantArray::get(ArrayType, Inits);
 }
 
+void CodeGenVTables::PrintVTableInitializer(
+    const CXXRecordDecl *RD, const VTableComponent *Components,
+    unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
+    unsigned NumVTableThunks, llvm::Constant *RTTI) {
+
+  llvm::Type *Int8PtrTy = CGM.Int8PtrTy;
+
+  unsigned NextVTableThunkIndex = 0;
+
+  for (unsigned I = 0; I != NumComponents; ++I) {
+    VTableComponent Component = Components[I];
+    switch (Component.getKind()) {
+    case VTableComponent::CK_VCallOffset:
+      sd_print("CK_VCallOffset: %d\n",Component.getVCallOffset().getQuantity());
+      break;
+    case VTableComponent::CK_VBaseOffset:
+      sd_print("CK_VBaseOffset: %d\n",Component.getVBaseOffset().getQuantity());
+      break;
+    case VTableComponent::CK_OffsetToTop:
+      sd_print("CK_OffsetToTop: %d\n",Component.getOffsetToTop().getQuantity());
+      break;
+    case VTableComponent::CK_RTTI:
+      sd_print("CK_RTTI:\n");
+      break;
+    case VTableComponent::CK_FunctionPointer:
+    case VTableComponent::CK_CompleteDtorPointer:
+    case VTableComponent::CK_DeletingDtorPointer: {
+      GlobalDecl GD;
+
+      // Get the right global decl.
+      switch (Component.getKind()) {
+      default:
+        llvm_unreachable("Unexpected vtable component kind");
+      case VTableComponent::CK_FunctionPointer:
+        sd_print("CK_FunctionPointer:");
+        GD = Component.getFunctionDecl();
+        break;
+      case VTableComponent::CK_CompleteDtorPointer:
+        sd_print("CK_CompleteDtorPointer:");
+        GD = GlobalDecl(Component.getDestructorDecl(), Dtor_Complete);
+        break;
+      case VTableComponent::CK_DeletingDtorPointer:
+        sd_print("CK_DeletingDtorPointer:");
+        GD = GlobalDecl(Component.getDestructorDecl(), Dtor_Deleting);
+        break;
+      }
+
+      if (cast<CXXMethodDecl>(GD.getDecl())->isPure()) {
+        // We have a pure virtual member function.
+        sd_print("pure\n");
+      } else if (cast<CXXMethodDecl>(GD.getDecl())->isDeleted()) {
+        sd_print("deleted\n");
+      } else {
+        // Check if we should use a thunk.
+        if (NextVTableThunkIndex < NumVTableThunks &&
+            VTableThunks[NextVTableThunkIndex].first == I) {
+          const ThunkInfo &Thunk = VTableThunks[NextVTableThunkIndex].second;
+          NextVTableThunkIndex++;
+          sd_print("thunk\n");
+        } else {
+          //llvm::Type *Ty = CGM.getTypes().GetFunctionTypeForVTable(GD);
+
+          //Init = CGM.GetAddrOfFunction(GD, Ty, /*ForVTable=*/true);
+          sd_print("funciton\n");
+        }
+      }
+      break;
+    }
+
+    case VTableComponent::CK_UnusedFunctionPointer:
+      sd_print("unused\n");
+      break;
+    };
+  }
+}
+
 llvm::GlobalVariable *
 CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
                                       const BaseSubobject &Base,
@@ -711,6 +787,16 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
       Base.getBase(), VTLayout->vtable_component_begin(),
       VTLayout->getNumVTableComponents(), VTLayout->vtable_thunk_begin(),
       VTLayout->getNumVTableThunks(), RTTI);
+
+  sd_print("ConstructionVtable: %s\n", Name.str().c_str());
+  for (auto it = AddressPoints.begin(); it != AddressPoints.end(); it++) {
+    sd_print("Address point: %d\n", it->second);
+  }
+  PrintVTableInitializer(
+      Base.getBase(), VTLayout->vtable_component_begin(),
+      VTLayout->getNumVTableComponents(), VTLayout->vtable_thunk_begin(),
+      VTLayout->getNumVTableThunks(), RTTI);
+
   VTable->setInitializer(Init);
 
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());

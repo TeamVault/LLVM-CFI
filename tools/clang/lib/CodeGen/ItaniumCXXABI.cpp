@@ -1268,7 +1268,7 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
     arguments.push_back(CGF.Builder.CreateMul(newOTT,wordWidth));
 
     // call the new dynamic cast function
-    Value = CGF.EmitNounwindRuntimeCall(dyncastFun, arguments, SD_MD_CAST_FROM);
+    Value = CGF.EmitNounwindRuntimeCall(dyncastFun, arguments);
   } else {
     Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
   }
@@ -1614,6 +1614,8 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   return VTable;
 }
 
+#include <iostream>
+
 static llvm::Value*
 sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
   assert(MD && "Non-null method decl");
@@ -1627,22 +1629,66 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   std::string Name = CGM.getCXXABI().GetClassMangledName(MD->getParent());
 
+  std::cerr << "get checked VTable in " <<
+    dyn_cast<NamedDecl>(CGF.CurFuncDecl)->getQualifiedNameAsString() <<
+    " for class " << Name << " for method " << MD->getQualifiedNameAsString() << std::endl; 
+
+  VTableAP->dump();
+
+  llvm::BasicBlock *fastCheckFailed = CGF.createBasicBlock("vtblCheck.fastpath.fail");
   llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
   llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
+  llvm::BasicBlock *checkDone = CGF.createBasicBlock("vtblCheck.done");
 
   // check if vtbl is inside the range
   llvm::Value *isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP);
 
   // do the branch
-  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, checkFailed);
+  CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, fastCheckFailed);
+
+  llvm::Module& M = CGM.getModule();
+  llvm::LLVMContext& C = M.getContext();
+  llvm::Type *ctrT = llvm::IntegerType::getInt64Ty(C);
+
+  CGF.EmitBlock(fastCheckFailed);
+  /*
+  CGF.Builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add,
+    M.getOrInsertGlobal("_sd_checks_failed", ctrT),
+    llvm::ConstantInt::get(ctrT, 1),
+    llvm::SequentiallyConsistent,
+    llvm::CrossThread);
+  */
+
+  llvm::Type* i8ptr = llvm::Type::getInt8PtrTy(C);
+  llvm::Type* argTs[] = { i8ptr, i8ptr };
+  llvm::FunctionType *vptr_safeT = llvm::FunctionType::get(llvm::Type::getInt1Ty(C), argTs, false);
+  llvm::Constant *vptr_safeF = M.getOrInsertFunction("_Z9vptr_safePKvPKc", vptr_safeT);
+  llvm::Value* slowPathSuccess = CGF.Builder.CreateCall2(
+              vptr_safeF,
+              CGF.Builder.CreateBitCast(VTableAP, i8ptr),
+              CGF.Builder.CreateGlobalStringPtr(Name)
+              );
+  CGF.Builder.CreateCondBr(slowPathSuccess, checkDone, checkFailed);
 
   CGF.EmitBlock(checkFailed);
-  //CGF.addDeferredVTableFailBlock(checkFailed);
   CGF.Builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::trap));
   CGF.Builder.CreateUnreachable();
 
   // Continue function emittance in the vtblCheck.success bb
   CGF.EmitBlock(checkSuccess);
+  /*
+  CGF.Builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add,
+    M.getOrInsertGlobal("_sd_checks_succeeded", ctrT),
+    llvm::ConstantInt::get(ctrT, 1),
+    llvm::SequentiallyConsistent,
+    llvm::CrossThread);
+  */
+  CGF.Builder.CreateBr(checkDone);
+
+  CGF.EmitBlock(checkDone);
+
+  const VTableLayout &Layout = CGM.getItaniumVTableContext().getVTableLayout(RD);
+  sd_insertVtableMD(&CGM, NULL, &Layout, RD, NULL);
   return VTableAP;
 }
 
@@ -1677,7 +1723,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
 
     llvm::Value* newIndex = sd_getNewIndFromOld(CGM, CGF.Builder, VTableGV, Name, VTableIndex);
     llvm::Value* arr[1] = {newIndex};
-    VFuncPtr = CGF.Builder.CreateGEP(VTable, arr, SD_MD_VFUN_CALL);
+    VFuncPtr = CGF.Builder.CreateGEP(VTable, arr);
   } else {
     VFuncPtr = CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
   }

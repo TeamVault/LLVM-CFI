@@ -17,20 +17,5 @@
 #define ICMP_OPCODE     46
 #define CALL_OPCODE     49
 #define SELECT_OPCODE   50
-
-namespace llvm {
-
-  /**
-   * Replaces each occurence of function "from" with function "to" inside the given module
-   * @return whether there is made any replacement
-   */
-  bool sd_replaceCallFunctionWith(CallInst* from, Function* to, std::vector<Value*> args);
-
-  /**
-   * Replace the GEP's index value inside the given instruction
-   */
-  void sd_changeGEPIndex(GetElementPtrInst* inst, unsigned operandNo, int64_t newIndex);
-} // End llvm namespace
-
 #endif
 

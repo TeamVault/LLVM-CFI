@@ -11,7 +11,6 @@
 /**
  * metadata names used for the SafeDispatch project
  */
-#define SD_MD_VFUN_CALL  "sd.vfun.call"   // class name
 #define SD_MD_CAST_FROM  "sd.cast.from"   // class name
 #define SD_MD_TYPEID     "sd.typeid"      // class name
 #define SD_MD_VCALL      "sd.vcall"       // -
