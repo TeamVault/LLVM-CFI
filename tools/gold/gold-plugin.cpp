@@ -722,27 +722,6 @@ getModuleForFile(LLVMContext &Context, claimed_file &F,
   return Obj.takeModule();
 }
 
-static void runSDPasses(Module &M, TargetMachine &TM) {
-  if (const DataLayout *DL = TM.getDataLayout())
-    M.setDataLayout(*DL);
-
-  legacy::PassManager passes;
-  if (options::RunSDIVTBLPass) {
-    passes.add(llvm::createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));
-
-    // Lets get the sd passes out of the way
-    if (options::RunSDIVTBLPass) {
-      passes.add(llvm::createSDFixPass());
-    }
-
-    // Lets get the sd passes out of the way
-    passes.add(llvm::createSDChangeIndicesPass());
-
-    passes.add(llvm::createVerifierPass());
-    passes.run(M);
-  }
-}
-
 static void runLTOPasses(Module &M, TargetMachine &TM) {
   legacy::PassManager passes;
   passes.add(createTargetTransformInfoWrapperPass(TM.getTargetIRAnalysis()));

@@ -517,21 +517,20 @@ void PassManagerBuilder::addLateLTOOptimizationPasses(
     PM.add(createMergeFunctionsPass());
 }
 
+#include <iostream>
+
 void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (LibraryInfo)
     PM.add(new TargetLibraryInfoWrapperPass(*LibraryInfo));
 
-  if (EmitIVTBLs) {
+  if (EmitIVTBLs || EmitOVTBLs) {
     // Lets get the sd passes out of the way
     // Remove unused vtables (pure virtual or unrereferenced) before interleaving
     PM.add(createGlobalDCEPass());         
     PM.add(llvm::createSDFixPass());
+    std::cerr << "Creating buildre pass with " << EmitIVTBLs << "\n";
+    PM.add(llvm::createSDLayoutBuilderPass(EmitIVTBLs));
     PM.add(llvm::createSDChangeIndicesPass());
-  }
-  else if (EmitOVTBLs) {
-    // Lets get the sd passes out of the way
-    PM.add(llvm::createSDFixPass());
-    PM.add(llvm::createSDChangeIndices2Pass());
   }
 
   if (VerifyInput)
@@ -540,16 +539,14 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (OptLevel > 1)
     addLTOOptimizationPasses(PM);
 
-  if (EmitIVTBLs) {
-    PM.add(llvm::createSDSubstModulePass());
-  } else if (EmitOVTBLs) {
-    PM.add(llvm::createSDSubstModule2Pass());
-  } else {
+  if (EmitIVTBLs || EmitOVTBLs ) {
+    PM.add(llvm::createSDSubstModule3Pass());
+  }
+
   // Lower bit sets to globals. This pass supports Clang's control flow
   // integrity mechanisms (-fsanitize=cfi*) and needs to run at link time if CFI
   // is enabled. The pass does nothing if CFI is disabled.
-    PM.add(createLowerBitSetsPass());
-  }
+  PM.add(createLowerBitSetsPass());
 
   if (OptLevel != 0)
     addLateLTOOptimizationPasses(PM);

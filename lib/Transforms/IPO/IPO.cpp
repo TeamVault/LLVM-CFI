@@ -114,6 +114,7 @@ void LLVMAddStripSymbolsPass(LLVMPassManagerRef PM) {
 // safedispatch additions
 
 void llvm::initializeSafeDispatch(PassRegistry &Registry) {
+  initializeSDBuildCHAPass(Registry);
   initializeSDModulePass(Registry);
   initializeSDChangeIndicesPass(Registry);
   initializeSDFixPass(Registry);
@@ -147,6 +148,10 @@ void LLVMInitializeSafeDispatch2(LLVMPassRegistryRef R) {
 
 void LLVMAddSDModule2Pass(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createSDModule2Pass());
+}
+
+void LLVMAddSDBuildCHAPass(LLVMPassManagerRef PM) {
+  unwrap(PM)->add(createSDBuildCHAPass());
 }
 
 void LLVMAddSDChangeIndices2Pass(LLVMPassManagerRef PM) {

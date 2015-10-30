@@ -311,6 +311,11 @@ void initializeSDModule2Pass(PassRegistry&);
 void initializeSDPrintMDModule2Pass(PassRegistry&);
 void initializeSDSubstModule2Pass(PassRegistry&);
 void initializeSDChangeIndices2Pass(PassRegistry&);
+
+void initializeSDBuildCHAPass(PassRegistry&);
+void initializeSDLayoutBuilderPass(PassRegistry&);
+void initializeSDUpdateIndicesPass(PassRegistry&);
+void initializeSDSubstModule3Pass(PassRegistry&);
 }
 
 #endif

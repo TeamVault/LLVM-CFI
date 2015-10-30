@@ -192,6 +192,11 @@ namespace {
       (void) llvm::createSDChangeIndices2Pass();
       (void) llvm::createSDModule2Pass();
       (void) llvm::createSDPrintMDModule2Pass();
+
+      (void) llvm::createSDBuildCHAPass();
+      (void) llvm::createSDLayoutBuilderPass();
+      (void) llvm::createSDUpdateIndicesPass();
+      (void) llvm::createSDSubstModule3Pass();
     }
   } ForcePassLinking; // Force link by creating a global definition.
 }

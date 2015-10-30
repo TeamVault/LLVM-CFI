@@ -213,8 +213,14 @@ ModulePass* createSDFixPass();
 // safedispatch additions
 ModulePass* createSDChangeIndices2Pass();
 ModulePass* createSDModule2Pass();
+ModulePass* createSDBuildCHAPass();
 ModulePass* createSDPrintMDModule2Pass();
 ModulePass* createSDSubstModule2Pass();
+
+ModulePass* createSDBuildCHAPass();
+ModulePass* createSDLayoutBuilderPass(bool interleave = false);
+ModulePass* createSDUpdateIndicesPass();
+ModulePass* createSDSubstModule3Pass();
 
 } // End llvm namespace
 
