@@ -29,10 +29,6 @@ static bool sd_isVtableName(std::string& className) {
   return sd_isVtableName_ref(name);
 }
 
-static bool sd_isVTTName(std::string& name) {
-  return name.find("_ZTT") == 0;
-}
-
 static bool sd_isVthunk(const llvm::StringRef& name) {
   return name.startswith("_ZTv") || // virtual thunk
          name.startswith("_ZTcv");  // virtual covariant thunk

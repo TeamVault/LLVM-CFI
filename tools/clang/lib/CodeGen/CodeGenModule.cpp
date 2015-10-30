@@ -348,10 +348,7 @@ void InstrProfStats::reportDiagnostics(DiagnosticsEngine &Diags,
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 
-#include "llvm/Transforms/IPO/SafeDispatch.h"
-#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
-#include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchGVMd.h"
 
 #include <vector>

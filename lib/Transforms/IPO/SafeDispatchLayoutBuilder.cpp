@@ -1,6 +1,5 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/SafeDispatch.h"
-#include "llvm/Transforms/IPO/SafeDispatchTrace.h"
 #include "llvm/Transforms/IPO/SafeDispatchLayoutBuilder.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/Statistic.h"
@@ -430,7 +429,6 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   for (const vtbl_t& v : cloud) {
     if (cha->isDefined(v)) {
       assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
-      std::cerr << "Vtbl: " << v.first << "," << v.second << "\n";
       newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
     }
 
@@ -447,13 +445,10 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
 
     // replace the uses of the original vtables
     for (std::set<User*>::iterator userItr = users.begin(); userItr != users.end(); userItr++) {
-      // this should be a getelementptr
+      // this should be a constant getelementptr
       User* user = *userItr;
       assert(user);
-
       ConstantExpr* userCE = dyn_cast<ConstantExpr>(user);
-
-      // you are here
       assert(userCE && userCE->getOpcode() == GEP_OPCODE);
 
       // get the address pointer from the instruction

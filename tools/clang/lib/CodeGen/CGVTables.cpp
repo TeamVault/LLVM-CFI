@@ -663,9 +663,6 @@ void CodeGenVTables::PrintVTableInitializer(
     const CXXRecordDecl *RD, const VTableComponent *Components,
     unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
     unsigned NumVTableThunks, llvm::Constant *RTTI) {
-
-  llvm::Type *Int8PtrTy = CGM.Int8PtrTy;
-
   unsigned NextVTableThunkIndex = 0;
 
   for (unsigned I = 0; I != NumComponents; ++I) {
@@ -715,7 +712,6 @@ void CodeGenVTables::PrintVTableInitializer(
         // Check if we should use a thunk.
         if (NextVTableThunkIndex < NumVTableThunks &&
             VTableThunks[NextVTableThunkIndex].first == I) {
-          const ThunkInfo &Thunk = VTableThunks[NextVTableThunkIndex].second;
           NextVTableThunkIndex++;
           sd_print("thunk\n");
         } else {

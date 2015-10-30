@@ -1648,7 +1648,7 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   llvm::Module& M = CGM.getModule();
   llvm::LLVMContext& C = M.getContext();
-  llvm::Type *ctrT = llvm::IntegerType::getInt64Ty(C);
+  //llvm::Type *ctrT = llvm::IntegerType::getInt64Ty(C);
 
   CGF.EmitBlock(fastCheckFailed);
   /*
