@@ -530,7 +530,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
     PM.add(llvm::createSDFixPass());
     std::cerr << "Creating buildre pass with " << EmitIVTBLs << "\n";
     PM.add(llvm::createSDLayoutBuilderPass(EmitIVTBLs));
-    PM.add(llvm::createSDChangeIndicesPass());
+    PM.add(llvm::createSDUpdateIndicesPass());
   }
 
   if (VerifyInput)

@@ -299,19 +299,7 @@ void initializeDwarfEHPreparePass(PassRegistry&);
 void initializeFloat2IntPass(PassRegistry&);
 
 // safedispatch additions
-void initializeSafeDispatch(PassRegistry&);
-void initializeSDModulePass(PassRegistry&);
-void initializeSDPrintMDModulePass(PassRegistry&);
-void initializeSDSubstModulePass(PassRegistry&);
-void initializeSDChangeIndicesPass(PassRegistry&);
 void initializeSDFixPass(PassRegistry&);
-
-void initializeSafeDispatch2(PassRegistry&);
-void initializeSDModule2Pass(PassRegistry&);
-void initializeSDPrintMDModule2Pass(PassRegistry&);
-void initializeSDSubstModule2Pass(PassRegistry&);
-void initializeSDChangeIndices2Pass(PassRegistry&);
-
 void initializeSDBuildCHAPass(PassRegistry&);
 void initializeSDLayoutBuilderPass(PassRegistry&);
 void initializeSDUpdateIndicesPass(PassRegistry&);

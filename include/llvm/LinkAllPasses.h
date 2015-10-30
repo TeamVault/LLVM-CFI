@@ -185,14 +185,7 @@ namespace {
       (void) llvm::AreStatisticsEnabled();
       (void) llvm::sys::RunningOnValgrind();
 
-      (void) llvm::createSDChangeIndicesPass();
-      (void) llvm::createSDModulePass();
-      (void) llvm::createSDPrintMDModulePass();
       (void) llvm::createSDFixPass();
-      (void) llvm::createSDChangeIndices2Pass();
-      (void) llvm::createSDModule2Pass();
-      (void) llvm::createSDPrintMDModule2Pass();
-
       (void) llvm::createSDBuildCHAPass();
       (void) llvm::createSDLayoutBuilderPass();
       (void) llvm::createSDUpdateIndicesPass();
