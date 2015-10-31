@@ -3,7 +3,6 @@
 
 #include "SafeDispatchMD.h"
 
-#define GEP_OPCODE      29
 #define BITCAST_OPCODE  44
 #endif
 

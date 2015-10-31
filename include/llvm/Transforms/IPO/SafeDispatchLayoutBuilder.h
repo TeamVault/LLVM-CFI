@@ -17,7 +17,6 @@
 #include "llvm/IR/CallSite.h"
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
-#include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -60,7 +59,7 @@ namespace llvm {
     vtbl_t dummyVtable;
     bool interleave;
 
-    SDLayoutBuilder(bool interl = false) : interleave(interl), ModulePass(ID) {
+    SDLayoutBuilder(bool interl = false) : ModulePass(ID), interleave(interl) {
       std::cerr << "SDLayoutBuilder(" << interl << ")\n";
       initializeSDLayoutBuilderPass(*PassRegistry::getPassRegistry());
       dummyVtable = vtbl_t("DUMMY_VTBL", 0);

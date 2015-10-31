@@ -493,7 +493,6 @@ llvm::User* sd_unfold_map_cb(llvm::User* root,
         }
     } else if (gv = dyn_cast<llvm::GlobalValue>(rootConst)) {
       if (sd_contains_memptr(rootConst)) {
-        std::cerr << "NYI Global Values\n";
         rootConst->dump();
         return rootConst;
       }

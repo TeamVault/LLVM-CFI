@@ -9,8 +9,25 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 
-#include "SafeDispatchTools.h"
 #include <utility>
+
+/**
+ * Helper function to create a metadata that contains the given integer
+ */
+static llvm::Metadata*
+sd_getMDNumber(llvm::LLVMContext& C, uint64_t val) {
+  return  llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(llvm::Type::getInt64Ty(C), val));
+}
+
+/**
+ * Helper function to create a metadata that contains the given string
+ */
+static llvm::Metadata*
+sd_getMDString(llvm::LLVMContext& C, const std::string& str) {
+  return llvm::MDString::get(C, str.c_str());
+}
+
 
 /**
  * Gets a class name and returns a md that contains the vtable global variable

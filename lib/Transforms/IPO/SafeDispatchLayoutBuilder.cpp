@@ -1,6 +1,4 @@
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/IPO/SafeDispatch.h"
-#include "llvm/Transforms/IPO/SafeDispatchLayoutBuilder.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/InstIterator.h"
@@ -17,6 +15,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/CallSite.h"
 
+#include "llvm/Transforms/IPO/SafeDispatchLayoutBuilder.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
@@ -34,12 +33,18 @@ using namespace llvm;
 #define WORD_WIDTH 8
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 #define NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
+#define GEP_OPCODE      29
 
 char SDLayoutBuilder::ID = 0;
 
 INITIALIZE_PASS_BEGIN(SDLayoutBuilder, "sdovt", "Oredered VTable Layout Builder for SafeDispatch", false, false)
 INITIALIZE_PASS_DEPENDENCY(SDBuildCHA)
 INITIALIZE_PASS_END(SDLayoutBuilder, "sdovt", "Oredered VTable Layout Builder for SafeDispatch", false, false)
+
+static bool sd_isVthunk(const llvm::StringRef& name) {
+  return name.startswith("_ZTv") || // virtual thunk
+         name.startswith("_ZTcv");  // virtual covariant thunk
+}
 
 bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
   for (auto vtbl: cha->roots) { 
@@ -87,7 +92,7 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
       }
 
       // Check that the index map is dense (total on the range of indices)
-      int64_t oldVtblSize = cha->rangeMap[n.first][n.second].second - \
+      uint64_t oldVtblSize = cha->rangeMap[n.first][n.second].second - \
                             cha->rangeMap[n.first][n.second].first + 1;
       auto minMax = std::minmax_element (indMap[n].begin(), indMap[n].end());
 
@@ -546,7 +551,7 @@ int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t 
     if (cha->knowsAbout(name) && cha->hasFirstDefinedChild(name)) {
       sd_print("class: (%s, %lu) doesn't belong to newLayoutInds\n", name.first.c_str(), name.second);
       sd_print("%s has %u address points\n", name.first.c_str(), cha->addrPtMap[name.first].size());
-      for (int i = 0; i < cha->addrPtMap[name.first].size(); i++)
+      for (uint64_t i = 0; i < cha->addrPtMap[name.first].size(); i++)
         sd_print("  addrPt: %d\n", cha->addrPtMap[name.first][i]);
       assert(false);
     }
@@ -564,14 +569,14 @@ int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t 
     int64_t oldAddrPt = cha->addrPtMap[name.first].at(name.second) - subVtableRange.first;
     int64_t fullIndex = oldAddrPt + offset;
 
-    if (! (fullIndex >= 0 && fullIndex <= ((int64_t) subVtableRange.second - subVtableRange.first))) {
+    if (! (fullIndex >= 0 && fullIndex <= (int64_t) (subVtableRange.second - subVtableRange.first))) {
       sd_print("error in translateVtblInd: %s, addrPt:%ld, old:%ld\n", name.first.c_str(), oldAddrPt, offset);
       assert(false);
     }
 
     return ((int64_t) newInds.at(fullIndex)) - ((int64_t) newInds.at(oldAddrPt));
   } else {
-    assert(0 <= offset && offset <= newInds.size());
+    assert(0 <= offset && offset <= (int64_t)newInds.size());
     return newInds[offset];
   }
 }
