@@ -69,18 +69,30 @@ llvm::Value* sd_getNewIndFromOld(CodeGenModule& CGM, CGBuilderTy& builder,
 
 llvm::Value* sd_IsVPtrInRange(CodeGenModule& CGM, CGBuilderTy& builder,
                             llvm::GlobalVariable* VTableGV, const std::string& className,
-                            llvm::Value *oldPtr) {
+                            llvm::Value *oldPtr,
+                            const std::string& perciseClassName) {
   llvm::Module& M = CGM.getModule();
   llvm::LLVMContext& C = M.getContext();
+  llvm::MDNode* perciseMD;
 
   llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
+
+  if (className == perciseClassName) {
+    perciseMD = md;
+  } else {
+    perciseMD = sd_getClassNameMetadata(perciseClassName, M, NULL);
+  }
+
   llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
   llvm::Value* castPointer = builder.CreatePointerCast(oldPtr, CGM.Int8PtrTy);
 
-  return builder.CreateCall2(
+  llvm::Value* perMDValue = llvm::MetadataAsValue::get(C, perciseMD);
+
+  return builder.CreateCall3(
               CGM.getIntrinsic(llvm::Intrinsic::sd_check_vtbl),
               castPointer,
-              mdValue);
+              mdValue,
+              perMDValue);
 }
 
 llvm::Value* sd_getRangeStart(CodeGenModule& CGM, CGBuilderTy& builder,
@@ -279,7 +291,8 @@ public:
 
   llvm::Value *getVirtualFunctionPointer(CodeGenFunction &CGF, GlobalDecl GD,
                                          llvm::Value *This,
-                                         llvm::Type *Ty) override;
+                                         llvm::Type *Ty,
+                                         const CXXRecordDecl *perciseType) override;
 
   llvm::Value *EmitVirtualDestructorCall(CodeGenFunction &CGF,
                                          const CXXDestructorDecl *Dtor,
@@ -1617,7 +1630,7 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
 #include <iostream>
 
 static llvm::Value*
-sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP) {
+sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP, const CXXRecordDecl *perciseType) {
   assert(MD && "Non-null method decl");
   assert(MD->isInstance() && "Shouldn't see a static method");
 
@@ -1639,9 +1652,16 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
   llvm::BasicBlock *checkSuccess = CGF.createBasicBlock("vtblCheck.success");
   llvm::BasicBlock *checkDone = CGF.createBasicBlock("vtblCheck.done");
+  llvm::Value *isInsideRange;
 
   // check if vtbl is inside the range
-  llvm::Value *isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP);
+  if (perciseType) {
+    isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP,
+      CGM.getCXXABI().GetClassMangledName(perciseType));
+  } else {
+    isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP,
+      Name);
+  }
 
   // do the branch
   CGF.Builder.CreateCondBr(isInsideRange, checkSuccess, fastCheckFailed);
@@ -1695,7 +1715,8 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                       GlobalDecl GD,
                                                       llvm::Value *This,
-                                                      llvm::Type *Ty) {
+                                                      llvm::Type *Ty,
+                                                      const CXXRecordDecl *perciseType) {
   GD = GD.getCanonicalDecl();
   Ty = Ty->getPointerTo()->getPointerTo();
   llvm::Value *VTable = CGF.GetVTablePtr(This, Ty);
@@ -1708,7 +1729,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   std::string Name = this->GetClassMangledName(RD);
 
   if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name)) {
-    VTable = sd_getCheckedVTable(CGM, CGF, MD, VTable);
+    VTable = sd_getCheckedVTable(CGM, CGF, MD, VTable, perciseType);
   }
 
   if (CGF.SanOpts.has(SanitizerKind::CFIVCall))
@@ -1741,7 +1762,7 @@ llvm::Value *ItaniumCXXABI::EmitVirtualDestructorCall(
       Dtor, getFromDtorType(DtorType));
   llvm::Type *Ty = CGF.CGM.getTypes().GetFunctionType(*FInfo);
   llvm::Value *Callee =
-      getVirtualFunctionPointer(CGF, GlobalDecl(Dtor, DtorType), This, Ty);
+      getVirtualFunctionPointer(CGF, GlobalDecl(Dtor, DtorType), This, Ty, NULL);
 
   CGF.EmitCXXMemberOrOperatorCall(Dtor, Callee, ReturnValueSlot(), This,
                                   /*ImplicitParam=*/nullptr, QualType(), CE);

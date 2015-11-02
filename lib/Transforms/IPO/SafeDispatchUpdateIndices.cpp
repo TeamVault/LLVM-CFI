@@ -367,10 +367,15 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     assert(arg2);
     MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
     assert(mdNode);
+    llvm::MetadataAsValue* arg3 = dyn_cast<MetadataAsValue>(CI->getArgOperand(2));
+    assert(arg3);
+    MDNode* mdNode1 = dyn_cast<MDNode>(arg3->getMetadata());
+    assert(mdNode1);
 
     // second one is the tuple that contains the class name and the corresponding global var.
     // note that the global variable isn't always emitted
     std::string className = sd_getClassNameFromMD(mdNode,0);
+    std::string preciseClassName = sd_getClassNameFromMD(mdNode1,0);
     SDLayoutBuilder::vtbl_t vtbl(className, 0);
     llvm::Constant *start;
     int64_t rangeWidth;
@@ -380,6 +385,13 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
 
     if (cha->knowsAbout(vtbl) &&
        (!cha->isUndefined(vtbl) || cha->hasFirstDefinedChild(vtbl))) {
+      if (preciseClassName != className) {
+        sd_print("More precise class name = %s\n", preciseClassName.c_str());
+        int64_t ind = cha->getSubVTableIndex(preciseClassName, className);
+        if (ind != -1) {
+          vtbl = SDLayoutBuilder::vtbl_t(preciseClassName, ind);
+        }
+      } 
       // calculate the new index
       start = cha->isUndefined(vtbl) ?
         layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) :

@@ -614,7 +614,7 @@ def int_masked_scatter: Intrinsic<[],
 def int_bitset_test : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_metadata_ty],
                                 [IntrNoMem]>;
 
-def int_sd_check_vtbl : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_metadata_ty],
+def int_sd_check_vtbl : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_metadata_ty, llvm_metadata_ty],
                                 [IntrNoMem]>;
 
 def int_sd_get_vtbl_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty, llvm_metadata_ty],

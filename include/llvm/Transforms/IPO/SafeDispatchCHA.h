@@ -76,7 +76,7 @@ namespace llvm {
     range_map_t rangeMap;                              // vtbl -> [(start,end)]
     ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
-    std::map<vtbl_name_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
+    std::map<vtbl_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
 
     // these should match the structs defined at SafeDispatchVtblMD.h
@@ -193,6 +193,8 @@ namespace llvm {
     vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
     bool hasFirstDefinedChild(const vtbl_t &vtbl);
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
+
+    int64_t getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base);
   };
 
 }

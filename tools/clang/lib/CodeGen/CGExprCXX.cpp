@@ -130,6 +130,25 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
       CE, MD, ReturnValue, HasQualifier, Qualifier, IsArrow, Base);
 }
 
+static const CXXRecordDecl* getPerciseType(const Expr *Base) {
+  const ImplicitCastExpr *ICE;
+
+  if ((ICE = dyn_cast<ImplicitCastExpr>(Base))) {
+    const Type *subType = ICE->getSubExpr()->getType().getTypePtr();
+    const CXXRecordDecl *RD;
+
+    if (isa<PointerType>(subType)) {
+      subType = (dyn_cast<PointerType>(subType)->getPointeeType().getTypePtr());
+    }
+
+    if ((RD = subType->getAsCXXRecordDecl())) {
+      return RD;
+    }
+  }
+
+  return NULL;
+}
+
 RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
     const CallExpr *CE, const CXXMethodDecl *MD, ReturnValueSlot ReturnValue,
     bool HasQualifier, NestedNameSpecifier *Qualifier, bool IsArrow,
@@ -255,7 +274,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
   if (const CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(MD)) {
     Callee = CGM.GetAddrOfFunction(GlobalDecl(Ctor, Ctor_Complete), Ty);
   } else if (UseVirtualCall) {
-    Callee = CGM.getCXXABI().getVirtualFunctionPointer(*this, MD, This, Ty);
+    Callee = CGM.getCXXABI().getVirtualFunctionPointer(*this, MD, This, Ty, getPerciseType(Base));
   } else {
     if (SanOpts.has(SanitizerKind::CFINVCall) &&
         MD->getParent()->isDynamicClass()) {

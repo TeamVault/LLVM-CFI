@@ -294,7 +294,8 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
 }
 
 int64_t SDBuildCHA::getCloudSize(const SDBuildCHA::vtbl_name_t& vtbl) {
-  return cloudSizeMap[vtbl];
+  vtbl_t v(vtbl, 0);
+  return cloudSizeMap[v];
 }
 
 uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
@@ -305,10 +306,8 @@ uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
     }
   }
 
-  if (root.second == 0) {
-    assert(cloudSizeMap.find(root.first) == cloudSizeMap.end());
-    cloudSizeMap[root.first] = count;
-  }
+  assert(cloudSizeMap.find(root) == cloudSizeMap.end());
+  cloudSizeMap[root] = count;
 
   return count;
 }
@@ -399,4 +398,15 @@ bool SDBuildCHA::hasFirstDefinedChild(const vtbl_t &vtbl) {
 
 bool SDBuildCHA::knowsAbout(const vtbl_t &vtbl) {
   return cloudMap.find(vtbl) != cloudMap.end();
+}
+
+int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived,
+                                       const vtbl_name_t &base) {
+  
+  for (int64_t ind = 0; ind < subObjNameMap[derived].size(); ind++) {
+    std::cerr << subObjNameMap[derived][ind] << "\n";
+    if (subObjNameMap[derived][ind] == base)
+      return ind;
+  }
+  return -1;
 }
