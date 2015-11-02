@@ -303,8 +303,6 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
   for (const Use &U : sd_vtbl_indexF->uses()) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-    //CI->getParent()->dump();
-    //CI->getParent()->getParent()->dump();
 
     // get the arguments
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
@@ -379,15 +377,19 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     sd_print("Callsite for %s cha->knowsAbout(%s,%s)=%d) ", className.c_str(),
       vtbl.first.c_str(), vtbl.second, cha->knowsAbout(vtbl));
 
-    if (cha->knowsAbout(vtbl) &&
-       (!cha->isUndefined(vtbl) || cha->hasFirstDefinedChild(vtbl))) {
+    if (cha->knowsAbout(vtbl)) {
       if (preciseClassName != className) {
         sd_print("More precise class name = %s\n", preciseClassName.c_str());
         int64_t ind = cha->getSubVTableIndex(preciseClassName, className);
+        sd_print("Index = %d \n", ind);
         if (ind != -1) {
           vtbl = SDLayoutBuilder::vtbl_t(preciseClassName, ind);
         }
       } 
+    }
+
+    if (cha->knowsAbout(vtbl) &&
+       (!cha->isUndefined(vtbl) || cha->hasFirstDefinedChild(vtbl))) {
       // calculate the new index
       start = cha->isUndefined(vtbl) ?
         layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) :
