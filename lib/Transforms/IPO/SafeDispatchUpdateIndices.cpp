@@ -64,15 +64,11 @@ namespace {
       handleSDCheckVtbl(&M);
       handleRemainingSDGetVcallIndex(&M);
 
-      uint64_t noOfFunctions = M.getFunctionList().size();
-      uint64_t currFunctionInd = 1;
-      int pct, lastpct=0;
-
       sd_print("Finished running the 2nd pass...\n");
 
       layoutBuilder->removeOldLayouts(M);
-
       layoutBuilder->clearAnalysisResults();
+
       sd_print("removed thunks...\n");
       return true;
     }

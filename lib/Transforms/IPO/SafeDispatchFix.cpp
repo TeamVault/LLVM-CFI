@@ -165,7 +165,7 @@ namespace {
         Function* aliasee;
         ConstantExpr *cexpr;
         
-        if (cexpr = dyn_cast<ConstantExpr>(fAlias->getAliasee())) {
+        if ((cexpr = dyn_cast<ConstantExpr>(fAlias->getAliasee()))) {
           assert(cexpr->isCast());
           aliasee = dyn_cast<Function>(cexpr->getOperand(0));
         } else {
