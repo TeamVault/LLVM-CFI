@@ -410,3 +410,11 @@ int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived,
   }
   return -1;
 }
+
+bool SDBuildCHA::hasAncestor(const vtbl_t &vtbl) {
+  return ancestorMap.find(vtbl) != ancestorMap.end();
+}
+
+SDBuildCHA::vtbl_name_t SDBuildCHA::getAncestor(const vtbl_t &vtbl) {
+  return ancestorMap[vtbl];
+}

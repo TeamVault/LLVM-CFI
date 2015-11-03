@@ -36,24 +36,12 @@
 // 3. InitializePasses.h
 
 namespace llvm {
-  class SDLayoutBuilder;
   /**
    * Module pass for the SafeDispatch Gold Plugin
    */
   class SDBuildCHA : public ModulePass {
-    friend class SDLayoutBuilder;
   public:
     static char ID; // Pass identification, replacement for typeid
-
-    SDBuildCHA() : ModulePass(ID) {
-      std::cerr << "Creating SDBuildCHA pass!\n";
-      initializeSDBuildCHAPass(*PassRegistry::getPassRegistry());
-
-    }
-
-    virtual ~SDBuildCHA() {
-      sd_print("deleting SDBuildCHA pass\n");
-    }
 
     // variable definitions
     typedef std::string                                     vtbl_name_t;
@@ -69,6 +57,7 @@ namespace llvm {
     typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
 
+private:
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
     roots_t roots;                                     // set<vtbl>
     subvtbl_map_t subObjNameMap;                       // vtbl -> [vtbl]
@@ -78,6 +67,12 @@ namespace llvm {
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
     std::map<vtbl_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
+    /**
+     * These functions and variables used to deal with duplication
+     * of the vthunks in the vtables
+     */
+    unsigned vcallMDId;
+    std::set<Function*> vthunksToRemove;
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
@@ -92,6 +87,29 @@ namespace llvm {
       vtbl_name_t className;
       std::vector<nmd_sub_t> subVTables;
     };
+
+    /**
+     * Reads the NamedMDNodes in the given module and creates the class hierarchy
+     */
+    void buildClouds(Module &M);
+
+    void printClouds();
+
+    /**
+     * Extract the vtable info from the metadata and put it into a struct
+     */
+    std::vector<nmd_t> static extractMetadata(NamedMDNode* md);
+
+public:
+    SDBuildCHA() : ModulePass(ID) {
+      std::cerr << "Creating SDBuildCHA pass!\n";
+      initializeSDBuildCHAPass(*PassRegistry::getPassRegistry());
+
+    }
+
+    virtual ~SDBuildCHA() {
+      sd_print("deleting SDBuildCHA pass\n");
+    }
 
     /**
      * 1. a. Iterate NamedMDNodes to build CHA forest F.
@@ -133,6 +151,32 @@ namespace llvm {
      */
     unsigned getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind);
 
+    /*
+     * Address point accessors
+     */
+    bool addrPt(const vtbl_name_t& vtbl, uint64_t ind) {
+      return addrPtMap[vtbl][ind];
+    }
+
+    bool addrPt(const vtbl_t& vtbl) {
+      return addrPt(vtbl.first, vtbl.second);
+    }
+
+    bool hasAddrPt(const vtbl_name_t& vtbl, uint64_t addrPt) {
+      return getAddrPtOrder(vtbl, addrPt) != -1;
+    }
+
+    int64_t getAddrPtOrder(const vtbl_name_t& vtbl, uint64_t addrPt) {
+      for (uint64_t order = 0; order < addrPtMap[vtbl].size(); order ++)
+        if (addrPtMap[vtbl][order] == addrPt)
+          return order; 
+      return -1;
+    }
+
+    uint64_t getNumAddrPts(const vtbl_name_t& vtbl) {
+      return addrPtMap[vtbl].size();
+    }
+
     bool isUndefined(const vtbl_name_t &vtbl) {
       return undefinedVTables.find(vtbl) != undefinedVTables.end();
     }
@@ -144,35 +188,11 @@ namespace llvm {
     bool isDefined(const vtbl_t &vtbl) {
       return !isUndefined(vtbl);
     }
-
-  private:
-
-    /**
-     * Reads the NamedMDNodes in the given module and creates the class hierarchy
-     */
-    void buildClouds(Module &M);
-
-    void printClouds();
-
-    /**
-     * These functions and variables used to deal with duplication
-     * of the vthunks in the vtables
-     */
-    unsigned vcallMDId;
-    std::set<Function*> vthunksToRemove;
-
-  public:
     /**
      * Recursive function that calculates the number of deriving sub-vtables of each
      * primary vtable
      */
     uint32_t calculateChildrenCounts(const vtbl_t& vtbl);
-
-
-    /**
-     * Extract the vtable info from the metadata and put it into a struct
-     */
-    std::vector<nmd_t> static extractMetadata(NamedMDNode* md);
     /**
      * Return a list that contains the preorder traversal of the tree
      * starting from the given node
@@ -195,6 +215,8 @@ namespace llvm {
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
 
     int64_t getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base);
+    bool  hasAncestor(const vtbl_t &v);
+    vtbl_name_t getAncestor(const vtbl_t &v);
   };
 
 }

@@ -418,11 +418,11 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
       llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
       llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
 
-      if(!cha->ancestorMap.count(vtbl)) {
+      if(!cha->hasAncestor(vtbl)) {
         sd_print("%s\n", vtbl.first.data());
         assert(false);
       }
-      SDLayoutBuilder::vtbl_name_t root = cha->ancestorMap[vtbl];
+      SDLayoutBuilder::vtbl_name_t root = cha->getAncestor(vtbl);
       assert(layoutBuilder->alignmentMap.count(root));
 
       llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, layoutBuilder->alignmentMap[root]);

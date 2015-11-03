@@ -122,11 +122,11 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
 
       uint64_t ptStart = rangeMap[pt.first][pt.second].first;
       uint64_t ptEnd = rangeMap[pt.first][pt.second].second;
-      uint64_t ptAddrPt = addrPtMap[pt.first][pt.second];
+      uint64_t ptAddrPt = cha->addrPt(pt);
       uint64_t ptRelAddrPt = ptAddrPt - ptStart;
       uint64_t childStart = rangeMap[child.first][child.second].first;
       uint64_t childEnd = rangeMap[child.first][child.second].second;
-      uint64_t childAddrPt = addrPtMap[child.first][child.second];
+      uint64_t childAddrPt = cha->addrPt(child);
       uint64_t childRelAddrPt = childAddrPt - childStart;
 
       int64_t ptToChildAdj = childAddrPt - ptAddrPt;
@@ -310,7 +310,7 @@ void SDLayoutBuilder::orderCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
 
     range_t r = cha->rangeMap[child.first][child.second];
     uint64_t size = r.second - r.first + 1;
-    uint64_t addrpt = cha->addrPtMap[child.first][child.second] - r.first;
+    uint64_t addrpt = cha->addrPt(child) - r.first;
     uint64_t padEntries = orderedVtbl.size() + addrpt;
     uint64_t padSize = (padEntries % max == 0) ? 0 : max - (padEntries % max);
 
@@ -462,10 +462,8 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
       uint64_t oldAddrPt = oldConst->getSExtValue();
 
       // find which part of the vtable the constructor uses
-      uint64_t order = 0;
-      std::vector<uint64_t>& addrPts = cha->addrPtMap[v.first];
-      for(; order < addrPts.size() && addrPts[order] != oldAddrPt; order++);
-      assert(order != addrPts.size());
+      assert(cha->hasAddrPt(v.first, oldAddrPt));
+      uint64_t order = cha->getAddrPtOrder(v.first, oldAddrPt);
 
       // if this is not referring to the current part, continue
       if (order != v.second)
@@ -501,7 +499,7 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
   std::map<vtbl_t, int64_t> lastPosMap; // last possible position
 
   for(const vtbl_t& n : order) {
-    uint64_t addrPt = cha->addrPtMap[n.first][n.second];  // get the address point of the vtable
+    uint64_t addrPt = cha->addrPt(n);  // get the address point of the vtable
     posMap[n]     = positiveOff ? addrPt : (addrPt - 1); // start interleaving from that address
     lastPosMap[n] = positiveOff ? (cha->rangeMap[n.first][n.second].second) :
                                   (cha->rangeMap[n.first][n.second].first);
@@ -550,9 +548,9 @@ int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t 
     sd_print("has first child %d.\n", cha->hasFirstDefinedChild(name));
     if (cha->knowsAbout(name) && cha->hasFirstDefinedChild(name)) {
       sd_print("class: (%s, %lu) doesn't belong to newLayoutInds\n", name.first.c_str(), name.second);
-      sd_print("%s has %u address points\n", name.first.c_str(), cha->addrPtMap[name.first].size());
-      for (uint64_t i = 0; i < cha->addrPtMap[name.first].size(); i++)
-        sd_print("  addrPt: %d\n", cha->addrPtMap[name.first][i]);
+      sd_print("%s has %u address points\n", name.first.c_str(), cha->getNumAddrPts(name.first));
+      for (uint64_t i = 0; i < cha->getNumAddrPts(name.first); i++)
+        sd_print("  addrPt: %d\n", cha->addrPt(name.first, i));
       assert(false);
     }
 
@@ -566,7 +564,7 @@ int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t 
   range_t& subVtableRange = cha->rangeMap[name.first].at(name.second);
 
   if (isRelative) {
-    int64_t oldAddrPt = cha->addrPtMap[name.first].at(name.second) - subVtableRange.first;
+    int64_t oldAddrPt = cha->addrPt(name) - subVtableRange.first;
     int64_t fullIndex = oldAddrPt + offset;
 
     if (! (fullIndex >= 0 && fullIndex <= (int64_t) (subVtableRange.second - subVtableRange.first))) {
@@ -690,8 +688,8 @@ Value* SDLayoutBuilder::newVtblAddress(Module& M, const vtbl_name_t& name, Instr
   // of the vtable
 
   // find which element is the address point
-  assert(cha->addrPtMap.count(name));
-  unsigned addrPt = cha->addrPtMap[name][0];
+  assert(cha->getNumAddrPts(name));
+  unsigned addrPt = cha->addrPt(name, 0);
 
   // now find its new index
   assert(newLayoutInds.count(vtbl));
@@ -734,8 +732,8 @@ Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
   // of the vtable
 
   // find which element is the address point
-  assert(cha->addrPtMap.count(vtbl.first));
-  unsigned addrPt = cha->addrPtMap[vtbl.first][vtbl.second] - cha->rangeMap[vtbl.first][vtbl.second].first;
+  assert(cha->getNumAddrPts(vtbl.first));
+  unsigned addrPt = cha->addrPt(vtbl) - cha->rangeMap[vtbl.first][vtbl.second].first;
 
   // now find its new index
   assert(newLayoutInds.count(vtbl));
