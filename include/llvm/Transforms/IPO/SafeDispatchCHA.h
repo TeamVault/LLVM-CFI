@@ -160,11 +160,11 @@ public:
     /*
      * Address point accessors
      */
-    bool addrPt(const vtbl_name_t& vtbl, uint64_t ind) {
+    uint64_t addrPt(const vtbl_name_t& vtbl, uint64_t ind) {
       return addrPtMap[vtbl][ind];
     }
 
-    bool addrPt(const vtbl_t& vtbl) {
+    uint64_t addrPt(const vtbl_t& vtbl) {
       return addrPt(vtbl.first, vtbl.second);
     }
 
