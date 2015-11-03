@@ -47,10 +47,9 @@ static bool sd_isVthunk(const llvm::StringRef& name) {
 }
 
 bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
-  for (auto vtbl: cha->roots) { 
+  for (auto vtblIt = cha->roots_begin(); vtblIt != cha->roots_end(); vtblIt++) { 
+    vtbl_name_t vtbl = *vtblIt;
     vtbl_t root(vtbl, 0);
-    assert(interleavingMap.count(vtbl) && cha->cloudMap.count(root));
-
     interleaving_list_t &interleaving = interleavingMap[vtbl];
     new_layout_inds_map_t indMap;
     uint64_t i = 0;
@@ -92,8 +91,8 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
       }
 
       // Check that the index map is dense (total on the range of indices)
-      uint64_t oldVtblSize = cha->rangeMap[n.first][n.second].second - \
-                            cha->rangeMap[n.first][n.second].first + 1;
+      const range_t &r = cha->getRange(n);
+      uint64_t oldVtblSize = r.second - r.first + 1;
       auto minMax = std::minmax_element (indMap[n].begin(), indMap[n].end());
 
       if ((minMax.second->first - minMax.first->first + 1) != oldVtblSize) {
@@ -196,11 +195,11 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
 
   for (unsigned i=0; i < vtbls.size(); i++) {
     const vtbl_name_t& vtbl = vtbls[i].first;
-    if (cha->oldVTables.count(vtbl) == 0) {
-      assert(cha->undefinedVTables.count(vtbl));
+    if (!cha->hasOldVTable(vtbl)) {
+      assert(cha->isUndefined(vtbl));
       continue;
     }
-    ConstantArray* vtableArr = cha->oldVTables[vtbl];
+    ConstantArray* vtableArr = cha->getOldVTable(vtbl);
 
     // iterate over the vtable elements
     for (unsigned vtblInd = 0; vtblInd < vtableArr->getNumOperands(); ++vtblInd) {
@@ -213,9 +212,7 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
       unsigned order = cha->getVTableOrder(vtbl, vtblInd);
 
       // this should have a parent
-      assert(cha->subObjNameMap.count(vtbl) && cha->subObjNameMap[vtbl].size() > order);
-      std::string& parentClass = cha->subObjNameMap[vtbl][order];
-
+      const std::string& parentClass = cha->getLayoutClassName(vtbl, order);
       std::string newThunkName(NEW_VTHUNK_NAME(thunkF, parentClass));
 
       if (M.getFunction(newThunkName)) {
@@ -266,7 +263,7 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
 
 void SDLayoutBuilder::orderCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   sd_print("Ordering...\n");
-  assert(cha->roots.count(vtbl));
+  assert(cha->isRoot(vtbl));
 
   // create a temporary list for the positive part
   interleaving_vec_t orderedVtbl;
@@ -276,15 +273,10 @@ void SDLayoutBuilder::orderCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   uint64_t max = 0;
 
   for(const vtbl_t child : pre) {
-    range_t r = cha->rangeMap[child.first][child.second];
+    const range_t& r = cha->getRange(child);
     uint64_t size = r.second - r.first + 1;
     if (size > max)
       max = size;
-
-    // record which cloud the current sub-vtable belong to
-    if (cha->ancestorMap.find(child) == cha->ancestorMap.end()) {
-      cha->ancestorMap[child] = vtbl;
-    }
   }
 
   max--;
@@ -305,10 +297,10 @@ void SDLayoutBuilder::orderCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   //sd_print("ALIGNMENT: %s, %u\n", vtbl.data(), max*WORD_WIDTH);
 
   for(const vtbl_t child : pre) {
-    if(cha->undefinedVTables.count(child.first))
+    if(cha->isUndefined(child.first))
       continue;
 
-    range_t r = cha->rangeMap[child.first][child.second];
+    const range_t &r = cha->getRange(child);
     uint64_t size = r.second - r.first + 1;
     uint64_t addrpt = cha->addrPt(child) - r.first;
     uint64_t padEntries = orderedVtbl.size() + addrpt;
@@ -332,7 +324,7 @@ void SDLayoutBuilder::orderCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
 
 void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   sd_print("Interleaving...\n");
-  assert(cha->roots.count(vtbl));
+  assert(cha->isRoot(vtbl));
 
   // create a temporary list for the positive part
   interleaving_list_t positivePart;
@@ -350,12 +342,6 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   // append positive part to the negative
   interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positivePart.begin(), positivePart.end());
   alignmentMap[vtbl] = WORD_WIDTH;
-
-  for (auto child:  pre) {
-    if (cha->ancestorMap.find(child) == cha->ancestorMap.end()) {
-      cha->ancestorMap[child] = vtbl;
-    }
-  }
 }
 
 void SDLayoutBuilder::calculateNewLayoutInds(SDLayoutBuilder::vtbl_name_t& vtbl){
@@ -387,22 +373,23 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   // fill the interleaved vtable element list
   std::vector<Constant*> newVtableElems;
   for (const interleaving_t& ivtbl : newVtbl) {
-    if (cha->undefinedVTables.find(ivtbl.first.first) != cha->undefinedVTables.end() ||
-        ivtbl.first == dummyVtable) {
-      newVtableElems.push_back(Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
+    if (cha->isUndefined(ivtbl.first.first) || ivtbl.first == dummyVtable) {
+      newVtableElems.push_back(
+        Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
     } else {
-      assert(cha->oldVTables.find(ivtbl.first.first) != cha->oldVTables.end());
+      assert(cha->hasOldVTable(ivtbl.first.first));
 
-      ConstantArray* vtable = cha->oldVTables[ivtbl.first.first];
+      ConstantArray* vtable = cha->getOldVTable(ivtbl.first.first);
       Constant* c = vtable->getOperand(ivtbl.second);
       Function* thunk = getVthunkFunction(c);
 
       if (thunk) {
         Function* newThunk = M.getFunction(
-              NEW_VTHUNK_NAME(thunk, cha->subObjNameMap[ivtbl.first.first][ivtbl.first.second]));
+              NEW_VTHUNK_NAME(thunk, cha->getLayoutClassName(ivtbl.first)));
         assert(newThunk);
 
-        Constant* newC = ConstantExpr::getBitCast(newThunk, IntegerType::getInt8PtrTy(C));
+        Constant* newC = ConstantExpr::getBitCast(newThunk,
+          IntegerType::getInt8PtrTy(C));
         newVtableElems.push_back(newC);
         vthunksToRemove.insert(thunk);
       } else {
@@ -437,7 +424,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
       newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
     }
 
-    if (cha->undefinedVTables.find(v.first) != cha->undefinedVTables.end())
+    if (cha->isUndefined(v.first))
       continue;
 
     // find the original vtable
@@ -470,7 +457,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
         continue;
 
       // find the offset relative to the sub-vtable start
-      int addrInsideBlock = oldAddrPt - cha->rangeMap[v.first][order].first;
+      int addrInsideBlock = oldAddrPt - cha->getRange(v.first, order).first;
 
       // find the new offset corresponding to the relative offset
       // inside the interleaved vtable
@@ -500,9 +487,9 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
 
   for(const vtbl_t& n : order) {
     uint64_t addrPt = cha->addrPt(n);  // get the address point of the vtable
+    const range_t &r = cha->getRange(n);
     posMap[n]     = positiveOff ? addrPt : (addrPt - 1); // start interleaving from that address
-    lastPosMap[n] = positiveOff ? (cha->rangeMap[n.first][n.second].second) :
-                                  (cha->rangeMap[n.first][n.second].first);
+    lastPosMap[n] = positiveOff ? r.second : r.first;
   }
 
   interleaving_list_t current; // interleaving of one element
@@ -557,11 +544,9 @@ int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t 
     return offset;
   }
 
-  assert(cha->rangeMap.find(name.first) != cha->rangeMap.end() &&
-         cha->rangeMap[name.first].size() > name.second);
-
+  assert(cha->hasRange(name));
   std::vector<uint64_t>& newInds = newLayoutInds[name];
-  range_t& subVtableRange = cha->rangeMap[name.first].at(name.second);
+  const range_t& subVtableRange = cha->getRange(name);
 
   if (isRelative) {
     int64_t oldAddrPt = cha->addrPt(name) - subVtableRange.first;
@@ -628,8 +613,8 @@ void SDLayoutBuilder::clearAnalysisResults() {
 /// ----------------------------------------------------------------------------
 
 void SDLayoutBuilder::removeOldLayouts(Module &M) {
-  for (auto itr : cha->oldVTables) {
-    GlobalVariable* var = M.getGlobalVariable(itr.first, true);
+  for (auto itr = cha->oldVTables_begin(); itr != cha->oldVTables_end(); itr ++) {
+    GlobalVariable* var = M.getGlobalVariable(itr->first, true);
     assert(var && var->use_empty());
 //    sd_print("deleted vtbl: %s\n", var->getName().data());
     var->eraseFromParent();
@@ -674,11 +659,11 @@ uint64_t SDLayoutBuilder::newVtblAddressPoint(const vtbl_name_t& name) {
 Value* SDLayoutBuilder::newVtblAddress(Module& M, const vtbl_name_t& name, Instruction* inst) {
   vtbl_t vtbl(name,0);
 
-  assert(cha->ancestorMap.count(vtbl));
-  vtbl_name_t rootName = cha->ancestorMap[vtbl];
+  assert(cha->hasAncestor(vtbl));
+  vtbl_name_t rootName = cha->getAncestor(vtbl);
 
   // sanity checks
-  assert(cha->roots.count(rootName));
+  assert(cha->isRoot(rootName));
 
   // switch to the new vtable name
   rootName = NEW_VTABLE_NAME(rootName);
@@ -716,13 +701,13 @@ Value* SDLayoutBuilder::newVtblAddress(Module& M, const vtbl_name_t& name, Instr
 
 Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
   const DataLayout &DL = M.getDataLayout();
-  assert(cha->ancestorMap.count(vtbl));
-  vtbl_name_t rootName = cha->ancestorMap[vtbl];
+  assert(cha->hasAncestor(vtbl));
+  vtbl_name_t rootName = cha->getAncestor(vtbl);
   LLVMContext& C = M.getContext();
   Type *IntPtrTy = DL.getIntPtrType(C);
 
   // sanity checks
-  assert(cha->roots.count(rootName));
+  assert(cha->isRoot(rootName));
 
   // switch to the new vtable name
   rootName = NEW_VTABLE_NAME(rootName);
@@ -733,7 +718,7 @@ Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
 
   // find which element is the address point
   assert(cha->getNumAddrPts(vtbl.first));
-  unsigned addrPt = cha->addrPt(vtbl) - cha->rangeMap[vtbl.first][vtbl.second].first;
+  unsigned addrPt = cha->addrPt(vtbl) - cha->getRange(vtbl).first;
 
   // now find its new index
   assert(newLayoutInds.count(vtbl));
@@ -755,7 +740,7 @@ Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
  * Interleave the generated clouds and create a new global variable for each of them.
  */
 void SDLayoutBuilder::buildNewLayouts(Module &M) {
-  for (roots_t::iterator itr = cha->roots.begin(); itr != cha->roots.end(); itr++) {
+  for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;
 
     if (interleave)
@@ -765,7 +750,7 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
   }
 
-  for (roots_t::iterator itr = cha->roots.begin(); itr != cha->roots.end(); itr++) {
+  for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;
     createThunkFunctions(M, vtbl); // replace the virtual thunks with the modified ones
     createNewVTable(M, vtbl);      // finally, emit the global variable

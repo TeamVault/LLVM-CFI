@@ -102,6 +102,13 @@ sd_getStringFromMDTuple(const MDOperand& op) {
   return mds->getString().str();
 }
 
+void SDBuildCHA::verifyClouds(Module &M) {
+  for (auto rootName : roots) {
+    vtbl_t root(rootName, 0);
+    assert(cloudMap.count(root)); 
+  }
+}
+
 void SDBuildCHA::buildClouds(Module &M) {
   // this set is used for checking if a parent class is defined or not
   std::set<vtbl_name_t> build_undefinedVtables;
@@ -193,12 +200,20 @@ void SDBuildCHA::buildClouds(Module &M) {
   }
 
   if (build_undefinedVtables.size() != 0) {
-    sd_print("Undefined vtables:\n");
+    sd_print("Build Undefined vtables:\n");
     for (auto n : build_undefinedVtables) {
       sd_print("%s\n", n.c_str());
     }
   }
   assert(build_undefinedVtables.size() == 0);
+
+  for (auto root : roots) {
+    for (auto child : preorder(vtbl_t(root,0))) {
+      if (ancestorMap.find(child) == ancestorMap.end()) {
+        ancestorMap[child] = root;
+      }
+    }
+  }
 }
 
 static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
@@ -404,17 +419,8 @@ int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived,
                                        const vtbl_name_t &base) {
   
   for (int64_t ind = 0; ind < subObjNameMap[derived].size(); ind++) {
-    std::cerr << subObjNameMap[derived][ind] << "\n";
     if (subObjNameMap[derived][ind] == base)
       return ind;
   }
   return -1;
-}
-
-bool SDBuildCHA::hasAncestor(const vtbl_t &vtbl) {
-  return ancestorMap.find(vtbl) != ancestorMap.end();
-}
-
-SDBuildCHA::vtbl_name_t SDBuildCHA::getAncestor(const vtbl_t &vtbl) {
-  return ancestorMap[vtbl];
 }

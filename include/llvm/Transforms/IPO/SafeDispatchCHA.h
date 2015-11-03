@@ -93,6 +93,11 @@ private:
      */
     void buildClouds(Module &M);
 
+    /**
+     * Verify that the cloud information we got is sane
+     */
+    void verifyClouds(Module &M);
+
     void printClouds();
 
     /**
@@ -128,7 +133,8 @@ public:
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
-      buildClouds(M);          // part 1
+      buildClouds(M);
+      verifyClouds(M);
       std::cerr << "Undefined vtables: \n";
       for (auto i : undefinedVTables) {
         std::cerr << i << "\n";
@@ -146,8 +152,8 @@ public:
     void clearAnalysisResults();
 
     /**
-     * Calculates the vtable order number given the index relative to
-     * the beginning of the vtable
+     * Calculates the order of the primitive vtable in which
+     * the given the index relative to the beginning of the vtable lays.
      */
     unsigned getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind);
 
@@ -188,6 +194,73 @@ public:
     bool isDefined(const vtbl_t &vtbl) {
       return !isUndefined(vtbl);
     }
+
+    /*
+     * Ancestor Map Accessors
+     */
+    bool hasAncestor(const vtbl_t &v) {
+      return ancestorMap.find(v) != ancestorMap.end();
+    }
+
+    vtbl_name_t getAncestor(const vtbl_t &v) {
+      return ancestorMap[v];
+    }
+    /*
+     * Old VTable Accessors
+     */
+    bool hasOldVTable(const vtbl_name_t &vtbl) {
+      return oldVTables.find(vtbl) != oldVTables.end();
+    }
+
+    ConstantArray *getOldVTable(const vtbl_name_t &vtbl) {
+      return oldVTables[vtbl];
+    }
+
+    oldvtbl_map_t::const_iterator oldVTables_begin() {
+      return oldVTables.cbegin();
+    }
+
+    oldvtbl_map_t::const_iterator oldVTables_end() {
+      return oldVTables.cend();
+    }
+    /*
+     * Roots Set Accessors
+     */
+    bool isRoot(const vtbl_name_t& v) {
+      return roots.find(v) != roots.end();
+    }
+
+    const roots_t::const_iterator roots_begin() {
+      return roots.cbegin();
+    }
+
+    const roots_t::const_iterator roots_end() {
+      return roots.cend();
+    }
+    /*
+     * Range Map Accessors
+     */
+    const range_t& getRange(const vtbl_t &v) {
+      return rangeMap[v.first][v.second];
+    }
+    const range_t& getRange(const vtbl_name_t &name, uint64_t order) {
+      return rangeMap[name][order];
+    }
+
+    bool hasRange(const vtbl_t &name) {
+      return rangeMap.find(name.first) != rangeMap.end() &&
+             rangeMap[name.first].size() > name.second;
+    }
+    /*
+     * SubObj Name Map Accessors
+     */
+    const vtbl_name_t& getLayoutClassName(const vtbl_t &vtbl) {
+      return subObjNameMap[vtbl.first][vtbl.second];
+    }
+    const vtbl_name_t& getLayoutClassName(const vtbl_name_t &name, uint64_t ind) {
+      return subObjNameMap[name][ind];
+    }
+
     /**
      * Recursive function that calculates the number of deriving sub-vtables of each
      * primary vtable
@@ -215,8 +288,6 @@ public:
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
 
     int64_t getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base);
-    bool  hasAncestor(const vtbl_t &v);
-    vtbl_name_t getAncestor(const vtbl_t &v);
   };
 
 }
