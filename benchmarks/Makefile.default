@@ -15,7 +15,7 @@ LDFLAGS = $(OPT) -B $(BINUTILS_BUILD_DIR)/gold \
 		  -Wl,-plugin $(LLVM_BUILD_DIR)/../lib/LLVMgold.so \
 		  -Wl,-plugin-opt=mcpu=x86-64 \
 		  -Wl,-plugin-opt=save-temps \
-		  -Wl,-plugin-opt=sd-ivtbl
+		  -Wl,-plugin-opt=sd-ovtbl
 LDLIBS  = -L$(LLVM_DIR)/../lib \
 		  -L$(LLVM_DIR)/libdyncast -ldyncast -ldlcfi -Wl,-rpath=$(LLVM_DIR)/../lib
 AR      = $(LLVM_DIR)/scripts/ar
@@ -29,7 +29,7 @@ main :	$(ALL_OBJS) $(LIB_NAMES)
 		$(LD) $(LDFLAGS) -o main -L. $^ $(LDLIBS) $(LIBS)
 
 %.o: 	%.cpp
-		$(CC) -c $(CFLAGS) $< -o $@
+		$(CC) $(CFLAGS) -g -c $< -o $@
 
 clean:
 		@rm -f *.o *.a main

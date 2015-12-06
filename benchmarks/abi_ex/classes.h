@@ -1,6 +1,17 @@
 #ifndef __CLASSES_H__
 #define __CLASSES_H__
 
+
+/*
+    A
+   . .
+  B   C
+   \ /
+ X  D
+  \/
+  E
+*/
+
 class A {
 public:
   virtual ~A();
