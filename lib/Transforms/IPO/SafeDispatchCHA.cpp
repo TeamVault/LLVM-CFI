@@ -109,9 +109,102 @@ void SDBuildCHA::verifyClouds(Module &M) {
   }
 }
 
+SDBuildCHA::vtbl_t SDBuildCHA::findLeastCommonAncestor(
+  const SDBuildCHA::vtbl_set_t &vtbls,
+  SDBuildCHA::cloud_map_t &ptMap) {
+  cloud_map_t ancestorsMap;
+
+  for (auto vtbl : vtbls) {
+    std::vector<vtbl_t> q;
+    q.push_back(vtbl);
+
+    while (q.size() > 0) {
+      vtbl_t cur = q.back();
+      q.pop_back();
+
+      if (ancestorsMap[vtbl].find(cur) == ancestorsMap[vtbl].end()) {
+        ancestorsMap[vtbl].insert(cur);
+        if (ptMap.find(cur) != ptMap.end())
+          for (auto pt : ptMap[cur])  q.push_back(pt);
+      }
+    }
+  }
+
+  // TODO(dbounov) The below algorithm is a conservative
+  // heuristic. The actual problem to solve is the "lowest"
+  // node in the CHA that intercepts all paths leading up to the root.
+  // The current implementation just finds the topmost common ancestor.
+  vtbl_t candidate(ancestorMap[*vtbls.begin()], 0);
+  do {
+    vtbl_t nextCandidate;
+    int nChildrenCommonAncestors = 0;
+
+    // Count the number of children of the current candidate
+    // that are also common ancestors
+    for (auto child : cloudMap[candidate]) {
+      int nDescendents = 0;
+      for (auto it : ancestorsMap)
+        if (it.second.find(child) != it.second.end()) nDescendents++;
+
+      if (nDescendents == vtbls.size()) {
+        nextCandidate = child;
+        nChildrenCommonAncestors++;
+      }
+    }
+
+    // If there is not a single common ancestor amongst the candidate's
+    // children conservatively terminate search
+    if (nChildrenCommonAncestors != 1)
+      break;
+
+    candidate = nextCandidate;
+  } while (1);
+
+  return candidate;
+}
+
+void SDBuildCHA::removeDiamonds(Module &M) {
+  cloud_map_t ptMap;
+
+  for (auto it : cloudMap) {
+    for (auto child : it.second) {
+      ptMap[child].insert(it.first);
+    }
+  }
+
+  for (auto it : ptMap) {
+    if (it.second.size() > 1) {
+      vtbl_t child = it.first;
+      sd_print("Class %s,%d has multiple (%d) parents:\n", child.first.c_str(), child.second,
+        it.second.size());
+      for (auto it1 : it.second) {
+        sd_print("  %s,%d\n", it1.first.c_str(), it1.second);
+      }
+
+      vtbl_t newAncestor(ancestorMap[child], 0);
+
+      for (auto pt : it.second) {
+        sd_print("Erasing %s,%d from %s,%d\n",
+          child.first.c_str(), child.second,
+          pt.first.c_str(), pt.second);
+        cloudMap[pt].erase(child);
+        // No need to touch cloudSizeMap as those are not yet calculated
+      }
+
+      cloudMap[newAncestor].insert(child);
+      subObjNameMap[child.first][child.second] = newAncestor.first;
+
+
+      it.second.clear();
+      it.second.insert(newAncestor);
+      sd_print("Setting parent to %s,%d\n", newAncestor.first.c_str(), newAncestor.second);
+    }
+  }
+}
+
 void SDBuildCHA::buildClouds(Module &M) {
   // this set is used for checking if a parent class is defined or not
-  std::set<vtbl_name_t> build_undefinedVtables;
+  std::set<vtbl_t> build_undefinedVtables;
 
   for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
     NamedMDNode* md = itr;
@@ -120,7 +213,7 @@ void SDBuildCHA::buildClouds(Module &M) {
     if(! md->getName().startswith(SD_MD_CLASSINFO))
       continue;
 
-    sd_print("GOT METADATA: %s\n", md->getName().data());
+    //sd_print("GOT METADATA: %s\n", md->getName().data());
 
     std::vector<nmd_t> infoVec = extractMetadata(md);
 
@@ -128,12 +221,14 @@ void SDBuildCHA::buildClouds(Module &M) {
       // record the old vtable array
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
-      sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
+      //sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
 
+      /*
       sd_print("oldvtables: %p, %d, class %s\n",
                oldVtable,
                oldVtable ? oldVtable->hasInitializer() : -1,
                info.className.c_str());
+      */
 
       if (oldVtable && oldVtable->hasInitializer()) {
         ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
@@ -146,55 +241,57 @@ void SDBuildCHA::buildClouds(Module &M) {
       for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
-        sd_print("SubVtable[%d] Order: %d Parent: %s [%d-%d] AddrPt: %d\n",
+        /*
+        sd_print("SubVtable[%d] Order: %d Parents[%d]: %s [%d-%d] AddrPt: %d\n",
           ind, 
           subInfo->order,
-          subInfo->parentName.c_str(),
+          subInfo->parents.size(),
+          "NYI",
           subInfo->start,
           subInfo->end,
           subInfo->addressPoint);
+        */
 
-        if (ind == 0) {
-          // remove the primary vtable from the build_undefined vtables map
-          if (build_undefinedVtables.find(info.className) != build_undefinedVtables.end()) {
-            sd_print("Removing %s from build_udnefinedVtables\n", info.className.c_str());
-            build_undefinedVtables.erase(info.className);
-          }
+        if (build_undefinedVtables.find(name) != build_undefinedVtables.end()) {
+          //sd_print("Removing %s,%d from build_udnefinedVtables\n", name.first.c_str(), name.second);
+          build_undefinedVtables.erase(name);
+        }
 
-          if (cloudMap.find(name) == cloudMap.end()){
-            sd_print("Inserting %s, %d in cloudMap ind 0\n", name.first.c_str(), name.second);
-            cloudMap[name] = std::set<vtbl_t>();
+        if (cloudMap.find(name) == cloudMap.end()){
+          //sd_print("Inserting %s, %d in cloudMap\n", name.first.c_str(), name.second);
+          cloudMap[name] = std::set<vtbl_t>();
+        }
+
+        vtbl_set_t parents;
+        for (auto it : subInfo->parents) {
+          if (it.first != "") {
+            vtbl_t &parent = it;
+            parents.insert(parent);
+
+            // if the parent class is not defined yet, add it to the
+            // undefined vtable set
+            if (cloudMap.find(parent) == cloudMap.end()) {
+              //sd_print("Inserting %s, %d in cloudMap - undefined parent\n", parent.first.c_str(), parent.second);
+              cloudMap[parent] = std::set<vtbl_t>();
+              build_undefinedVtables.insert(parent);
+            }
+
+            // add the current class to the parent's children set
+            cloudMap[parent].insert(name);
+          } else {
+            assert(ind == 0); // make sure secondary vtables have a direct parent
+            // add the class to the root set
+            roots.insert(info.className);
           }
         }
 
-        if (subInfo->parentName != "") {
-          vtbl_t parent(subInfo->parentName, 0);
-
-          // if the parent class is not defined yet, add it to the
-          // undefined vtable set
-          if (cloudMap.find(parent) == cloudMap.end()) {
-            sd_print("Inserting %s, %d in cloudMap - undefined parent\n", name.first.c_str(), name.second);
-            cloudMap[parent] = std::set<vtbl_t>();
-            sd_print("Adding %s to build_udnefinedVtables\n", subInfo->parentName.c_str());
-            build_undefinedVtables.insert(subInfo->parentName);
-          }
-
-          // add the current class to the parent's children set
-          cloudMap[parent].insert(name);
-        } else {
-          assert(ind == 0); // make sure secondary vtables have a direct parent
-          // add the class to the root set
-          roots.insert(info.className);
-        }
+        parentMap[info.className].push_back(parents);
 
         // record the original address points
         addrPtMap[info.className].push_back(subInfo->addressPoint);
 
         // record the sub-vtable ends
         rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
-
-        // record the class name of the sub-object
-        subObjNameMap[info.className].push_back(subInfo->parentName);
       }
     }
   }
@@ -202,16 +299,42 @@ void SDBuildCHA::buildClouds(Module &M) {
   if (build_undefinedVtables.size() != 0) {
     sd_print("Build Undefined vtables:\n");
     for (auto n : build_undefinedVtables) {
-      sd_print("%s\n", n.c_str());
+      sd_print("%s,%d\n", n.first.c_str(), n.second);
     }
   }
   assert(build_undefinedVtables.size() == 0);
 
-  for (auto root : roots) {
-    for (auto child : preorder(vtbl_t(root,0))) {
+  for (auto rootName : roots) {
+    vtbl_t root(rootName, 0);
+    for (auto child : preorder(root)) {
       if (ancestorMap.find(child) == ancestorMap.end()) {
-        ancestorMap[child] = root;
+        ancestorMap[child] = rootName;
       }
+    }
+  }
+
+  for (auto it : parentMap) {
+    const vtbl_name_t &className = it.first;
+    const std::vector<vtbl_set_t> &parentSetV = it.second;
+
+    for (int ind = 0; ind < parentSetV.size(); ind++) {
+      vtbl_name_t layoutClass = "none";
+
+      // Check that all possible parents are in the same layout cloud
+      for (auto ptIt : parentSetV[ind]) {
+        if (layoutClass != "none")
+          assert(layoutClass == ancestorMap[ptIt] &&
+            "All parents of a primitive vtable should have the same root layout.");
+        else
+          layoutClass = ancestorMap[ptIt];
+      }
+
+      // No parents - then our "layout class" is ourselves.
+      if (layoutClass == "none")
+        layoutClass = className;
+      
+      // record the class name of the sub-object
+      subObjNameMap[className].push_back(layoutClass);
     }
   }
 }
@@ -264,34 +387,29 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
       SDBuildCHA::nmd_sub_t subInfo;
       llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i));
       assert(tup);
-      assert(tup->getNumOperands() == 6);
-//      if (tup->getNumOperands() != 6) {
-//        sd_print("node operand count: %u\n", md->getNumOperands());
-//        sd_print("tuple operand count: %u\n", tup->getNumOperands());
-//        tup->dump();
-//        assert(false);
-//      }
+      assert(tup->getNumOperands() == 5);
 
       subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));
-      subInfo.parentName = sd_getStringFromMDTuple(tup->getOperand(1));
+      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1));
+      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));
+      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(3));
+      llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4));
 
-      GlobalVariable* parentVtable = sd_mdnodeToGV(tup->getOperand(2).get());
+      unsigned numParents = sd_getNumberFromMDTuple(parentsTup->getOperand(0));
+      for (int j = 0; j < numParents; j++) {
+        vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3));
+        unsigned ptIdx = sd_getNumberFromMDTuple(parentsTup->getOperand(1+j*3+1));
+        GlobalVariable* parentVtable = sd_mdnodeToGV(parentsTup->getOperand(1+j*3+2).get());
 
-      if(parentVtable) {
-        subInfo.parentName = parentVtable->getName();
+        if (parentVtable) {
+          ptName = parentVtable->getName();
+        }
+        subInfo.parents.insert(vtbl_t(ptName, ptIdx));
       }
-
-      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(3));
-      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(4));
-      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(5));
-
 
       bool currRangeCheck = (subInfo.start <= subInfo.addressPoint &&
                      subInfo.addressPoint <= subInfo.end);
       bool prevVtblCheck = (i == op || (--info.subVTables.end())->end < subInfo.start);
-
-//      sd_print("%lu, %s, %lu, %lu, %lu\n", subInfo.order, subInfo.parentName.c_str(),
-//               subInfo.start, subInfo.end, subInfo.addressPoint);
 
       assert(currRangeCheck && prevVtblCheck);
 
@@ -343,7 +461,7 @@ void SDBuildCHA::clearAnalysisResults() {
 /// Helper functions
 /// ----------------------------------------------------------------------------
 
-void SDBuildCHA::printClouds() {
+void SDBuildCHA::printClouds(const std::string &suffix) {
   int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
   assert(rc == 0);
 
@@ -351,7 +469,7 @@ void SDBuildCHA::printClouds() {
     assert(rootName.length() <= 490);
 
     char filename[512];
-    sprintf(filename, "/tmp/dot/%s.dot", rootName.data());
+    sprintf(filename, "/tmp/dot/%s.%s.dot", rootName.data(), suffix.c_str());
 
     FILE* file = fopen(filename, "w");
     assert(file);
@@ -361,10 +479,12 @@ void SDBuildCHA::printClouds() {
     vtbl_t root(rootName,0);
 
     std::deque<vtbl_t> classes;
+    std::set<vtbl_t> visited;
     classes.push_back(root);
 
     while(! classes.empty()) {
       vtbl_t vtbl = classes.front();
+
       fprintf(file, "\t \"(%s,%lu)\";\n", vtbl.first.data(), vtbl.second);
       classes.pop_front();
 
@@ -372,7 +492,10 @@ void SDBuildCHA::printClouds() {
         fprintf(file, "\t \"(%s,%lu)\" -> \"(%s,%lu)\";\n",
                 vtbl.first.data(), vtbl.second,
                 child.first.data(), child.second);
-        classes.push_back(child);
+        if (visited.find(child) == visited.end()) {
+          classes.push_back(child);
+          visited.insert(child);
+        }
       }
     }
 
@@ -418,9 +541,12 @@ bool SDBuildCHA::knowsAbout(const vtbl_t &vtbl) {
 int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived,
                                        const vtbl_name_t &base) {
   
+  int res = -1;
   for (int64_t ind = 0; ind < subObjNameMap[derived].size(); ind++) {
-    if (subObjNameMap[derived][ind] == base)
-      return ind;
+    if (subObjNameMap[derived][ind] == base) {
+      assert(res== -1 && "There should be a unique path for each upcast.");
+      res = ind;
+    }
   }
-  return -1;
+  return res;
 }

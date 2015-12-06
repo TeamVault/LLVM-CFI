@@ -528,7 +528,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
     // Remove unused vtables (pure virtual or unrereferenced) before interleaving
     PM.add(createGlobalDCEPass());         
     PM.add(llvm::createSDFixPass());
-    std::cerr << "Creating buildre pass with " << EmitIVTBLs << "\n";
+    PM.add(llvm::createSDBuildCHAPass());
     PM.add(llvm::createSDLayoutBuilderPass(EmitIVTBLs));
     PM.add(llvm::createSDUpdateIndicesPass());
   }

@@ -549,6 +549,19 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
     unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
     unsigned NumVTableThunks, llvm::Constant *RTTI) {
 
+  /*
+  std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
+  sd_print("Vtable: %s\n", Name.c_str());
+  PrintVTableInitializer(
+      RD, Components,
+      NumComponents, VTableThunks,
+      NumVTableThunks, RTTI);
+
+  for (auto base = RD->bases_begin(); base != RD->bases_end(); base++) {
+    sd_print("C++ Base :\n"); base->getType()->getAsCXXRecordDecl()->dump();
+  }
+  */
+
   SmallVector<llvm::Constant *, 64> Inits;
 
   llvm::Type *Int8PtrTy = CGM.Int8PtrTy;
@@ -784,19 +797,11 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
       VTLayout->getNumVTableComponents(), VTLayout->vtable_thunk_begin(),
       VTLayout->getNumVTableThunks(), RTTI);
 
-  sd_print("ConstructionVtable: %s\n", Name.str().c_str());
-  for (auto it = AddressPoints.begin(); it != AddressPoints.end(); it++) {
-    sd_print("Address point: %d\n", it->second);
-  }
-  PrintVTableInitializer(
-      Base.getBase(), VTLayout->vtable_component_begin(),
-      VTLayout->getNumVTableComponents(), VTLayout->vtable_thunk_begin(),
-      VTLayout->getNumVTableThunks(), RTTI);
-
   VTable->setInitializer(Init);
 
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
 
+  std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
   sd_insertVtableMD(&CGM, VTable, VTLayout.get(), RD, &Base);
 
   return VTable;

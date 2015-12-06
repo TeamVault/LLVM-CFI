@@ -1541,7 +1541,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
     EmitFundamentalRTTIDescriptors();
 
   CGM.EmitVTableBitSetEntries(VTable, VTLayout);
-
+  std::cerr << "emitVTableDefinitions for " << RD->getQualifiedNameAsString() << "\n";
   sd_insertVtableMD(&CGM, VTable, &VTLayout, RD, NULL);
 }
 
@@ -1611,7 +1611,11 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   Out.flush();
   StringRef Name = OutName.str();
 
+
   ItaniumVTableContext &VTContext = CGM.getItaniumVTableContext();
+  std::cerr << "getAddrOfVTable: " << RD->getQualifiedNameAsString() << "\n";
+  std::cerr << "layout : " << &(VTContext.getVTableLayout(RD)) << "\n";
+
   llvm::ArrayType *ArrayType = llvm::ArrayType::get(
       CGM.Int8PtrTy, VTContext.getVTableLayout(RD).getNumVTableComponents());
 
@@ -1636,6 +1640,7 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   // get the vtable
   const CXXRecordDecl* RD = MD->getParent();
+  std::cerr << "Getting the virtual function pointer for " << RD->getQualifiedNameAsString() << "\n";
   llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(), RD) ?
               CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
               NULL;
@@ -1707,8 +1712,10 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   CGF.EmitBlock(checkDone);
 
-  const VTableLayout &Layout = CGM.getItaniumVTableContext().getVTableLayout(RD);
-  sd_insertVtableMD(&CGM, NULL, &Layout, RD, NULL);
+  ItaniumVTableContext &Ctx = CGM.getItaniumVTableContext();
+  const VTableLayout &Layout = Ctx.getVTableLayout(RD);
+//  std::cerr << "inserting vtable md in get checked vtbl for " << RD->getQualifiedNameAsString() << "\n";
+//  sd_insertVtableMD(&CGM, NULL, &Layout, RD, NULL);
   return VTableAP;
 }
 

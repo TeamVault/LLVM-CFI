@@ -420,6 +420,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
   for (const vtbl_t& v : cloud) {
     if (cha->isDefined(v)) {
+      std::cerr << v.first << v.second << "\n";
       assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
       newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
     }
@@ -525,6 +526,7 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
 int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t offset,
                                 bool isRelative = true) {
 
+  return offset;
   if (cha->isUndefined(name) && cha->hasFirstDefinedChild(name)) {
     name = cha->getFirstDefinedChild(name);
   }
@@ -754,10 +756,6 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     vtbl_name_t vtbl = *itr;
     createThunkFunctions(M, vtbl); // replace the virtual thunks with the modified ones
     createNewVTable(M, vtbl);      // finally, emit the global variable
-
-    // exploit this loop to calculate the sizes of all possible subgraphs
-    // that has a primary vtable as a root
-    cha->calculateChildrenCounts(vtbl_t(vtbl,0));
   }
 }
 

@@ -46,8 +46,8 @@ namespace llvm {
     // variable definitions
     typedef std::string                                     vtbl_name_t;
     typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;
-    typedef std::set<vtbl_t>                                cloud_map_children_t;
-    typedef std::map<vtbl_t, cloud_map_children_t>          cloud_map_t;
+    typedef std::set<vtbl_t>                                vtbl_set_t;
+    typedef std::map<vtbl_t, vtbl_set_t>          cloud_map_t;
     typedef std::set<vtbl_name_t>                           roots_t;
     typedef std::map<vtbl_name_t, std::vector<uint64_t>>    addrpt_map_t;
     typedef std::pair<uint64_t, uint64_t>                   range_t;
@@ -56,9 +56,11 @@ namespace llvm {
     typedef std::vector<vtbl_t>                             order_t;
     typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
+    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> >     parent_map_t;
 
 private:
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
+    parent_map_t parentMap;                            // vtbl -> [(vtbl, ind)]
     roots_t roots;                                     // set<vtbl>
     subvtbl_map_t subObjNameMap;                       // vtbl -> [vtbl]
     addrpt_map_t addrPtMap;                            // vtbl -> [addr pt]
@@ -78,6 +80,8 @@ private:
     struct nmd_sub_t {
       uint64_t order;
       vtbl_name_t parentName;
+      uint64_t parentOrder;
+      vtbl_set_t parents;
       uint64_t start; // range boundaries are inclusive
       uint64_t end;
       uint64_t addressPoint;
@@ -92,13 +96,26 @@ private:
      * Reads the NamedMDNodes in the given module and creates the class hierarchy
      */
     void buildClouds(Module &M);
+    /**
+     * Recursive function that calculates the number of deriving (primitive) sub-vtables of each
+     * (primitive) vtable
+     */
+    uint32_t calculateChildrenCounts(const vtbl_t& vtbl);
+    /**
+     * Remove diamonds created due to virtual inheritance
+     * TODO(dbounov): After we add multiple range checks remove this
+     */
+    void removeDiamonds(Module &M);
+    vtbl_t findLeastCommonAncestor(
+      const vtbl_set_t &vtbls,
+      cloud_map_t &ptMap);
 
     /**
      * Verify that the cloud information we got is sane
      */
     void verifyClouds(Module &M);
 
-    void printClouds();
+    void printClouds(const std::string &suffix);
 
     /**
      * Extract the vtable info from the metadata and put it into a struct
@@ -134,12 +151,19 @@ public:
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
       buildClouds(M);
+      printClouds("with_diamonds");
+      removeDiamonds(M);
+      printClouds("without_diamonds");
+
+      for (auto rootName : roots) {
+        calculateChildrenCounts(vtbl_t(rootName, 0));
+      }
+
       verifyClouds(M);
       std::cerr << "Undefined vtables: \n";
       for (auto i : undefinedVTables) {
         std::cerr << i << "\n";
       }
-      //printClouds();
       sd_print("Finished building CHA\n");
 
       return roots.size() > 0;
@@ -261,11 +285,6 @@ public:
       return subObjNameMap[name][ind];
     }
 
-    /**
-     * Recursive function that calculates the number of deriving sub-vtables of each
-     * primary vtable
-     */
-    uint32_t calculateChildrenCounts(const vtbl_t& vtbl);
     /**
      * Return a list that contains the preorder traversal of the tree
      * starting from the given node

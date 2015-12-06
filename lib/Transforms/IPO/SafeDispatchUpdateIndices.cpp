@@ -107,6 +107,7 @@ namespace {
 
     bool runOnModule(Module &M) {
       int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0, constPtr = 0;
+      double sumWidth = 0.0;
       Function *sd_subst_indexF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
        Function *sd_subst_rangeF =
@@ -152,6 +153,8 @@ namespace {
             rootVtblInt->getOperand(0));
           llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
 
+          sumWidth += widthInt;
+
           if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
             CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
             CI->eraseFromParent();
@@ -182,7 +185,7 @@ namespace {
         }
       }
 
-      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d\n", indexSubst, rangeSubst, eqSubst, constPtr);
+      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", indexSubst, rangeSubst, eqSubst, constPtr, sumWidth/(rangeSubst + eqSubst + constPtr));
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
     }
 
@@ -374,7 +377,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     llvm::Constant *start;
     int64_t rangeWidth;
 
-    sd_print("Callsite for %s cha->knowsAbout(%s,%s)=%d) ", className.c_str(),
+    sd_print("Callsite for %s cha->knowsAbout(%s,%d)=%d) ", className.c_str(),
       vtbl.first.c_str(), vtbl.second, cha->knowsAbout(vtbl));
 
     if (cha->knowsAbout(vtbl)) {

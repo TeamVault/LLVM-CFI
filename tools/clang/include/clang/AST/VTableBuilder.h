@@ -24,6 +24,8 @@
 #include <memory>
 #include <utility>
 
+#include "llvm/Transforms/IPO/SafeDispatchCHA.h"
+
 namespace clang {
   class CXXRecordDecl;
 
@@ -207,6 +209,30 @@ public:
   typedef const VTableThunkTy *vtable_thunk_iterator;
 
   typedef llvm::DenseMap<BaseSubobject, uint64_t> AddressPointsMapTy;
+
+  typedef std::pair<const CXXRecordDecl*, uint64_t> vtbl_t;
+  typedef std::set<vtbl_t> vtbl_set_t;
+
+  typedef struct {
+    // For non-virtual parents - the direct parent layout
+    // For virtual parents - the virtual base causing this primitive vtable
+    vtbl_t layoutClass; 
+    // Is this base actually virtual (i.e. parent is virtual and not a primary virtual table)
+    bool isVirtual;
+    // The set of all direct base primitive vtables for this vtable
+    vtbl_set_t directParents; 
+    // The set of all primitive virtual primary base vtables covered by this vtable
+    vtbl_set_t primaryVirtualBases;
+    // directParents.size() > 0
+    // !isVirtual => directParents.size() == 1
+    // !isVirtual => (directParents[0] == base)
+  } VTableParent;
+
+  typedef std::vector<VTableParent> parent_vector_t;
+  typedef std::vector<const CXXRecordDecl*> InheritanceStackTy;
+  typedef std::pair<const CXXRecordDecl*, InheritanceStackTy> InheritancePathTy;
+  typedef std::map<uint64_t, std::set<const CXXRecordDecl*> > ParentMapTy;
+  typedef std::map<uint64_t, uint64_t> AddressPointOrderMapTy;
 private:
   uint64_t NumVTableComponents;
   std::unique_ptr<VTableComponent[]> VTableComponents;
@@ -217,8 +243,11 @@ private:
 
   /// \brief Address points for all vtables.
   AddressPointsMapTy AddressPoints;
+  ParentMapTy ParentMap;
 
   bool IsMicrosoftABI;
+  AddressPointOrderMapTy AddressPointOrder;
+  parent_vector_t Parents;
 
 public:
   VTableLayout(uint64_t NumVTableComponents,
@@ -226,6 +255,7 @@ public:
                uint64_t NumVTableThunks,
                const VTableThunkTy *VTableThunks,
                const AddressPointsMapTy &AddressPoints,
+               const parent_vector_t &_Parents,
                bool IsMicrosoftABI);
   ~VTableLayout();
 
@@ -264,6 +294,14 @@ public:
 
   const AddressPointsMapTy &getAddressPoints() const {
     return AddressPoints;
+  }
+
+  uint64_t getAddressPoint(uint64_t order) const {
+    return ((AddressPointOrderMapTy) AddressPointOrder)[order];
+  }
+
+  const parent_vector_t &getParents() const {
+    return Parents;
   }
 };
 

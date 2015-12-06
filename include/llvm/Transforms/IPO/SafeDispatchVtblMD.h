@@ -17,6 +17,9 @@
 #include <map>
 
 namespace {
+  typedef std::pair<std::string, uint64_t> vtbl_t;
+  typedef std::set<vtbl_t> vtbl_set_t;
+
   /**
    * This class contains the information needed for each sub-vtable
    * to properly interleave them
@@ -24,32 +27,46 @@ namespace {
   class SD_VtableMD {
   public:
     uint64_t order;
-    const std::string parentName;
+    const vtbl_set_t parents;
     uint64_t start;
     uint64_t end;
     uint64_t addressPoint;
 
-    SD_VtableMD(uint64_t _order, const std::string& _parent, uint64_t _start,
-                uint64_t _end, uint64_t _addrPt) :
-      order(_order), parentName(_parent), start(_start),
+    SD_VtableMD(uint64_t _order, const vtbl_set_t &_parents,
+                uint64_t _start, uint64_t _end, uint64_t _addrPt) :
+      order(_order), parents(_parents), start(_start),
       end(_end), addressPoint(_addrPt) {}
 
     llvm::MDNode* getMDNode(llvm::Module& M, llvm::LLVMContext& C) {
       std::vector<llvm::Metadata*> tuple;
+      std::vector<llvm::Metadata*> parentsTuple;
+
+      parentsTuple.push_back(sd_getMDNumber(C, parents.size()));
+
+      for (auto it: parents) {
+        parentsTuple.push_back(sd_getMDString(C, it.first));
+        parentsTuple.push_back(sd_getMDNumber(C, it.second));
+        parentsTuple.push_back(sd_getClassVtblGVMD(it.first, M));
+      }
 
       tuple.push_back(sd_getMDNumber(C, order));
-      tuple.push_back(sd_getMDString(C, parentName));
-      tuple.push_back(sd_getClassVtblGVMD(parentName, M));
       tuple.push_back(sd_getMDNumber(C, start));
       tuple.push_back(sd_getMDNumber(C, end));
       tuple.push_back(sd_getMDNumber(C, addressPoint));
+      tuple.push_back(llvm::MDNode::get(C, parentsTuple));
 
       return llvm::MDNode::get(C, tuple);
     }
 
     void dump(std::ostream& out) {
       out << order << ", "
-          << parentName << ", "
+          << parents.size() << ":{";
+
+      for (auto pt : parents) {
+        out << "(" << pt.first << "," << pt.second << "),";
+      }
+
+      out << "}, "
           << "[" << start << "," << end << "], "
           << addressPoint;
     }
@@ -119,73 +136,52 @@ sd_findMostDerived(std::set<const clang::BaseSubobject*>& objs) {
  * Calculate the sub-vtable regions, their parent classes and their address points
  */
 static std::vector<SD_VtableMD>
-sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayout* VTLayout,
+sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
+                    clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayout* VTLayout,
                     const clang::CXXRecordDecl *RD, const clang::BaseSubobject* Base = NULL) {
 
-  std::map<uint64_t, std::set<const clang::BaseSubobject*>> subObjMap;
-  std::map<uint64_t, std::set<std::string>> addrPtMap;
+  //std::map<uint64_t, std::set<const clang::BaseSubobject*> > subObjMap;
+  clang::ItaniumVTableContext &ctx = CGM->getVTables().getItaniumVTableContext();
+  std::map<uint64_t, vtbl_set_t> addrPtMap;
   std::vector<SD_VtableMD> subVtables;
+  unsigned order = 0; // order of the sub-vtable
 
-  std::string className = ABI->GetClassMangledName(RD);
+  std::cerr << "Emitting subvtable info for " << RD->getQualifiedNameAsString() << "\n";
 
-  // order the sub-vtables according to their address points
-  for (auto &&AP : VTLayout->getAddressPoints()) {
-    const clang::BaseSubobject* subObj = &(AP.first);
-    uint64_t addrPt = AP.second;
+  clang::VTableLayout::parent_vector_t Parents = VTLayout->getParents();
 
-    // don't include the current classes' subobject
-    subObjMap[addrPt].insert(subObj);
-  }
+  for (int i = 0; i < Parents.size(); i++) {
+    uint64_t addrPt = VTLayout->getAddressPoint(i);
+    vtbl_set_t s;
 
-  // find the most derived class for each address point
-  for (auto a_itr = subObjMap.begin(); a_itr != subObjMap.end(); a_itr++) {
-    uint64_t addrPt = a_itr->first;
-
-    if (a_itr->second.size() == 1) {
-      // if there is only one class in the address point, use it directly
-      const clang::BaseSubobject* obj = *(a_itr->second.begin());
-      addrPtMap[addrPt].insert(ABI->GetClassMangledName(obj->getBase()));
-    } else {
-      // look for the current class in the address point and delete it if found
-      // this is needed since we want to use the direct parent if there is any
-      for (const clang::BaseSubobject* obj : a_itr->second) {
-        if (ABI->GetClassMangledName(obj->getBase()) == className) {
-          a_itr->second.erase(obj);
-          break;
-        }
+    if (Parents[i].directParents.size() == 0) {
+      s.insert(vtbl_t("", 0));
+    } else 
+      for (auto it : Parents[i].directParents) {
+        s.insert(vtbl_t(ABI->GetClassMangledName(it.first), it.second));
       }
 
-      const clang::BaseSubobject* mostDerivedObj = sd_findMostDerived(a_itr->second);
-      addrPtMap[addrPt].insert(ABI->GetClassMangledName(mostDerivedObj->getBase()));
-    }
+    addrPtMap[addrPt] = s;
   }
 
-  // hard part is over, now we simply mark the regions of each address point
-
-  unsigned order   = 0; // order of the sub-vtable
+  order = 0;
   uint64_t start   = 0; // start of the current vtable
   uint64_t end     = 0; // end of the current vtable
   uint64_t prevVal = 0; // previous address point (for verify that std::map sorts the keys)
 
   uint64_t numComponents = VTLayout->getNumVTableComponents();
+  std::string className = ABI->GetClassMangledName(RD);
 
   // calculate the subvtable regions
   for (auto a_itr = addrPtMap.begin(); a_itr != addrPtMap.end(); a_itr++) {
     uint64_t addrPt  = a_itr->first;
     assert(prevVal < addrPt && "Address points are not sorted");
-    assert(addrPtMap[addrPt].size() == 1 && "class has more than one direct class");
+    //assert(addrPtMap[addrPt].size() == 1 && "class has more than one direct class");
     assert(start < addrPt && "start exceeds address pointer");
-
-    const std::string* parentName = &(*(addrPtMap[addrPt].begin()));
 
     end = addrPt;
     assert(end < numComponents);
     clang::VTableComponent::Kind kind = VTLayout->vtable_component_begin()[end].getKind();
-
-    assert(kind == clang::VTableComponent::CK_FunctionPointer ||
-           kind == clang::VTableComponent::CK_UnusedFunctionPointer ||
-           kind == clang::VTableComponent::CK_CompleteDtorPointer ||
-           kind == clang::VTableComponent::CK_DeletingDtorPointer);
 
     while (end + 1 < numComponents) {
       kind = VTLayout->vtable_component_begin()[end+1].getKind();
@@ -199,12 +195,11 @@ sd_generateSubvtableInfo(clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayou
       }
     }
 
-    if (*parentName == className) {
-      subVtables.push_back(SD_VtableMD(order, "", start, end, addrPt));
-    } else{
-      subVtables.push_back(SD_VtableMD(order, *parentName, start, end, addrPt));
+    for (auto it : addrPtMap[addrPt]) {
+      assert (it.first != className);
     }
 
+    subVtables.push_back(SD_VtableMD(order, addrPtMap[addrPt], start, end, addrPt));
     order++;
     start = end + 1;
     prevVal = addrPt;
@@ -226,17 +221,18 @@ static void
 sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, llvm::GlobalVariable* VTable,
                   const clang::VTableLayout* VTLayout, const clang::CXXRecordDecl *RD,
                   const clang::BaseSubobject* Base = NULL) {
+  std::cerr << CGM << "," << VTLayout << "," << RD << "," << RD->getQualifiedNameAsString() <<"\n";
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI* ABI = & CGM->getCXXABI();
   std::string className = sd_getClassName(ABI,RD,Base);
 
   // don't mess with C++ library classes, etc.
-  if (! sd_isVtableName(className)) {
+  if (!sd_isVtableName(className)) {
     return;
   }
 
-  std::vector<SD_VtableMD> subVtables = sd_generateSubvtableInfo(ABI, VTLayout, RD, Base);
+  std::vector<SD_VtableMD> subVtables = sd_generateSubvtableInfo(CGM, ABI, VTLayout, RD, Base);
 
   // if we didn't produce anything, return ?
   if (subVtables.size() == 0) {
@@ -281,6 +277,7 @@ sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, llvm::GlobalVariable* VTab
     const clang::CXXRecordDecl* subRD = subObj->getBase();
 
     if (subRD != RD) {
+      std::cerr << "Recursively calling sd_insertVtableMD for " << subRD->getQualifiedNameAsString() << "\n";
       sd_insertVtableMD(CGM, NULL, &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
                         subRD, NULL);
     }
