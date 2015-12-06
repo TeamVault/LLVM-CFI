@@ -88,6 +88,9 @@ def is_on_rami_local():
 def is_on_zoidberg():
   return get_hostname() == "zoidberg" and get_username() == "rami"
 
+def is_on_zoidberg_dimo():
+  return get_hostname() == "zoidberg" and get_username() == "dimo"
+
 # ----------------------------------------------------------------------
 
 def read_config():
@@ -145,6 +148,14 @@ def read_config():
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd3.0/safedispatch-scripts",
       "MY_GCC_VER"         : "4.7.3"
+    }
+  elif is_on_zoidberg_dimo(): # zoidberg
+    clang_config = {
+      "LLVM_DIR"           : os.environ["HOME"] + "/work/sd3.0/llvm-3.7",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/work/sd3.0/llvm-build",
+      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
+      "SD_DIR"             : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
+      "MY_GCC_VER"         : "4.8.4"
     }
 
   else: # don't know this machine
