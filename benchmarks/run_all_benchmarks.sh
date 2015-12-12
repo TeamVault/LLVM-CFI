@@ -11,10 +11,15 @@ containsElement () {
 run_benchmarks() {
   local CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-  local -a benchmarks=('simp0' 'simp1' 'rtti_1' 'ott' 'only_mult' 'only_virt'
-  'my_ex1' 'abi_ex' 'single_template' 'member_ptr' 'md_test' 'static_lib'
-  'nonvirtual_covariant_thunks' 'virtual_covariant_thunks'
-  'namespace_1' 'namespace_2' 'namespace_3')
+  # TODO: Add  'virtual_with_virtual_primary_base' 
+  # TODO: Add  'dyn_link1' 
+  local -a benchmarks=('abi_ex' 'multiple_secondary' 'my_ex1' 'only_mult2' 'simp1' 'virtual_mostly_empty_diamond' 
+'multiple_secondary1' 'namespace_1' 'only_virt' 'simp_cast' 
+'double_virtual_diamond' 'multiple_secondary2' 'namespace_2' 'ott' 'simp_virt'  
+'multiple_secondary_diamond' 'namespace_3' 'partially_empty_virtual_diamond' 'single_template' 
+'md_test' 'multiple_secondary_partially_virtual_diamond' 'nonvirtual_covariant_thunks' 'quaternary_diamond' 'static_lib' 
+'member_ptr' 'multiple_secondary_virtual_diamond' 'non_virtual_diamond_with_virtual_ancestor' 'rtti_1' 'virtual_covariant_thunks' 
+'member_ptr2' 'multiple_virtual' 'only_mult' 'simp0' 'virtual_diamond')
 
   local -a neg_benchs=('bad_cast')
 

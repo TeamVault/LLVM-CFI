@@ -14,6 +14,7 @@
 struct A {
   int a;
   virtual void f ();
+  virtual void hum();
 };
 
 struct B : virtual public A {
@@ -30,6 +31,7 @@ struct C : virtual public A {
 struct E : virtual public A {
   int e;
   virtual void f ();
+  virtual void hum();
 };
 
 struct D: virtual public B, virtual public C {

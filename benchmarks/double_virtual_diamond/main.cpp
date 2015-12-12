@@ -7,6 +7,8 @@ int main(int argc, char *argv[])
   C *c = new C();
   B *b = new B();
   A *a = new A();
+  E* e = new E();
+  F* f = new F();
 
   B *db = (B*)d;
   A *dba = (A*)db;
@@ -24,5 +26,9 @@ int main(int argc, char *argv[])
     << " (A*)(C*)d vtbl= " << *((void**)dca)
     << " (A*)c vtbl= " << *((void**)ca)
     << "\n";
+
+  //f->hum();
+
+  e->hum();
   return 0;
 }
