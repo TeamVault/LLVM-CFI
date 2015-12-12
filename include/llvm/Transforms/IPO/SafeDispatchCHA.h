@@ -47,7 +47,7 @@ namespace llvm {
     typedef std::string                                     vtbl_name_t;
     typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;
     typedef std::set<vtbl_t>                                vtbl_set_t;
-    typedef std::map<vtbl_t, vtbl_set_t>          cloud_map_t;
+    typedef std::map<vtbl_t, vtbl_set_t>                    cloud_map_t;
     typedef std::set<vtbl_name_t>                           roots_t;
     typedef std::map<vtbl_name_t, std::vector<uint64_t>>    addrpt_map_t;
     typedef std::pair<uint64_t, uint64_t>                   range_t;
@@ -244,6 +244,14 @@ public:
     oldvtbl_map_t::const_iterator oldVTables_end() {
       return oldVTables.cend();
     }
+
+    vtbl_set_t::const_iterator children_begin(const vtbl_t &v) {
+      return cloudMap[v].begin();
+    }
+
+    vtbl_set_t::const_iterator children_end(const vtbl_t &v) {
+      return cloudMap[v].end();
+    }
     /*
      * Roots Set Accessors
      */
@@ -287,7 +295,7 @@ public:
      * starting from the given node
      */
     order_t preorder(const vtbl_t& root);
-    void preorderHelper(order_t& nodes, const vtbl_t& root);
+    void preorderHelper(order_t& nodes, const vtbl_t& root, vtbl_set_t &visited);
 
     /**
      * Return the number of vtables in a given primary vtable's cloud(including

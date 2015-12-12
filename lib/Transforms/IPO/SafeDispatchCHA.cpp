@@ -67,18 +67,26 @@ unsigned SDBuildCHA::getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
 
 
 
-void SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes, const SDBuildCHA::vtbl_t& root){
+void SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes,
+  const SDBuildCHA::vtbl_t& root,
+  vtbl_set_t &visited) {
+  if (visited.find(root) != visited.end())
+    return;
+
   nodes.push_back(root);
+  visited.insert(root);
+
   if (cloudMap.find(root) != cloudMap.end()) {
     for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) {
-      preorderHelper(nodes, n);
+      preorderHelper(nodes, n, visited);
     }
   }
 }
 
 std::vector<SDBuildCHA::vtbl_t> SDBuildCHA::preorder(const vtbl_t& root) {
   order_t nodes;
-  preorderHelper(nodes, root);
+  vtbl_set_t visited;
+  preorderHelper(nodes, root, visited);
   return nodes;
 }
 

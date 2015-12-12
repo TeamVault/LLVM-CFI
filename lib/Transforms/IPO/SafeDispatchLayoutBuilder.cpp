@@ -359,6 +359,110 @@ void SDLayoutBuilder::calculateNewLayoutInds(SDLayoutBuilder::vtbl_name_t& vtbl)
   }
 }
 
+void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& vtbl, std::map<vtbl_t, uint64_t> &indMap){
+  // Already computed
+  if (rangeMap.find(vtbl) != rangeMap.end())
+    return;
+
+  for (auto childIt = cha->children_begin(vtbl); childIt != cha->children_end(vtbl); childIt++) {
+    const vtbl_t &child = *childIt;
+    calculateVPtrRangesHelper(child, indMap);
+  }
+
+  std::vector<range_t> ranges;
+
+  ranges.push_back(range_t(indMap[vtbl], indMap[vtbl]+1));
+
+  for (auto childIt = cha->children_begin(vtbl); childIt != cha->children_end(vtbl); childIt++) {
+    const vtbl_t &child = *childIt;
+    ranges.insert(ranges.end(), rangeMap[child].begin(), rangeMap[child].end());
+  }
+
+  std::sort(ranges.begin(), ranges.end());
+
+  // Coalesce ranges
+  std::vector<range_t> coalesced_ranges;
+  int64_t start = -1, end;
+  for (auto it : ranges) {
+    if (start == -1) {
+      start = it.first;
+      end = it.second;
+    } else {
+      assert(it.second >= end);
+      if (it.first <= end) {
+        end = it.second;
+      } else {
+        coalesced_ranges.push_back(range_t(start, end));
+        start = it.first;
+        end = it.second;
+      }
+    }
+  }
+
+  if (start != -1)
+    coalesced_ranges.push_back(range_t(start,end));
+
+  std::cerr << "From ranges [";
+  for (auto it : ranges)
+    std::cerr << "(" << it.first << "," << it.second << "),";
+  std::cerr << "] coalesced [";
+  for (auto it : coalesced_ranges)
+    std::cerr << "(" << it.first << "," << it.second << "),";
+  std::cerr << "]\n";
+
+  rangeMap[vtbl] = coalesced_ranges;
+}
+
+void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
+  SDLayoutBuilder::vtbl_t root(vtbl, 0);
+  order_t pre = cha->preorder(root);
+  std::map<vtbl_t, uint64_t> indMap;
+  std::map<vtbl_t, order_t> descendantsMap;
+  for (uint64_t i = 0; i < pre.size(); i++) {
+    indMap[pre[i]] = i;
+    descendantsMap[pre[i]] = cha->preorder(pre[i]);
+  }
+
+  for (auto v : descendantsMap) {
+    uint64_t totalRange = 0;
+    int64_t lastEnd = -1;
+
+    // Check ranges are disjoint
+    for (auto range : rangeMap[v.first]) {
+      std::cerr << lastEnd << "(" << range.first << "," << range.second << ")\n";
+      totalRange += range.second - range.first;
+      assert(lastEnd < ((int64_t)range.first));
+      lastEnd = range.second;
+    }
+
+    // Sum of ranges length equals the number of descendents
+    assert(totalRange == v.second.size());
+
+    // Each descendent is in one of the ranges.
+    for (auto descendant : v.second) {
+      uint64_t ind = indMap[descendant];
+      bool found = false;
+      for (auto range : rangeMap[v.first]) {
+        if (range.first <= ind && range.second > ind) {
+          found = true;
+          break;
+        }
+      }
+
+      assert(found);
+    }
+  }
+}
+
+void SDLayoutBuilder::calculateVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
+  SDLayoutBuilder::vtbl_t root(vtbl, 0);
+  order_t pre = cha->preorder(root);
+  std::map<vtbl_t, uint64_t> indMap;
+  for (uint64_t i = 0; i < pre.size(); i++) indMap[pre[i]] = i;
+
+  calculateVPtrRangesHelper(root, indMap);
+}
+
 void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& vtbl){
   // get the interleaved order
   interleaving_list_t& newVtbl = interleavingMap[vtbl];
@@ -413,9 +517,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   cloudStartMap[NEW_VTABLE_NAME(vtbl)] = newVtable;
 
   // to start changing the original uses of the vtables, first get all the classes in the cloud
-  order_t cloud;
-  vtbl_t root(vtbl,0);
-  cha->preorderHelper(cloud, root);
+  order_t cloud = cha->preorder(vtbl_t(vtbl, 0));
 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
   for (const vtbl_t& v : cloud) {
@@ -756,6 +858,12 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     vtbl_name_t vtbl = *itr;
     createThunkFunctions(M, vtbl); // replace the virtual thunks with the modified ones
     createNewVTable(M, vtbl);      // finally, emit the global variable
+  }
+
+  for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
+    vtbl_name_t vtbl = *itr;
+    calculateVPtrRanges(vtbl);
+    verifyVPtrRanges(vtbl);
   }
 }
 

@@ -50,6 +50,7 @@ namespace llvm {
     typedef std::map<vtbl_name_t, interleaving_list_t>      interleaving_map_t;
     typedef std::map<vtbl_t, Constant*>                     vtbl_start_map_t;
     typedef std::map<vtbl_name_t, GlobalVariable*>          cloud_start_map_t;
+    typedef std::map<vtbl_t, std::vector<range_t> >         range_map_t;
 
     new_layout_inds_t newLayoutInds;                   // (vtbl,ind) -> [new ind inside interleaved vtbl]
     interleaving_map_t interleavingMap;                // root -> new layouts map
@@ -57,6 +58,7 @@ namespace llvm {
     cloud_start_map_t cloudStartMap;                   // Mapping from new vtable names to their corresponding cloud starts
     std::map<vtbl_name_t, unsigned> alignmentMap;
     vtbl_t dummyVtable;
+    range_map_t rangeMap;                             // Map of ranges for vptrs in terms of preorder indices
     bool interleave;
 
     SDLayoutBuilder(bool interl = false) : ModulePass(ID), interleave(interl) {
@@ -121,6 +123,10 @@ namespace llvm {
      * Calculate the new layout indices for each vtable inside the given cloud
      */
     void calculateNewLayoutInds(vtbl_name_t& vtbl);
+
+    void calculateVPtrRanges(vtbl_name_t& vtbl);
+    void calculateVPtrRangesHelper(const vtbl_t& vtbl, std::map<vtbl_t, uint64_t> &indMap);
+    void verifyVPtrRanges(vtbl_name_t& vtbl);
 
     /**
      * Interleave the actual vtable elements inside the cloud and
