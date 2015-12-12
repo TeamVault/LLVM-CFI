@@ -210,10 +210,25 @@ public:
 
   typedef llvm::DenseMap<BaseSubobject, uint64_t> AddressPointsMapTy;
 
+  typedef std::vector<const CXXRecordDecl*> inheritance_path_t;
+  typedef std::map<inheritance_path_t, uint64_t> inheritance_vtbl_map_t;
   typedef std::pair<const CXXRecordDecl*, uint64_t> vtbl_t;
   typedef std::set<vtbl_t> vtbl_set_t;
 
-  typedef struct {
+  typedef struct _VTableParent {
+    _VTableParent(const vtbl_t &layoutClass,
+     bool _isVirtual,
+     const vtbl_set_t &directParents,
+     const vtbl_set_t &primaryVirtualBases) :
+      layoutClass(layoutClass), directParents(directParents),
+      primaryVirtualBases(primaryVirtualBases) { isVirtual = _isVirtual; }
+    _VTableParent() : directParents(), primaryVirtualBases() { }
+    _VTableParent(const _VTableParent &other) : 
+      layoutClass(other.layoutClass.first, other.layoutClass.second),
+      directParents(other.directParents),
+      primaryVirtualBases(other.primaryVirtualBases) {
+      isVirtual = other.isVirtual;
+    }
     // For non-virtual parents - the direct parent layout
     // For virtual parents - the virtual base causing this primitive vtable
     vtbl_t layoutClass; 
@@ -226,13 +241,12 @@ public:
     // directParents.size() > 0
     // !isVirtual => directParents.size() == 1
     // !isVirtual => (directParents[0] == base)
+    int64_t numVBases;
   } VTableParent;
 
   typedef std::vector<VTableParent> parent_vector_t;
-  typedef std::vector<const CXXRecordDecl*> InheritanceStackTy;
-  typedef std::pair<const CXXRecordDecl*, InheritanceStackTy> InheritancePathTy;
-  typedef std::map<uint64_t, std::set<const CXXRecordDecl*> > ParentMapTy;
   typedef std::map<uint64_t, uint64_t> AddressPointOrderMapTy;
+  typedef std::map<uint64_t, std::set<const CXXRecordDecl*> > ParentMapTy;
 private:
   uint64_t NumVTableComponents;
   std::unique_ptr<VTableComponent[]> VTableComponents;
@@ -248,6 +262,7 @@ private:
   bool IsMicrosoftABI;
   AddressPointOrderMapTy AddressPointOrder;
   parent_vector_t Parents;
+  inheritance_vtbl_map_t InheritanceMap;
 
 public:
   VTableLayout(uint64_t NumVTableComponents,
@@ -256,6 +271,7 @@ public:
                const VTableThunkTy *VTableThunks,
                const AddressPointsMapTy &AddressPoints,
                const parent_vector_t &_Parents,
+               const inheritance_vtbl_map_t &_InheritanceMap,
                bool IsMicrosoftABI);
   ~VTableLayout();
 
@@ -302,6 +318,15 @@ public:
 
   const parent_vector_t &getParents() const {
     return Parents;
+  }
+
+  const inheritance_vtbl_map_t &getInheritanceMap() const {
+    return InheritanceMap;
+  }
+
+  uint64_t getOrder(const inheritance_path_t &path) const {
+    assert(InheritanceMap.count(path));
+    return ((inheritance_vtbl_map_t)InheritanceMap)[path];
   }
 };
 

@@ -788,8 +788,9 @@ public:
   typedef llvm::DenseMap<BaseSubobject, uint64_t> 
     AddressPointsMapTy;
 
-  typedef VTableLayout::vtbl_t
-    vtbl_t;
+  typedef VTableLayout::vtbl_t vtbl_t;
+  typedef VTableLayout::inheritance_path_t inheritance_path_t;
+  typedef VTableLayout::inheritance_vtbl_map_t inheritance_vtbl_map_t;
 
   typedef VTableLayout::parent_vector_t
     parent_vector_t;
@@ -901,7 +902,11 @@ private:
   /// some other base.
   VisitedVirtualBasesSetTy PrimaryVirtualBases;
 
+  std::map<const CXXRecordDecl*, const CXXRecordDecl*> PrimaryVirtualBasesMap;
   parent_vector_t Parents;
+  std::map<const CXXRecordDecl*, uint64_t> VirtualBasesDefMap;
+  inheritance_path_t CurInheritancePath;
+  inheritance_vtbl_map_t InheritanceMap;
 
   /// ComputeReturnAdjustment - Compute the return adjustment given a return
   /// adjustment base offset.
@@ -1041,17 +1046,140 @@ public:
 
     std::cerr <<  "Building parent information for " << RD->getQualifiedNameAsString() << "\n";
 
-    parent_vector_t NonVirtual, MorallyVirtual;
-    std::map<vtbl_t, VTableLayout::VTableParent*> primaryBaseDefinitionMap;
+    std::map<vtbl_t, uint64_t> virtualBaseDefinitionMap;
 
     if (!PrimaryBase ||
         (isPrimaryVirtual && !PrimaryVirtualBases.count(PrimaryBase))) {
       VTableLayout::VTableParent p;
       p.layoutClass = vtbl_t(RD,0);
       p.isVirtual = false;
-      NonVirtual.push_back(p);
+      Parents.push_back(p);
     }
   
+    // Layout non-virtual bases
+    int order = 0;
+    for (const auto &B : RD->bases()) {
+      const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
+
+      // Ignore bases that don't have a vtable.
+      if (!BaseDecl->isDynamicClass())
+        continue;
+
+      const VTableLayout &BaseLayout = VTables.getVTableLayout(BaseDecl);
+      const parent_vector_t &BaseParents = BaseLayout.getParents();
+
+      bool isBaseVirt = B.isVirtual(),
+           isBasePrimaryVirtual = PrimaryVirtualBases.count(BaseDecl) &&
+             PrimaryVirtualBasesMap[BaseDecl] == RD,
+           isBaseActuallyVirtual = isBaseVirt && !isBasePrimaryVirtual;
+
+      if (isBaseActuallyVirtual)
+        continue;
+
+      std::cerr << "NonVirt: BaseDecl: "
+        << "[" << RD->getQualifiedNameAsString()  << "]"
+        << BaseDecl->getQualifiedNameAsString() << "\n";
+      // isBasePrimaryVirtual => isBaseVirt
+      assert((!isBasePrimaryVirtual || isBaseVirt));
+
+      for (int i = 0; i < BaseParents.size(); i++) {
+        if (BaseParents[i].isVirtual)
+          continue;
+
+        std::cerr
+          << "isBuildingConstructorVTable()" << "=" << isBuildingConstructorVTable() << "\n"
+          << "order="<< "=" << order << "\n"
+          << "!B.isVirtual()" << "=" << (!B.isVirtual()) << "\n"
+          << "!BaseParents[i].isVirtual" << "=" << (!BaseParents[i].isVirtual) << "\n"
+          << "BaseDecl->getNumVBases()" << "=" << BaseDecl->getNumVBases() << "\n";
+
+        /* Construction vtables don't need secondary vtables that aren't virtual? */
+        if (isBuildingConstructorVTable() && order != 0 &&
+          !BaseParents[i].isVirtual && !BaseDecl->getNumVBases())
+          continue;
+
+        vtbl_t directParentVtbl(BaseDecl, i);
+        vtbl_t layoutVtbl = (BaseParents[i].isVirtual ?
+          BaseParents[i].layoutClass : directParentVtbl);
+
+        std::cerr << "Parent base: " << i << " layout : "
+          << layoutVtbl.first->getQualifiedNameAsString() << "," << layoutVtbl.second
+          << " virt in parent? " << BaseParents[i].isVirtual << "\n";
+
+        VTableLayout::VTableParent p;
+        p.layoutClass = layoutVtbl;
+        p.primaryVirtualBases = BaseParents[i].primaryVirtualBases;
+        p.directParents.insert(directParentVtbl);
+
+        if (isBasePrimaryVirtual) {
+          p.primaryVirtualBases.insert(directParentVtbl);
+        }
+
+        p.isVirtual = false;
+        Parents.push_back(p);
+        order++;
+
+        for(auto it : p.primaryVirtualBases) {
+          std::cerr << it.first << "," << it.second << " known: " << CONTAINS(virtualBaseDefinitionMap, it) << " addr: " << (CONTAINS(virtualBaseDefinitionMap, it) ? virtualBaseDefinitionMap[it] : 0x0) <<
+            "\n";
+          if (!CONTAINS(virtualBaseDefinitionMap, it)) {
+            std::cerr << this << " Setting " << it.first << ":" << it.first->getQualifiedNameAsString()
+              << "," << it.second << " to " << &Parents.back() << " from " << &p << "\n";
+            virtualBaseDefinitionMap[it] = Parents.size() - 1;
+          }
+        }
+      }
+    }
+
+    for (const auto &B : RD->bases()) {
+      const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
+      // Ignore bases that don't have a vtable.
+      if (!BaseDecl->isDynamicClass())
+        continue;
+
+      const VTableLayout &BaseLayout = VTables.getVTableLayout(BaseDecl);
+      const parent_vector_t &BaseParents = BaseLayout.getParents();
+
+      bool isBaseVirt = B.isVirtual(),
+           isBasePrimaryVirtual = PrimaryVirtualBases.count(BaseDecl),
+           isBaseActuallyVirtual = isBaseVirt && !isBasePrimaryVirtual;
+
+      std::cerr << "Virt BaseDecl: "
+        << "[" << RD->getQualifiedNameAsString()  << "]"
+        << BaseDecl->getQualifiedNameAsString() << "\n";
+
+      for (int i = 0; i < BaseParents.size(); i++) {
+        if (!BaseParents[i].isVirtual && !isBaseActuallyVirtual)
+          continue;
+
+        vtbl_t directParentVtbl(BaseDecl, i);
+        vtbl_t layoutVtbl = (BaseParents[i].isVirtual ?
+          BaseParents[i].layoutClass : directParentVtbl);
+
+        std::cerr << "Parent base: " << i << " layout : "
+          << layoutVtbl.first->getQualifiedNameAsString() << "," << layoutVtbl.second
+          << " virt in parent? " << BaseParents[i].isVirtual << "\n";
+
+        if (CONTAINS(virtualBaseDefinitionMap, layoutVtbl)) {
+          std::cerr << this << " Looking up " << layoutVtbl.first << ":"
+            << layoutVtbl.first->getQualifiedNameAsString() << "," << layoutVtbl.second
+            << "=" << virtualBaseDefinitionMap[layoutVtbl]<< "\n";
+          Parents[virtualBaseDefinitionMap[layoutVtbl]].directParents.insert(directParentVtbl);
+        } else {
+          VTableLayout::VTableParent p, *pp;
+          p.layoutClass = layoutVtbl;
+          p.directParents.insert(directParentVtbl);
+          p.primaryVirtualBases = BaseParents[i].primaryVirtualBases;
+          p.isVirtual = true;
+          Parents.push_back(p);
+          order++;
+          std::cerr << this << " Setting " << layoutVtbl.first << ":" << layoutVtbl.first->getQualifiedNameAsString()
+            << "," << layoutVtbl.second << " to " << &Parents.back() << " from " << &p << "\n";
+          virtualBaseDefinitionMap[layoutVtbl] = Parents.size() - 1;
+        }
+      }
+    }
+/*
     for (const auto &B : RD->bases()) {
       const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
       // Ignore bases that don't have a vtable.
@@ -1063,7 +1191,7 @@ public:
         !B.isVirtual() && !BaseDecl->getNumVBases())
         continue;
 
-      std::cerr << "BaseDecl: " << BaseDecl << BaseDecl->getQualifiedNameAsString() << "\n";
+      std::cerr << "BaseDecl: " << BaseDecl->getQualifiedNameAsString() << "\n";
       const VTableLayout &BaseLayout = VTables.getVTableLayout(BaseDecl);
       const parent_vector_t &BaseParents = BaseLayout.getParents();
 
@@ -1079,26 +1207,30 @@ public:
         vtbl_t layoutVtbl = (BaseParents[i].isVirtual ?
           BaseParents[i].layoutClass : directParentVtbl);
 
+        std::cerr << "Parent base: " << i << " layout : "
+          << layoutVtbl.first->getQualifiedNameAsString() << "," << layoutVtbl.second
+          << " virt? " << BaseParents[i].isVirtual << "\n";
+
         VTableLayout::VTableParent p, *pp;
         p.layoutClass = layoutVtbl;
         p.directParents.insert(directParentVtbl);
         p.primaryVirtualBases = BaseParents[i].primaryVirtualBases;
 
-        if (isBasePrimaryVirtual)
+        if (isBasePrimaryVirtual) 
           p.primaryVirtualBases.insert(directParentVtbl);
 
         if (isBaseActuallyVirtual || BaseParents[i].isVirtual) {
           p.isVirtual = true;
 
-          if (CONTAINS(primaryBaseDefinitionMap, layoutVtbl)) {
+          if (CONTAINS(virtualBaseDefinitionMap, layoutVtbl)) {
             // We've already laid out a primitive vtable for this virtual base
-            primaryBaseDefinitionMap[layoutVtbl]->directParents.insert(directParentVtbl);
-            pp = primaryBaseDefinitionMap[layoutVtbl];
+            virtualBaseDefinitionMap[layoutVtbl]->directParents.insert(directParentVtbl);
+            pp = virtualBaseDefinitionMap[layoutVtbl];
           } else {
             MorallyVirtual.push_back(p);
             pp = &MorallyVirtual.back();
-            assert(!CONTAINS(primaryBaseDefinitionMap, layoutVtbl));
-            primaryBaseDefinitionMap[layoutVtbl] = pp;
+            assert(!CONTAINS(virtualBaseDefinitionMap, layoutVtbl));
+            virtualBaseDefinitionMap[layoutVtbl] = pp;
           }
         } else {
           p.isVirtual = false;
@@ -1108,20 +1240,25 @@ public:
         }
 
         for(auto it : p.primaryVirtualBases) {
-          std::cerr << it.first << "," << it.second << " known: " << CONTAINS(primaryBaseDefinitionMap, it) << " addr: " << (CONTAINS(primaryBaseDefinitionMap, it) ? primaryBaseDefinitionMap[it] : 0x0) <<
+          std::cerr << it.first << "," << it.second << " known: " << CONTAINS(virtualBaseDefinitionMap, it) << " addr: " << (CONTAINS(virtualBaseDefinitionMap, it) ? virtualBaseDefinitionMap[it] : 0x0) <<
             "\n";
-          if (!CONTAINS(primaryBaseDefinitionMap, it))
-            primaryBaseDefinitionMap[it] = pp;
+          if (!CONTAINS(virtualBaseDefinitionMap, it))
+            virtualBaseDefinitionMap[it] = pp;
         }
       }
     }
 
     Parents.insert(Parents.end(), NonVirtual.begin(), NonVirtual.end());
     Parents.insert(Parents.end(), MorallyVirtual.begin(), MorallyVirtual.end());
+*/
   }
 
   const parent_vector_t &getParents() const {
     return Parents;
+  }
+
+  const inheritance_vtbl_map_t &getInheritanceMap() const {
+    return InheritanceMap;
   }
 
   uint64_t getNumThunks() const {
@@ -1783,6 +1920,7 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
   assert(Base.getBase()->isDynamicClass() && "class does not have a vtable!");
 
   const CXXRecordDecl *RD = Base.getBase();
+  std::cerr << "Laying out primary vtables for " << RD->getQualifiedNameAsString() << "\n";
 
   // Add vcall and vbase offsets for this vtable.
   VCallAndVBaseOffsetBuilder Builder(MostDerivedClass, LayoutClass, &Overriders,
@@ -1838,6 +1976,7 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
   // Compute 'this' pointer adjustments.
   ComputeThisAdjustments();
 
+  const CXXRecordDecl *OldRD = RD, *DirectParent = NULL;
   // Add all address points.
   while (true) {
     AddressPoints.insert(std::make_pair(
@@ -1863,8 +2002,27 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
       }
     }
 
+    if (RD == OldRD) {
+      DirectParent = PrimaryBase;
+    }
     RD = PrimaryBase;
   }
+
+  bool hasPrimaryBase = CurInheritancePath.size() == 0 && DirectParent != NULL;
+  if (hasPrimaryBase)
+    CurInheritancePath.push_back(DirectParent);
+
+  // Add to map.
+  std::cerr << "{" << MostDerivedClass->getQualifiedNameAsString() << "} Setting [";
+  for (auto it : CurInheritancePath)  std::cerr << it->getQualifiedNameAsString() << ",";
+  std::cerr << "] to " << CurVTableInd << "\n";
+
+  InheritanceMap[CurInheritancePath] = CurVTableInd;
+  if (BaseIsMorallyVirtual) {
+    VirtualBasesDefMap[Base.getBase()] = CurVTableInd;
+  }
+  if (hasPrimaryBase)
+    CurInheritancePath.pop_back();
 
   CurVTableInd++;
 
@@ -1880,8 +2038,8 @@ ItaniumVTableBuilder::LayoutSecondaryVTables(BaseSubobject Base,
   //   Following the primary virtual table of a derived class are secondary 
   //   virtual tables for each of its proper base classes, except any primary
   //   base(s) with which it shares its primary virtual table.
-
   const CXXRecordDecl *RD = Base.getBase();
+  std::cerr << "Laying out secondary vtables for " << RD->getQualifiedNameAsString() << "\n";
   const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
   const CXXRecordDecl *PrimaryBase = Layout.getPrimaryBase();
   
@@ -1916,17 +2074,21 @@ ItaniumVTableBuilder::LayoutSecondaryVTables(BaseSubobject Base,
     // Don't emit a secondary vtable for a primary base. We might however want 
     // to emit secondary vtables for other bases of this base.
     if (BaseDecl == PrimaryBase) {
+      CurInheritancePath.push_back(BaseDecl);
       LayoutSecondaryVTables(BaseSubobject(BaseDecl, BaseOffset),
                              BaseIsMorallyVirtual, BaseOffsetInLayoutClass);
+      CurInheritancePath.pop_back();
       continue;
     }
 
     // Layout the primary vtable (and any secondary vtables) for this base.
+    CurInheritancePath.push_back(BaseDecl);
     LayoutPrimaryAndSecondaryVTables(
       BaseSubobject(BaseDecl, BaseOffset),
       BaseIsMorallyVirtual,
       /*BaseIsVirtualInLayoutClass=*/false,
       BaseOffsetInLayoutClass);
+    CurInheritancePath.pop_back();
   }
 }
 
@@ -1957,8 +2119,14 @@ void ItaniumVTableBuilder::DeterminePrimaryVirtualBases(
           IsPrimaryVirtualBase = false;
       }
         
-      if (IsPrimaryVirtualBase)
+      if (IsPrimaryVirtualBase) {
+        CurInheritancePath.push_back(PrimaryBase);
+        VirtualBasesDefMap[PrimaryBase] = InheritanceMap[CurInheritancePath];
+        CurInheritancePath.pop_back();
+
         PrimaryVirtualBases.insert(PrimaryBase);
+        PrimaryVirtualBasesMap[PrimaryBase] = RD;
+      }
     }
   }
 
@@ -1982,7 +2150,9 @@ void ItaniumVTableBuilder::DeterminePrimaryVirtualBases(
         OffsetInLayoutClass + Layout.getBaseClassOffset(BaseDecl);
     }
 
+    CurInheritancePath.push_back(BaseDecl);
     DeterminePrimaryVirtualBases(BaseDecl, BaseOffsetInLayoutClass, VBases);
+    CurInheritancePath.pop_back();
   }
 }
 
@@ -1995,6 +2165,7 @@ void ItaniumVTableBuilder::LayoutVTablesForVirtualBases(
   for (const auto &B : RD->bases()) {
     const CXXRecordDecl *BaseDecl = B.getType()->getAsCXXRecordDecl();
 
+    CurInheritancePath.push_back(BaseDecl);
     // Check if this base needs a vtable. (If it's virtual, not a primary base
     // of some other class, and we haven't visited it before).
     if (B.isVirtual() && BaseDecl->isDynamicClass() &&
@@ -2015,7 +2186,13 @@ void ItaniumVTableBuilder::LayoutVTablesForVirtualBases(
           /*BaseIsMorallyVirtual=*/true,
           /*BaseIsVirtualInLayoutClass=*/true,
           BaseOffsetInLayoutClass);
+      } else {
+        // Another Path Found
+        InheritanceMap[CurInheritancePath] = VirtualBasesDefMap[BaseDecl];
       }
+    } else if (PrimaryVirtualBases.count(BaseDecl)) {
+        // Path to a primary virtual base.
+        InheritanceMap[CurInheritancePath] = VirtualBasesDefMap[BaseDecl];
     }
     
     // We only need to check the base for virtual base vtables if it actually
@@ -2023,6 +2200,7 @@ void ItaniumVTableBuilder::LayoutVTablesForVirtualBases(
     if (BaseDecl->getNumVBases()) {
       LayoutVTablesForVirtualBases(BaseDecl, VBases);
     }
+    CurInheritancePath.pop_back();
   }
 }
 
@@ -2369,6 +2547,7 @@ VTableLayout::VTableLayout(uint64_t NumVTableComponents,
                            const VTableThunkTy *VTableThunks,
                            const AddressPointsMapTy &AddressPoints,
                            const parent_vector_t &_Parents,
+                           const inheritance_vtbl_map_t &_InheritanceMap,
                            bool IsMicrosoftABI)
   : NumVTableComponents(NumVTableComponents),
     VTableComponents(new VTableComponent[NumVTableComponents]),
@@ -2376,6 +2555,7 @@ VTableLayout::VTableLayout(uint64_t NumVTableComponents,
     VTableThunks(new VTableThunkTy[NumVTableThunks]),
     AddressPoints(AddressPoints),
     Parents(),
+    InheritanceMap(_InheritanceMap),
     IsMicrosoftABI(IsMicrosoftABI) {
   std::copy(VTableComponents, VTableComponents+NumVTableComponents,
             this->VTableComponents.get());
@@ -2417,7 +2597,7 @@ VTableLayout::VTableLayout(uint64_t NumVTableComponents,
     for (auto it1 : it.directParents) {
       std::cerr << "(" << it1.first->getQualifiedNameAsString() << "," << it1.second << "),";
     }
-    std::cerr << "]),";
+    std::cerr << "]),\n";
   }
   std::cerr << "\n";
 
@@ -2500,6 +2680,7 @@ static VTableLayout *CreateVTableLayout(const ItaniumVTableBuilder &Builder) {
                           VTableThunks.data(),
                           Builder.getAddressPoints(),
                           Builder.getParents(),
+                          Builder.getInheritanceMap(),
                           /*IsMicrosoftABI=*/false);
 }
 
@@ -2513,6 +2694,7 @@ ItaniumVTableContext::computeVTableRelatedInformation(const CXXRecordDecl *RD) {
   ItaniumVTableBuilder Builder(*this, RD, CharUnits::Zero(),
                                /*MostDerivedClassIsVirtual=*/0, RD);
 
+  std::cerr << "Create vtable layout for " << RD->getQualifiedNameAsString() << "\n";
   VTableLayouts[RD] = CreateVTableLayout(Builder);
 
   MethodVTableIndices.insert(Builder.vtable_indices_begin(),
@@ -2549,6 +2731,11 @@ VTableLayout *ItaniumVTableContext::createConstructionVTableLayout(
     bool MostDerivedClassIsVirtual, const CXXRecordDecl *LayoutClass) {
   ItaniumVTableBuilder Builder(*this, MostDerivedClass, MostDerivedClassOffset,
                                MostDerivedClassIsVirtual, LayoutClass);
+  std::cerr << "Create construction vtable layout for "
+    << MostDerivedClass->getQualifiedNameAsString()
+    << " in " 
+    << LayoutClass->getQualifiedNameAsString()
+    << "\n";
   return CreateVTableLayout(Builder);
 }
 
@@ -3687,6 +3874,7 @@ void MicrosoftVTableContext::computeVTableRelatedInformation(
 
   const VTableLayout::AddressPointsMapTy EmptyAddressPointsMap;
   const VTableLayout::parent_vector_t EmptyParentVector;
+  const VTableLayout::inheritance_vtbl_map_t EmptyInheritanceMap;
 
   VPtrInfoVector *VFPtrs = new VPtrInfoVector();
   computeVTablePaths(/*ForVBTables=*/false, RD, *VFPtrs);
@@ -3705,7 +3893,7 @@ void MicrosoftVTableContext::computeVTableRelatedInformation(
     VFTableLayouts[id] = new VTableLayout(
         Builder.getNumVTableComponents(), Builder.vtable_component_begin(),
         VTableThunks.size(), VTableThunks.data(), EmptyAddressPointsMap,
-        EmptyParentVector, true);
+        EmptyParentVector, EmptyInheritanceMap, true);
     Thunks.insert(Builder.thunks_begin(), Builder.thunks_end());
 
     for (const auto &Loc : Builder.vtable_locations()) {

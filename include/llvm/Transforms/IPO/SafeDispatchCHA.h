@@ -105,7 +105,6 @@ private:
      * Remove diamonds created due to virtual inheritance
      * TODO(dbounov): After we add multiple range checks remove this
      */
-    void removeDiamonds(Module &M);
     vtbl_t findLeastCommonAncestor(
       const vtbl_set_t &vtbls,
       cloud_map_t &ptMap);
@@ -151,9 +150,7 @@ public:
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
       buildClouds(M);
-      printClouds("with_diamonds");
-      removeDiamonds(M);
-      printClouds("without_diamonds");
+      printClouds("");
 
       for (auto rootName : roots) {
         calculateChildrenCounts(vtbl_t(rootName, 0));

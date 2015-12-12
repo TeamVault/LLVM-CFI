@@ -1640,7 +1640,6 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
 
   // get the vtable
   const CXXRecordDecl* RD = MD->getParent();
-  std::cerr << "Getting the virtual function pointer for " << RD->getQualifiedNameAsString() << "\n";
   llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(), RD) ?
               CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
               NULL;
@@ -1650,8 +1649,6 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   std::cerr << "get checked VTable in " <<
     dyn_cast<NamedDecl>(CGF.CurFuncDecl)->getQualifiedNameAsString() <<
     " for class " << Name << " for method " << MD->getQualifiedNameAsString() << std::endl; 
-
-  VTableAP->dump();
 
   llvm::BasicBlock *fastCheckFailed = CGF.createBasicBlock("vtblCheck.fastpath.fail");
   llvm::BasicBlock *checkFailed = CGF.createBasicBlock("vtblCheck.fail");
@@ -1719,6 +1716,49 @@ sd_getCheckedVTable(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDec
   return VTableAP;
 }
 
+static llvm::Value*
+sd_getCheckedVTable2(CodeGenModule &CGM, CodeGenFunction &CGF, const CXXMethodDecl *MD, llvm::Value *&VTableAP, const CXXRecordDecl *perciseType) {
+  assert(MD && "Non-null method decl");
+  assert(MD->isInstance() && "Shouldn't see a static method");
+
+  // get the vtable
+  const CXXRecordDecl* RD = MD->getParent();
+  llvm::GlobalVariable* VTable = sd_needGlobalVar(&CGM.getCXXABI(), RD) ?
+              CGM.getCXXABI().getAddrOfVTable(RD, CharUnits()) :
+              NULL;
+
+  std::string ClassName = CGM.getCXXABI().GetClassMangledName(MD->getParent());
+  std::string PreciseName = (perciseType ? CGM.getCXXABI().GetClassMangledName(perciseType) : ClassName);
+
+  std::cerr << "get checked VTable in " <<
+    dyn_cast<NamedDecl>(CGF.CurFuncDecl)->getQualifiedNameAsString() <<
+    " for class " << ClassName << "(more precisely " << PreciseName << ")" << " for method " << MD->getQualifiedNameAsString() << std::endl; 
+
+  llvm::Module& M = CGM.getModule();
+  llvm::LLVMContext& C = M.getContext();
+  llvm::MDNode* perciseMD;
+
+  llvm::MDNode* md = sd_getClassNameMetadata(ClassName, M, VTable);
+
+  if (ClassName == PreciseName) {
+    perciseMD = md;
+  } else {
+    perciseMD = sd_getClassNameMetadata(PreciseName, M, NULL);
+  }
+
+  llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
+  llvm::Value* castPointer = CGF.Builder.CreatePointerCast(VTableAP, CGM.Int8PtrTy);
+  llvm::Value* perMDValue = llvm::MetadataAsValue::get(C, perciseMD);
+
+  llvm::Value* intr = CGF.Builder.CreateCall3(
+              CGM.getIntrinsic(llvm::Intrinsic::sd_get_checked_vptr),
+              castPointer,
+              mdValue,
+              perMDValue);
+
+  return CGF.Builder.CreatePointerCast(intr, VTableAP->getType());
+}
+
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                       GlobalDecl GD,
                                                       llvm::Value *This,
@@ -1736,7 +1776,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   std::string Name = this->GetClassMangledName(RD);
 
   if (CGM.getCodeGenOpts().EmitVTBLChecks && sd_isVtableName(Name)) {
-    VTable = sd_getCheckedVTable(CGM, CGF, MD, VTable, perciseType);
+    VTable = sd_getCheckedVTable2(CGM, CGF, MD, VTable, perciseType);
   }
 
   if (CGF.SanOpts.has(SanitizerKind::CFIVCall))

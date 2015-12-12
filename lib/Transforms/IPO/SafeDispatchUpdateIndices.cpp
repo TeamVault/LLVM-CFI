@@ -62,6 +62,7 @@ namespace {
 
       handleSDGetVtblIndex(&M);
       handleSDCheckVtbl(&M);
+      handleSDGetCheckedVtbl(&M);
       handleRemainingSDGetVcallIndex(&M);
 
       sd_print("Finished running the 2nd pass...\n");
@@ -85,6 +86,7 @@ namespace {
     // metadata ids
     void handleSDGetVtblIndex(Module* M);
     void handleSDCheckVtbl(Module* M);
+    void handleSDGetCheckedVtbl(Module* M);
     void handleRemainingSDGetVcallIndex(Module* M);
   };
 }
@@ -337,6 +339,130 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
           Args);
 
     CI->replaceAllUsesWith(newIntr);
+    CI->eraseFromParent();
+  }
+}
+
+void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
+  Function *sd_vtbl_indexF =
+      M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
+  const DataLayout &DL = M->getDataLayout();
+  llvm::LLVMContext& C = M->getContext();
+  Type *IntPtrTy = DL.getIntPtrType(C, 0);
+
+  // if the function doesn't exist, do nothing
+  if (!sd_vtbl_indexF)
+    return;
+
+  // for each use of the function
+  for (const Use &U : sd_vtbl_indexF->uses()) {
+    // get the call inst
+    llvm::CallInst* CI = cast<CallInst>(U.getUser());
+
+    // get the arguments
+    llvm::Value* vptr = CI->getArgOperand(0);
+    assert(vptr);
+    llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
+    assert(arg2);
+    MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
+    assert(mdNode);
+    llvm::MetadataAsValue* arg3 = dyn_cast<MetadataAsValue>(CI->getArgOperand(2));
+    assert(arg3);
+    MDNode* mdNode1 = dyn_cast<MDNode>(arg3->getMetadata());
+    assert(mdNode1);
+
+    // second one is the tuple that contains the class name and the corresponding global var.
+    // note that the global variable isn't always emitted
+    std::string className = sd_getClassNameFromMD(mdNode,0);
+    std::string preciseClassName = sd_getClassNameFromMD(mdNode1,0);
+    SDLayoutBuilder::vtbl_t vtbl(className, 0);
+    llvm::Constant *start;
+    int64_t rangeWidth;
+
+    sd_print("Callsite for %s cha->knowsAbout(%s,%d)=%d) ", className.c_str(),
+      vtbl.first.c_str(), vtbl.second, cha->knowsAbout(vtbl));
+
+    if (cha->knowsAbout(vtbl)) {
+      if (preciseClassName != className) {
+        sd_print("More precise class name = %s\n", preciseClassName.c_str());
+        int64_t ind = cha->getSubVTableIndex(preciseClassName, className);
+        sd_print("Index = %d \n", ind);
+        if (ind != -1) {
+          vtbl = SDLayoutBuilder::vtbl_t(preciseClassName, ind);
+        }
+      } 
+    }
+
+    if (cha->knowsAbout(vtbl) &&
+       (!cha->isUndefined(vtbl) || cha->hasFirstDefinedChild(vtbl))) {
+      // calculate the new index
+      start = cha->isUndefined(vtbl) ?
+        layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) :
+        layoutBuilder->getVTableRangeStart(vtbl);
+      rangeWidth = cha->getCloudSize(vtbl.first);
+      sd_print(" [rangeWidth=%d start = %p]  \n", rangeWidth, start);
+    } else {
+      // This is a class we have no metadata about (i.e. doesn't have any
+      // non-virtuall subclasses). In a fully statically linked binary we
+      // should never be able to create an instance of this.
+      start = NULL;
+      rangeWidth = 0;
+      //std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
+      sd_print(" [ no metadata ] \n");
+    }
+    LLVMContext& C = CI->getContext();
+
+    if (start) {
+      llvm::BasicBlock *BB = CI->getParent();
+      llvm::Function *F = BB->getParent();
+
+      llvm::BasicBlock *SuccessBB = BB->splitBasicBlock(CI, "sd.vptr_check.success");
+      llvm::BasicBlock *fastCheckFailed = llvm::BasicBlock::Create(F->getContext(), "vtblCheck.fastpath.fail", F);
+      llvm::BasicBlock *checkFailed = llvm::BasicBlock::Create(F->getContext(), "vtblCheck.fail", F);
+      
+      llvm::Instruction *OldTerminator = BB->getTerminator();
+      IRBuilder<> builder(BB->getTerminator());
+      // The shift here is implicit since rangeWidth is in terms of indices, not bytes
+      llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth);
+      llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
+      llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy);
+
+      if(!cha->hasAncestor(vtbl)) {
+        sd_print("%s\n", vtbl.first.data());
+        assert(false);
+      }
+      SDLayoutBuilder::vtbl_name_t root = cha->getAncestor(vtbl);
+      assert(layoutBuilder->alignmentMap.count(root));
+
+      llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, layoutBuilder->alignmentMap[root]);
+      llvm::Value *Args[] = {castVptr, start, width, alignment};
+      llvm::Value* fastPathSuccess = builder.CreateCall(Intrinsic::getDeclaration(M,
+            Intrinsic::sd_subst_check_range),
+            Args);
+      builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
+      OldTerminator->eraseFromParent();
+      builder.SetInsertPoint(fastCheckFailed);
+      // Insert Slow Check Call
+      llvm::Type* argTs[] = { Int8PtrTy, Int8PtrTy };
+      llvm::FunctionType *vptr_safeT = llvm::FunctionType::get(llvm::Type::getInt1Ty(C), argTs, false);
+      llvm::Constant *vptr_safeF = M->getOrInsertFunction("_Z9vptr_safePKvPKc", vptr_safeT);
+      llvm::Value* slowPathSuccess = builder.CreateCall2(
+                  vptr_safeF,
+                  builder.CreateBitCast(vptr, Int8PtrTy),
+                  builder.CreateGlobalStringPtr(className));
+                  // TODO: Add dynamic class name to _vptr_safe as well
+      builder.CreateCondBr(slowPathSuccess, SuccessBB, checkFailed);
+
+      builder.SetInsertPoint(checkFailed);
+      // Insert Check Failure
+      builder.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::trap));
+      builder.CreateUnreachable();
+
+    } else {
+      std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
+        << std::endl;
+    }
+    CI->replaceAllUsesWith(vptr);
     CI->eraseFromParent();
   }
 }

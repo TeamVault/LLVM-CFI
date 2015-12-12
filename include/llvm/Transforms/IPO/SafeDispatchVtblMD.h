@@ -148,6 +148,35 @@ sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
 
   std::cerr << "Emitting subvtable info for " << RD->getQualifiedNameAsString() << "\n";
 
+  for (auto it : VTLayout->getInheritanceMap()) {
+    uint64_t addrPt = VTLayout->getAddressPoint(it.second);
+    std::cerr << addrPt << "->";
+    for (auto it1 : it.first) 
+      std::cerr << it1->getQualifiedNameAsString() << ",";
+    std::cerr << "\n";
+    vtbl_t parentVtbl("",0);
+
+    if (it.first.size() > 0) {
+      const clang::CXXRecordDecl *DirectParent = it.first.front();
+      clang::VTableLayout::inheritance_path_t ParentInheritancePath(it.first);
+      ParentInheritancePath.erase(ParentInheritancePath.begin()); 
+
+      if (ParentInheritancePath.size() > 0) {
+        const clang::VTableLayout &ParentLayout = ctx.getVTableLayout(DirectParent);
+        parentVtbl = vtbl_t(ABI->GetClassMangledName(DirectParent),
+                            ParentLayout.getOrder(ParentInheritancePath));
+      } else {
+        parentVtbl = vtbl_t(ABI->GetClassMangledName(DirectParent), 0);
+      }
+    }
+
+    addrPtMap[addrPt].insert(parentVtbl);
+  }
+
+  // TODO: Check that only the minium address point (if any) can have no
+  // parent.
+
+  /*
   clang::VTableLayout::parent_vector_t Parents = VTLayout->getParents();
 
   for (int i = 0; i < Parents.size(); i++) {
@@ -163,6 +192,7 @@ sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
 
     addrPtMap[addrPt] = s;
   }
+  */
 
   order = 0;
   uint64_t start   = 0; // start of the current vtable

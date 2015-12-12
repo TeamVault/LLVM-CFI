@@ -163,45 +163,6 @@ SDBuildCHA::vtbl_t SDBuildCHA::findLeastCommonAncestor(
   return candidate;
 }
 
-void SDBuildCHA::removeDiamonds(Module &M) {
-  cloud_map_t ptMap;
-
-  for (auto it : cloudMap) {
-    for (auto child : it.second) {
-      ptMap[child].insert(it.first);
-    }
-  }
-
-  for (auto it : ptMap) {
-    if (it.second.size() > 1) {
-      vtbl_t child = it.first;
-      sd_print("Class %s,%d has multiple (%d) parents:\n", child.first.c_str(), child.second,
-        it.second.size());
-      for (auto it1 : it.second) {
-        sd_print("  %s,%d\n", it1.first.c_str(), it1.second);
-      }
-
-      vtbl_t newAncestor(ancestorMap[child], 0);
-
-      for (auto pt : it.second) {
-        sd_print("Erasing %s,%d from %s,%d\n",
-          child.first.c_str(), child.second,
-          pt.first.c_str(), pt.second);
-        cloudMap[pt].erase(child);
-        // No need to touch cloudSizeMap as those are not yet calculated
-      }
-
-      cloudMap[newAncestor].insert(child);
-      subObjNameMap[child.first][child.second] = newAncestor.first;
-
-
-      it.second.clear();
-      it.second.insert(newAncestor);
-      sd_print("Setting parent to %s,%d\n", newAncestor.first.c_str(), newAncestor.second);
-    }
-  }
-}
-
 void SDBuildCHA::buildClouds(Module &M) {
   // this set is used for checking if a parent class is defined or not
   std::set<vtbl_t> build_undefinedVtables;
@@ -221,7 +182,7 @@ void SDBuildCHA::buildClouds(Module &M) {
       // record the old vtable array
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
-      //sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
+      sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
 
       /*
       sd_print("oldvtables: %p, %d, class %s\n",
@@ -241,16 +202,19 @@ void SDBuildCHA::buildClouds(Module &M) {
       for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
-        /*
-        sd_print("SubVtable[%d] Order: %d Parents[%d]: %s [%d-%d] AddrPt: %d\n",
+        sd_print("SubVtable[%d] Order: %d Parents[%d]: ",
           ind, 
           subInfo->order,
-          subInfo->parents.size(),
-          "NYI",
+          subInfo->parents.size());
+
+        for (auto it : subInfo->parents) {
+          sd_print("(%s,%d),", it.first.c_str(), it.second);
+        }
+
+        sd_print(" [%d-%d] AddrPt: %d\n",
           subInfo->start,
           subInfo->end,
           subInfo->addressPoint);
-        */
 
         if (build_undefinedVtables.find(name) != build_undefinedVtables.end()) {
           //sd_print("Removing %s,%d from build_udnefinedVtables\n", name.first.c_str(), name.second);
@@ -439,7 +403,7 @@ uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
     }
   }
 
-  assert(cloudSizeMap.find(root) == cloudSizeMap.end());
+  //assert(cloudSizeMap.find(root) == cloudSizeMap.end());
   cloudSizeMap[root] = count;
 
   return count;
@@ -462,8 +426,8 @@ void SDBuildCHA::clearAnalysisResults() {
 /// ----------------------------------------------------------------------------
 
 void SDBuildCHA::printClouds(const std::string &suffix) {
-  int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
-  assert(rc == 0);
+  //int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
+  //assert(rc == 0);
 
   for(const vtbl_name_t& rootName : roots) {
     assert(rootName.length() <= 490);
