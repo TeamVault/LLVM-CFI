@@ -388,9 +388,9 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
       start = it.first;
       end = it.second;
     } else {
-      assert(it.second >= end);
       if (it.first <= end) {
-        end = it.second;
+        if (it.second > end)
+          end = it.second;
       } else {
         coalesced_ranges.push_back(range_t(start, end));
         start = it.first;
@@ -402,7 +402,7 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
   if (start != -1)
     coalesced_ranges.push_back(range_t(start,end));
 
-  std::cerr << "From ranges [";
+  std::cerr << "{" << vtbl.first << "," << vtbl.second << "} From ranges [";
   for (auto it : ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
   std::cerr << "] coalesced [";
@@ -454,13 +454,43 @@ void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
   }
 }
 
-void SDLayoutBuilder::calculateVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
+bool SDLayoutBuilder::hasMemRange(const vtbl_t &vtbl) {
+  return memRangeMap.find(vtbl) != memRangeMap.end();
+}
+
+const std::vector<SDLayoutBuilder::mem_range_t>& SDLayoutBuilder::getMemRange(const vtbl_t &vtbl) {
+  return memRangeMap[vtbl];
+}
+
+void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_t& vtbl){
   SDLayoutBuilder::vtbl_t root(vtbl, 0);
   order_t pre = cha->preorder(root);
   std::map<vtbl_t, uint64_t> indMap;
   for (uint64_t i = 0; i < pre.size(); i++) indMap[pre[i]] = i;
 
   calculateVPtrRangesHelper(root, indMap);
+
+  for (uint64_t i = 0; i < pre.size(); i++) {
+    for (auto it : rangeMap[pre[i]]) {
+      uint64_t start = it.first,
+               end = it.second,
+               def_count = 0;
+
+      for (int j = start; j < end; j++)
+        if (cha->isDefined(pre[j])) def_count++;
+
+      std::cerr << "Range for " << pre[i].first << "," << pre[i].second
+        << " has " << def_count << "/" << (end-start) << "defined.\n";
+
+      if (def_count == 0)
+        continue;
+
+      while (cha->isUndefined(pre[start]) && start < end) start++;
+
+      memRangeMap[pre[i]].push_back(mem_range_t(
+        newVtblAddressConst(M, pre[start]), def_count));
+    }
+  }
 }
 
 void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& vtbl){
@@ -862,7 +892,7 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
 
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;
-    calculateVPtrRanges(vtbl);
+    calculateVPtrRanges(M, vtbl);
     verifyVPtrRanges(vtbl);
   }
 }
