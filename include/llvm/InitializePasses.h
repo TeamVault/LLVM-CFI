@@ -303,6 +303,7 @@ void initializeSDFixPass(PassRegistry&);
 void initializeSDBuildCHAPass(PassRegistry&);
 void initializeSDLayoutBuilderPass(PassRegistry&);
 void initializeSDUpdateIndicesPass(PassRegistry&);
+void initializeSDMoveBasicBlocksPass(PassRegistry&);
 void initializeSDSubstModule3Pass(PassRegistry&);
 }
 

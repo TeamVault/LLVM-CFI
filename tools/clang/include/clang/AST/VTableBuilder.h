@@ -260,8 +260,9 @@ private:
   ParentMapTy ParentMap;
 
   bool IsMicrosoftABI;
+  const CXXRecordDecl *MostDerived;
+  const CXXRecordDecl *LayoutClass;
   AddressPointOrderMapTy AddressPointOrder;
-  parent_vector_t Parents;
   inheritance_vtbl_map_t InheritanceMap;
 
 public:
@@ -270,8 +271,9 @@ public:
                uint64_t NumVTableThunks,
                const VTableThunkTy *VTableThunks,
                const AddressPointsMapTy &AddressPoints,
-               const parent_vector_t &_Parents,
                const inheritance_vtbl_map_t &_InheritanceMap,
+               const CXXRecordDecl *MostDerived,
+               const CXXRecordDecl *LayoutClass,
                bool IsMicrosoftABI);
   ~VTableLayout();
 
@@ -316,10 +318,6 @@ public:
     return ((AddressPointOrderMapTy) AddressPointOrder)[order];
   }
 
-  const parent_vector_t &getParents() const {
-    return Parents;
-  }
-
   const inheritance_vtbl_map_t &getInheritanceMap() const {
     return InheritanceMap;
   }
@@ -327,6 +325,14 @@ public:
   uint64_t getOrder(const inheritance_path_t &path) const {
     assert(InheritanceMap.count(path));
     return ((inheritance_vtbl_map_t)InheritanceMap)[path];
+  }
+
+  bool isConstructionLayout() const {
+    return MostDerived != LayoutClass;
+  }
+
+  const CXXRecordDecl *getMostDerivedClass() const {
+    return MostDerived;
   }
 };
 

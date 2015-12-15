@@ -551,6 +551,10 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (OptLevel != 0)
     addLateLTOOptimizationPasses(PM);
 
+  if (EmitIVTBLs || EmitOVTBLs) {
+    PM.add(llvm::createSDMoveBasicBlocksPass());
+  }
+
   if (VerifyOutput)
     PM.add(createVerifierPass());
 }

@@ -343,6 +343,12 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
   }
 }
 
+struct range_less_than_key {
+  inline bool operator()(const SDLayoutBuilder::mem_range_t &r1, const SDLayoutBuilder::mem_range_t &r2) {
+    return r1.second > r2.second; // Invert sign to sort in descending order
+  }
+};
+
 void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
   Function *sd_vtbl_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
@@ -414,7 +420,18 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, layoutBuilder->alignmentMap[root]);
       int i = 0;
 
-      for (auto rangeIt : layoutBuilder->getMemRange(vtbl)) {
+      std::vector<SDLayoutBuilder::mem_range_t> ranges(layoutBuilder->getMemRange(vtbl));
+      std::sort(ranges.begin(), ranges.end(), range_less_than_key());
+
+      uint64_t sum = 0;
+      for (auto rangeIt : ranges) {
+        sum += rangeIt.second;
+      }
+
+      std::cerr << "{" << vtbl.first.c_str() << "," << vtbl.second
+        << "} Emitting " << ranges.size() << " range checks with total width " << sum << "\n";
+
+      for (auto rangeIt : ranges) {
         llvm::Value *start = rangeIt.first;
         llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeIt.second);
         llvm::Value *Args[] = {castVptr, start, width, alignment};
@@ -423,18 +440,15 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
               Args);
 
         char blockName[256];
-        snprintf(blockName, sizeof(blockName), "vtblCheck.fail.%d", i);
+        snprintf(blockName, sizeof(blockName), "sd.fastcheck.fail.%d", i);
         llvm::BasicBlock *fastCheckFailed = llvm::BasicBlock::Create(F->getContext(), blockName, F);
         builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
         builder.SetInsertPoint(fastCheckFailed);
-        std::cerr << "{" << vtbl.first.c_str() << "," << vtbl.second
-          << "} Emitting range check " << i << " width " << rangeIt.second << " alignment "
-          << layoutBuilder->alignmentMap[root] << "\n";
         i++;
       }
     }
 
-    llvm::BasicBlock *checkFailed = llvm::BasicBlock::Create(F->getContext(), "sd.checkFailed", F);
+    llvm::BasicBlock *checkFailed = llvm::BasicBlock::Create(F->getContext(), "sd.check.fail", F);
     llvm::Type* argTs[] = { Int8PtrTy, Int8PtrTy };
     llvm::FunctionType *vptr_safeT = llvm::FunctionType::get(llvm::Type::getInt1Ty(C), argTs, false);
     llvm::Constant *vptr_safeF = M->getOrInsertFunction("_Z9vptr_safePKvPKc", vptr_safeT);

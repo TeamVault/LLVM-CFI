@@ -150,15 +150,20 @@ sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
 
   for (auto it : VTLayout->getInheritanceMap()) {
     uint64_t addrPt = VTLayout->getAddressPoint(it.second);
+    clang::VTableLayout::inheritance_path_t ParentInheritancePath(it.first);
+
     std::cerr << addrPt << "->";
     for (auto it1 : it.first) 
       std::cerr << it1->getQualifiedNameAsString() << ",";
-    std::cerr << "\n";
+    std::cerr << "(order " << it.second << ")\n";
     vtbl_t parentVtbl("",0);
 
+    if (VTLayout->isConstructionLayout()) {
+      ParentInheritancePath.insert(ParentInheritancePath.begin(), VTLayout->getMostDerivedClass());
+    }
+
     if (it.first.size() > 0) {
-      const clang::CXXRecordDecl *DirectParent = it.first.front();
-      clang::VTableLayout::inheritance_path_t ParentInheritancePath(it.first);
+      const clang::CXXRecordDecl *DirectParent = ParentInheritancePath.front();
       ParentInheritancePath.erase(ParentInheritancePath.begin()); 
 
       if (ParentInheritancePath.size() > 0) {

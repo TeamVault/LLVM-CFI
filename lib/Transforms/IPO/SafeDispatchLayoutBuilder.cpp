@@ -471,21 +471,31 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   calculateVPtrRangesHelper(root, indMap);
 
   for (uint64_t i = 0; i < pre.size(); i++) {
+    std::cerr << "For " << pre[i].first << "," << pre[i].second << " ";
+
     for (auto it : rangeMap[pre[i]]) {
       uint64_t start = it.first,
                end = it.second,
                def_count = 0;
 
+
       for (int j = start; j < end; j++)
         if (cha->isDefined(pre[j])) def_count++;
 
-      std::cerr << "Range for " << pre[i].first << "," << pre[i].second
-        << " has " << def_count << "/" << (end-start) << "defined.\n";
+      std::cerr << "(range " << start << "-" << end << " contains "
+        << def_count << " defined,";
 
       if (def_count == 0)
         continue;
 
-      while (cha->isUndefined(pre[start]) && start < end) start++;
+      while (cha->isUndefined(pre[start]) && start < end) {
+        std::cerr << "skipping " << pre[start].first << "," << pre[start].second 
+          << ",";
+        start++;
+      }
+
+      std::cerr << "final range " << pre[start].first << "," << pre[start].second
+        << "+" << def_count << ")";
 
       memRangeMap[pre[i]].push_back(mem_range_t(
         newVtblAddressConst(M, pre[start]), def_count));

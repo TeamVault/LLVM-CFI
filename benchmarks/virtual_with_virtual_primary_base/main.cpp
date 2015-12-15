@@ -48,10 +48,5 @@ int main(int argc, char *argv[])
   a2->f();
   a3->f();
 
-  delete a;
-  delete a1;
-  delete a2;
-  delete a3;
-
   return 0;
 }

@@ -189,6 +189,7 @@ namespace {
       (void) llvm::createSDBuildCHAPass();
       (void) llvm::createSDLayoutBuilderPass();
       (void) llvm::createSDUpdateIndicesPass();
+      (void) llvm::createSDMoveBasicBlocksPass();
       (void) llvm::createSDSubstModule3Pass();
     }
   } ForcePassLinking; // Force link by creating a global definition.

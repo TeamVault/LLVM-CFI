@@ -289,15 +289,31 @@ void SDBuildCHA::buildClouds(Module &M) {
     const vtbl_name_t &className = it.first;
     const std::vector<vtbl_set_t> &parentSetV = it.second;
 
+    std::cerr << "(" << className << ",[";
+
+    for (int ind = 0; ind < parentSetV.size(); ind++) {
+      std::cerr << "{";
+      for (auto ptIt : parentSetV[ind])
+        std::cerr << "<" << ptIt.first << "," << ptIt.second << ">,";
+      std::cerr << "},";
+    }
+
+    std::cerr << "]\n";
+  }
+
+  for (auto it : parentMap) {
+    const vtbl_name_t &className = it.first;
+    const std::vector<vtbl_set_t> &parentSetV = it.second;
+
     for (int ind = 0; ind < parentSetV.size(); ind++) {
       vtbl_name_t layoutClass = "none";
 
       // Check that all possible parents are in the same layout cloud
       for (auto ptIt : parentSetV[ind]) {
-        if (layoutClass != "none")
+        if (layoutClass != "none") {
           assert(layoutClass == ancestorMap[ptIt] &&
             "All parents of a primitive vtable should have the same root layout.");
-        else
+        } else
           layoutClass = ancestorMap[ptIt];
       }
 
