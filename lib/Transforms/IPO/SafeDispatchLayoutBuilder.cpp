@@ -46,14 +46,27 @@ static bool sd_isVthunk(const llvm::StringRef& name) {
          name.startswith("_ZTcv");  // virtual covariant thunk
 }
 
+static void dumpNewLayout(const SDLayoutBuilder::interleaving_list_t &interleaving) {
+  uint64_t ind = 0;
+  std::cerr << "New vtable layout:\n";
+  for (auto elem : interleaving) {
+    std::cerr << ind << " : " << elem.first.first << "," << elem.first.second << "[" << elem.second << "]\n";
+    ind ++;
+  }
+}
+
+
 bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
+  new_layout_inds_map_t indMap;
   for (auto vtblIt = cha->roots_begin(); vtblIt != cha->roots_end(); vtblIt++) { 
     vtbl_name_t vtbl = *vtblIt;
     vtbl_t root(vtbl, 0);
     interleaving_list_t &interleaving = interleavingMap[vtbl];
-    new_layout_inds_map_t indMap;
     uint64_t i = 0;
 
+    indMap.clear();
+  
+    std::cerr << "Verifying cloud : " << vtbl << "\n";
     // Build a map (vtbl_t -> (uint64_t -> uint64_t)) with the old-to-new index mapping encoded in the
     // interleaving
     for (auto elem : interleaving) {
@@ -66,6 +79,7 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
         if (indMap[v].count(oldPos) != 0) {
           std::cerr << "In ivtbl " << vtbl << " entry " << v.first << "," << v.second << "[" << oldPos << "]"
             << " appears twice - at " << indMap[v][oldPos] << " and " << i << std::endl;
+          dumpNewLayout(interleaving);
           return false;
         }
       }
@@ -73,6 +87,7 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
       indMap[v][oldPos] = i;
       i++;
     }
+
 
     SDBuildCHA::order_t cloud = cha->preorder(root);
 
@@ -87,12 +102,13 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
 
       if (indMap.find(n) == indMap.end()) {
           std::cerr << "In ivtbl " << vtbl << " missing " << n.first << "," << n.second << std::endl;
+          dumpNewLayout(interleaving);
           return false;
       }
 
       // Check that the index map is dense (total on the range of indices)
       const range_t &r = cha->getRange(n);
-      uint64_t oldVtblSize = r.second - r.first + 1;
+      uint64_t oldVtblSize = r.second - (r.first - prePadMap[n]) + 1;
       auto minMax = std::minmax_element (indMap[n].begin(), indMap[n].end());
 
       if ((minMax.second->first - minMax.first->first + 1) != oldVtblSize) {
@@ -101,58 +117,71 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
             " is (" << minMax.first->first << "-"
             << minMax.second->first << ") expected size "
             << oldVtblSize << std::endl;
+          dumpNewLayout(interleaving);
           return false;
       }
 
       if (indMap[n].size() != oldVtblSize) {
           std::cerr << "In ivtbl " << vtbl << " index mapping for " << n.first << "," << n.second << 
             " has " << indMap[n].size() << " expected " << oldVtblSize << std::endl;
+          dumpNewLayout(interleaving);
           return false;
       }
     }
 
-/*
-  // 2) Check that the relative vtable offsets are the same for every parent/child class pair
-  for (const vtbl_t& pt : cloud) {
-    if (isUndefined(pt.first))  continue;
 
-    for(const vtbl_t& child : cloudMap[pt]) {
-      if (isUndefined(child.first))  continue;
+    // 2) Check that the relative vtable offsets are the same for every parent/child class pair
+    for (const vtbl_t& pt : cloud) {
+      if (cha->isUndefined(pt.first))  continue;
 
-      uint64_t ptStart = rangeMap[pt.first][pt.second].first;
-      uint64_t ptEnd = rangeMap[pt.first][pt.second].second;
-      uint64_t ptAddrPt = cha->addrPt(pt);
-      uint64_t ptRelAddrPt = ptAddrPt - ptStart;
-      uint64_t childStart = rangeMap[child.first][child.second].first;
-      uint64_t childEnd = rangeMap[child.first][child.second].second;
-      uint64_t childAddrPt = cha->addrPt(child);
-      uint64_t childRelAddrPt = childAddrPt - childStart;
+      for(auto child = cha->children_begin(pt); child != cha->children_end(pt); child++) {
+        if (cha->isUndefined(child->first))  continue;
 
-      int64_t ptToChildAdj = childAddrPt - ptAddrPt;
+        const range_t &ptR = cha->getRange(pt);
+        const range_t &chR = cha->getRange(*child);
 
-      uint64_t newPtAddrPt = indMap[pt][ptAddrPt];
-      uint64_t newChildAddrPt = indMap[child][childAddrPt];
 
-      if (ptToChildAdj < 0 || ptEnd + ptToChildAdj > childEnd) {
-        sd_print("Parent vtable(%s,%d) [%d,%d,%d] is not contained in child vtable(%s,%d) [%d,%d,%d]",
-            pt.first.c_str(), pt.second, ptStart, ptAddrPt, ptEnd,
-            child.first.c_str(), child.second, childStart, childAddrPt, childEnd);
-        return false;
-      }
+        uint64_t ptStart = ptR.first;
+        uint64_t ptEnd = ptR.second;
+        uint64_t ptAddrPt = cha->addrPt(pt);
+        uint64_t ptRelAddrPt = ptAddrPt - ptStart;
+        uint64_t childStart = chR.first;
+        uint64_t childEnd = chR.second;
+        uint64_t childAddrPt = cha->addrPt(*child);
+        uint64_t childRelAddrPt = childAddrPt - childStart;
+        int64_t ptToChildAdj = childAddrPt - ptAddrPt;
+        uint64_t newPtAddrPt = indMap[pt][ptAddrPt];
+        uint64_t newChildAddrPt = indMap[*child][childAddrPt];
 
-      for (int64_t ind = 0; ind < ptEnd - ptStart + 1; ind++) {
-        int64_t newPtInd = indMap[pt][ind] - newPtAddrPt;
-        int64_t newChildInd = indMap[child][ind + ptToChildAdj] - newChildAddrPt;
-        if (newPtInd != newChildInd) {
-          sd_print("Parent (%s,%d) old relative index %d(new relative %d) mismatches child(%s,%d) corresponding old index %d(new relative %d)",
-              pt.first.c_str(), pt.second, (ind - ptAddrPt), newPtInd,
-              child.first.c_str(), child.second, ind + ptToChildAdj - childAddrPt, newChildInd);
+        std::cerr << pt.first << "," << pt.second << "->"
+          << child->first << "," << child->second 
+          << " pt : (" << ptStart << "," << ptAddrPt << "," << ptEnd << ") "
+          << " child : (" << childStart << "," << childAddrPt << "," << childEnd << ") "
+          << " ptToChildAdj: " << ptToChildAdj << "\n";
+
+        if ((ptAddrPt - ptStart + prePadMap[pt]) > (childAddrPt - childStart + prePadMap[*child]) ||
+            ptEnd - ptAddrPt > childEnd - childAddrPt) {
+          sd_print("Parent vtable(%s,%d) [%d-%d,%d,%d] is not contained in child vtable(%s,%d) [%d-%d,%d,%d]",
+              pt.first.c_str(), pt.second, ptStart, prePadMap[pt],ptAddrPt, ptEnd, 
+              child->first.c_str(), child->second, childStart, prePadMap[*child], childAddrPt, childEnd);
+          dumpNewLayout(interleaving);
           return false;
+        }
+
+        for (int64_t ind = 0; ind < ptEnd - ptStart + prePadMap[pt] + 1; ind++) {
+          int64_t newPtInd =  indMap[pt][ptStart + ind - prePadMap[pt]] - newPtAddrPt;
+          int64_t newChildInd = indMap[*child][ptStart + ind - prePadMap[pt] + ptToChildAdj] - newChildAddrPt;
+
+          if (newPtInd != newChildInd) {
+            sd_print("Parent (%s,%d) old relative index %d(new relative %d) mismatches child(%s,%d) corresponding old index %d(new relative %d)",
+                pt.first.c_str(), pt.second, (ind - ptAddrPt), newPtInd,
+                child->first.c_str(), child->second, ind + ptToChildAdj - childAddrPt, newChildInd);
+            dumpNewLayout(interleaving);
+            return false;
+          }
         }
       }
     }
-  }
-  */
   }
 
   return true;
@@ -245,7 +274,7 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
             int64_t oldIndex = oldVal->getSExtValue() / WORD_WIDTH;
 
             // calculate the new one
-            sd_print("Create thunk function %s\n", newThunkName.c_str());
+            //sd_print("Create thunk function %s\n", newThunkName.c_str());
             int64_t newIndex = translateVtblInd(vtbl_t(vtbl,order), oldIndex, true);
 
             Value* newValue = ConstantInt::get(IntegerType::getInt64Ty(C), newIndex * WORD_WIDTH);
@@ -331,6 +360,32 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
 
   vtbl_t root(vtbl,0);
   order_t pre = cha->preorder(root);
+  // First check if any vtable needs pre-padding. (All vtables must contain their parents).
+  for (auto pt : pre) {
+    if (cha->isUndefined(pt))
+      continue; 
+
+    for (auto child = cha->children_begin(pt); child != cha->children_end(pt); child++) {
+        if (cha->isUndefined(pt))
+          continue; 
+
+        const range_t &ptR = cha->getRange(pt);
+        const range_t &chR = cha->getRange(*child);
+
+        uint64_t ptStart = ptR.first;
+        uint64_t ptEnd = ptR.second;
+        uint64_t ptAddrPt = cha->addrPt(pt);
+        uint64_t childStart = chR.first;
+        uint64_t childEnd = chR.second;
+        uint64_t childAddrPt = cha->addrPt(*child);
+
+        uint64_t ptPreAddrPt = ptAddrPt - ptStart;
+        uint64_t childPreAddrPt = childAddrPt - childStart;
+
+        prePadMap[*child] = (ptPreAddrPt> childPreAddrPt ?
+          ptPreAddrPt - childPreAddrPt : 0);
+    }
+  }
 
   // initialize the cloud's interleaving list
   interleavingMap[vtbl] = interleaving_list_t();
@@ -402,6 +457,7 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
   if (start != -1)
     coalesced_ranges.push_back(range_t(start,end));
 
+  /*
   std::cerr << "{" << vtbl.first << "," << vtbl.second << "} From ranges [";
   for (auto it : ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
@@ -409,7 +465,7 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
   for (auto it : coalesced_ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
   std::cerr << "]\n";
-
+  */
   rangeMap[vtbl] = coalesced_ranges;
 }
 
@@ -429,7 +485,6 @@ void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
 
     // Check ranges are disjoint
     for (auto range : rangeMap[v.first]) {
-      std::cerr << lastEnd << "(" << range.first << "," << range.second << ")\n";
       totalRange += range.second - range.first;
       assert(lastEnd < ((int64_t)range.first));
       lastEnd = range.second;
@@ -471,7 +526,7 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   calculateVPtrRangesHelper(root, indMap);
 
   for (uint64_t i = 0; i < pre.size(); i++) {
-    std::cerr << "For " << pre[i].first << "," << pre[i].second << " ";
+//    std::cerr << "For " << pre[i].first << "," << pre[i].second << " ";
 
     for (auto it : rangeMap[pre[i]]) {
       uint64_t start = it.first,
@@ -481,25 +536,27 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
 
       for (int j = start; j < end; j++)
         if (cha->isDefined(pre[j])) def_count++;
-
+/*
       std::cerr << "(range " << start << "-" << end << " contains "
         << def_count << " defined,";
-
+*/
       if (def_count == 0)
         continue;
 
       while (cha->isUndefined(pre[start]) && start < end) {
-        std::cerr << "skipping " << pre[start].first << "," << pre[start].second 
-          << ",";
+//        std::cerr << "skipping " << pre[start].first << "," << pre[start].second 
+//          << ",";
         start++;
       }
-
+/*
       std::cerr << "final range " << pre[start].first << "," << pre[start].second
         << "+" << def_count << ")";
-
+*/
       memRangeMap[pre[i]].push_back(mem_range_t(
         newVtblAddressConst(M, pre[start]), def_count));
+
     }
+    //std::cerr << "\n";
   }
 }
 
@@ -517,7 +574,8 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   // fill the interleaved vtable element list
   std::vector<Constant*> newVtableElems;
   for (const interleaving_t& ivtbl : newVtbl) {
-    if (cha->isUndefined(ivtbl.first.first) || ivtbl.first == dummyVtable) {
+    const range_t &r = cha->getRange(ivtbl.first);
+    if (cha->isUndefined(ivtbl.first.first) || ivtbl.first == dummyVtable || ivtbl.second < r.first) {
       newVtableElems.push_back(
         Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
     } else {
@@ -562,7 +620,6 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
   for (const vtbl_t& v : cloud) {
     if (cha->isDefined(v)) {
-      std::cerr << v.first << v.second << "\n";
       assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
       newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
     }
@@ -632,7 +689,7 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
     uint64_t addrPt = cha->addrPt(n);  // get the address point of the vtable
     const range_t &r = cha->getRange(n);
     posMap[n]     = positiveOff ? addrPt : (addrPt - 1); // start interleaving from that address
-    lastPosMap[n] = positiveOff ? r.second : r.first;
+    lastPosMap[n] = positiveOff ? r.second : (r.first - prePadMap[n]);
   }
 
   interleaving_list_t current; // interleaving of one element
@@ -668,7 +725,6 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
 int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t offset,
                                 bool isRelative = true) {
 
-  return offset;
   if (cha->isUndefined(name) && cha->hasFirstDefinedChild(name)) {
     name = cha->getFirstDefinedChild(name);
   }
@@ -707,38 +763,6 @@ int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t 
     return newInds[offset];
   }
 }
-
-  /*
-int64_t SDLayoutBuilder::oldIndexToNew(SDLayoutBuilder::vtbl_name_t vtbl, int64_t offset,
-                                bool isRelative = true) {
-  return offset;
-  vtbl_t name(vtbl,0);
-
-  sd_print("class : %s offset: %d\n", name.first.data(), offset);
-  if (cha->isUndefined(name)) {
-    name = cha->getFirstDefinedChild(name);
-  }
-
-  // if the class doesn't have any vtable defined,
-  // use one of its children to calculate function ptr offset
-  if (newLayoutInds.find(name) == newLayoutInds.end()) {
-    // i don't know if works for negative offsets too
-    assert(isRelative);
-    if(offset < 0) {
-      sd_print("offset: %ld\n", offset);
-      assert(false);
-    }
-
-    // this is a class we don't have any metadata about (i.e. there is no child of its
-    // that has a defined vtable). We assume this should never get called in a
-    // statically linked binary.
-    assert(!cha->knowsAbout(name));
-    return offset;
-  }
-
-  return translateVtblInd(name, offset, isRelative);
-}
-  */
 
 llvm::Constant* SDLayoutBuilder::getVTableRangeStart(const SDLayoutBuilder::vtbl_t& vtbl) {
   return newVTableStartAddrMap[vtbl];

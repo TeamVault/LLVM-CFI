@@ -51,7 +51,6 @@ ModulePass* llvm::createSDBuildCHAPass() {
  * the beginning of the vtable
  */
 unsigned SDBuildCHA::getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
-  sd_print("Get vtable order %s ind %d\n", vtbl.c_str(), ind);
   assert(rangeMap.find(vtbl) != rangeMap.end());
 
   std::vector<range_t>& ranges = rangeMap[vtbl];
@@ -190,7 +189,7 @@ void SDBuildCHA::buildClouds(Module &M) {
       // record the old vtable array
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
-      sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
+      //sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
 
       /*
       sd_print("oldvtables: %p, %d, class %s\n",
@@ -210,6 +209,7 @@ void SDBuildCHA::buildClouds(Module &M) {
       for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
+        /*
         sd_print("SubVtable[%d] Order: %d Parents[%d]: ",
           ind, 
           subInfo->order,
@@ -223,6 +223,7 @@ void SDBuildCHA::buildClouds(Module &M) {
           subInfo->start,
           subInfo->end,
           subInfo->addressPoint);
+        */
 
         if (build_undefinedVtables.find(name) != build_undefinedVtables.end()) {
           //sd_print("Removing %s,%d from build_udnefinedVtables\n", name.first.c_str(), name.second);
@@ -450,8 +451,8 @@ void SDBuildCHA::clearAnalysisResults() {
 /// ----------------------------------------------------------------------------
 
 void SDBuildCHA::printClouds(const std::string &suffix) {
-  //int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
-  //assert(rc == 0);
+  int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
+  assert(rc == 0);
 
   for(const vtbl_name_t& rootName : roots) {
     assert(rootName.length() <= 490);

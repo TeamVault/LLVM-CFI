@@ -15,6 +15,7 @@
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/CallSite.h"
+#include "llvm/IR/MDBuilder.h"
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
@@ -29,6 +30,7 @@
 #include <math.h>
 #include <algorithm>
 #include <iostream>
+#include <limits>
 
 // you have to modify the following files for each additional LLVM pass
 // 1. IPO.h and IPO.cpp
@@ -442,7 +444,11 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
         char blockName[256];
         snprintf(blockName, sizeof(blockName), "sd.fastcheck.fail.%d", i);
         llvm::BasicBlock *fastCheckFailed = llvm::BasicBlock::Create(F->getContext(), blockName, F);
-        builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
+        llvm::BranchInst *BI = builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
+        llvm::MDBuilder MDB(BI->getContext());
+        BI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(
+          std::numeric_limits<uint32_t>::max(),
+          std::numeric_limits<uint32_t>::min()));
         builder.SetInsertPoint(fastCheckFailed);
         i++;
       }
@@ -457,7 +463,12 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
                 castVptr,
                 builder.CreateGlobalStringPtr(className));
                 // TODO: Add dynamic class name to _vptr_safe as well
-    builder.CreateCondBr(slowPathSuccess, SuccessBB, checkFailed);
+
+    BranchInst *BI = builder.CreateCondBr(slowPathSuccess, SuccessBB, checkFailed);
+    llvm::MDBuilder MDB(BI->getContext());
+    BI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(
+      std::numeric_limits<uint32_t>::max(),
+      std::numeric_limits<uint32_t>::min()));
 
     builder.SetInsertPoint(checkFailed);
     // Insert Check Failure

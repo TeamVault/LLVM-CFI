@@ -152,17 +152,18 @@ sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
     uint64_t addrPt = VTLayout->getAddressPoint(it.second);
     clang::VTableLayout::inheritance_path_t ParentInheritancePath(it.first);
 
-    std::cerr << addrPt << "->";
-    for (auto it1 : it.first) 
-      std::cerr << it1->getQualifiedNameAsString() << ",";
-    std::cerr << "(order " << it.second << ")\n";
-    vtbl_t parentVtbl("",0);
-
     if (VTLayout->isConstructionLayout()) {
       ParentInheritancePath.insert(ParentInheritancePath.begin(), VTLayout->getMostDerivedClass());
     }
 
-    if (it.first.size() > 0) {
+    std::cerr << addrPt << "->";
+    for (auto it1 : ParentInheritancePath) 
+      std::cerr << it1->getQualifiedNameAsString() << ",";
+    std::cerr << "(order " << it.second << ")\n";
+    vtbl_t parentVtbl("",0);
+
+
+    if (ParentInheritancePath.size() > 0) {
       const clang::CXXRecordDecl *DirectParent = ParentInheritancePath.front();
       ParentInheritancePath.erase(ParentInheritancePath.begin()); 
 
@@ -174,6 +175,8 @@ sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
         parentVtbl = vtbl_t(ABI->GetClassMangledName(DirectParent), 0);
       }
     }
+
+    std::cerr << addrPt << " direct parent = " << parentVtbl.first << "," << parentVtbl.second << "\n";
 
     addrPtMap[addrPt].insert(parentVtbl);
   }

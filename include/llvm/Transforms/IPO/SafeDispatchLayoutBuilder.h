@@ -53,6 +53,7 @@ namespace llvm {
     typedef std::map<vtbl_name_t, GlobalVariable*>          cloud_start_map_t;
     typedef std::map<vtbl_t, std::vector<range_t> >         range_map_t;
     typedef std::map<vtbl_t, std::vector<mem_range_t> >     mem_range_map_t;
+    typedef std::map<vtbl_t, uint64_t>                      pad_map_t;
 
     new_layout_inds_t newLayoutInds;                   // (vtbl,ind) -> [new ind inside interleaved vtbl]
     interleaving_map_t interleavingMap;                // root -> new layouts map
@@ -62,6 +63,7 @@ namespace llvm {
     vtbl_t dummyVtable;
     range_map_t rangeMap;                             // Map of ranges for vptrs in terms of preorder indices
     mem_range_map_t memRangeMap;
+    pad_map_t prePadMap;
     bool interleave;
 
     SDLayoutBuilder(bool interl = false) : ModulePass(ID), interleave(interl) {
@@ -77,8 +79,7 @@ namespace llvm {
       cha = &getAnalysis<SDBuildCHA>();
 
       buildNewLayouts(M);
-      verifyNewLayouts(M);
-
+      assert(verifyNewLayouts(M));
       sd_print("Finished building layout\n");
       return 1;
     }
