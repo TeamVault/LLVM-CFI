@@ -73,6 +73,9 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
       vtbl_t &v = elem.first;
       uint64_t oldPos = elem.second;
 
+      if (v == dummyVtable)
+        continue;
+
       if (indMap.find(v) == indMap.end()) {
         indMap[v] = std::map<uint64_t, uint64_t>();
       } else {
@@ -129,6 +132,8 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
       }
     }
 
+    if (!interleave)
+      return true;
 
     // 2) Check that the relative vtable offsets are the same for every parent/child class pair
     for (const vtbl_t& pt : cloud) {
