@@ -93,6 +93,10 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
 
 
     SDBuildCHA::order_t cloud = cha->preorder(root);
+    std::map<vtbl_t, uint64_t> orderMap;
+
+    for (uint64_t i = 0; i < cloud.size(); i++)
+      orderMap[cloud[i]] = i;
 
     // 1) Check that we have a (DENSE!) map of indices for each vtable in the cloud in the
     // current interleaving. (i.e. inside indMap)
@@ -135,6 +139,40 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
     if (!interleave)
       return true;
 
+    // 1.5) Check that for each parent/child the child is contained in the parent
+    for (const vtbl_t& pt : cloud) {
+      if (cha->isUndefined(pt.first))  continue;
+
+      for(auto child = cha->children_begin(pt); child != cha->children_end(pt); child++) {
+        if (cha->isUndefined(child->first))  continue;
+
+        if (orderMap[*child] < orderMap[pt]) continue;
+
+        const range_t &ptR = cha->getRange(pt);
+        const range_t &chR = cha->getRange(*child);
+
+
+        uint64_t ptStart = ptR.first;
+        uint64_t ptEnd = ptR.second;
+        uint64_t ptAddrPt = cha->addrPt(pt);
+        uint64_t ptRelAddrPt = ptAddrPt - ptStart;
+        uint64_t childStart = chR.first;
+        uint64_t childEnd = chR.second;
+        uint64_t childAddrPt = cha->addrPt(*child);
+        uint64_t childRelAddrPt = childAddrPt - childStart;
+
+        if ((ptAddrPt - ptStart + prePadMap[pt]) > (childAddrPt - childStart + prePadMap[*child]) ||
+            ptEnd - ptAddrPt > childEnd - childAddrPt) {
+          sd_print("Parent vtable(%s,%d) [%d-%d,%d,%d] is not contained in child vtable(%s,%d) [%d-%d,%d,%d]",
+              pt.first.c_str(), pt.second, ptStart, prePadMap[pt],ptAddrPt, ptEnd, 
+              child->first.c_str(), child->second, childStart, prePadMap[*child], childAddrPt, childEnd);
+          dumpNewLayout(interleaving);
+          return false;
+        }
+      }
+    }
+
+
     // 2) Check that the relative vtable offsets are the same for every parent/child class pair
     for (const vtbl_t& pt : cloud) {
       if (cha->isUndefined(pt.first))  continue;
@@ -142,6 +180,7 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
       for(auto child = cha->children_begin(pt); child != cha->children_end(pt); child++) {
         if (cha->isUndefined(child->first))  continue;
 
+        if (orderMap[*child] < orderMap[pt]) continue;
         const range_t &ptR = cha->getRange(pt);
         const range_t &chR = cha->getRange(*child);
 
@@ -157,21 +196,6 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
         int64_t ptToChildAdj = childAddrPt - ptAddrPt;
         uint64_t newPtAddrPt = indMap[pt][ptAddrPt];
         uint64_t newChildAddrPt = indMap[*child][childAddrPt];
-
-        std::cerr << pt.first << "," << pt.second << "->"
-          << child->first << "," << child->second 
-          << " pt : (" << ptStart << "," << ptAddrPt << "," << ptEnd << ") "
-          << " child : (" << childStart << "," << childAddrPt << "," << childEnd << ") "
-          << " ptToChildAdj: " << ptToChildAdj << "\n";
-
-        if ((ptAddrPt - ptStart + prePadMap[pt]) > (childAddrPt - childStart + prePadMap[*child]) ||
-            ptEnd - ptAddrPt > childEnd - childAddrPt) {
-          sd_print("Parent vtable(%s,%d) [%d-%d,%d,%d] is not contained in child vtable(%s,%d) [%d-%d,%d,%d]",
-              pt.first.c_str(), pt.second, ptStart, prePadMap[pt],ptAddrPt, ptEnd, 
-              child->first.c_str(), child->second, childStart, prePadMap[*child], childAddrPt, childEnd);
-          dumpNewLayout(interleaving);
-          return false;
-        }
 
         for (int64_t ind = 0; ind < ptEnd - ptStart + prePadMap[pt] + 1; ind++) {
           int64_t newPtInd =  indMap[pt][ptStart + ind - prePadMap[pt]] - newPtAddrPt;
@@ -365,6 +389,10 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
 
   vtbl_t root(vtbl,0);
   order_t pre = cha->preorder(root);
+  std::map<vtbl_t, uint64_t> indMap;
+  for (uint64_t i = 0; i < pre.size(); i++)
+    indMap[pre[i]] = i;
+
   // First check if any vtable needs pre-padding. (All vtables must contain their parents).
   for (auto pt : pre) {
     if (cha->isUndefined(pt))
@@ -373,6 +401,9 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
     for (auto child = cha->children_begin(pt); child != cha->children_end(pt); child++) {
         if (cha->isUndefined(pt))
           continue; 
+
+        if (indMap[*child] < indMap[pt])
+          continue; // Earlier in the preorder traversal - visited from a different node.
 
         const range_t &ptR = cha->getRange(pt);
         const range_t &chR = cha->getRange(*child);
@@ -384,11 +415,11 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
         uint64_t childEnd = chR.second;
         uint64_t childAddrPt = cha->addrPt(*child);
 
-        uint64_t ptPreAddrPt = ptAddrPt - ptStart;
-        uint64_t childPreAddrPt = childAddrPt - childStart;
+        uint64_t ptPreAddrPt = ptAddrPt - ptStart + prePadMap[pt];
+        uint64_t childPreAddrPt = childAddrPt - childStart + prePadMap[*child];
 
-        prePadMap[*child] = (ptPreAddrPt> childPreAddrPt ?
-          ptPreAddrPt - childPreAddrPt : 0);
+        prePadMap[*child] = (ptPreAddrPt > childPreAddrPt ?
+          ptPreAddrPt - childPreAddrPt : prePadMap[*child]);
     }
   }
 
