@@ -31,7 +31,7 @@ sd_config = {
 }
 
 if ENABLE_LLVM_CFI:
-  sd_config["SD_ENABLE_INTERLEAVING"] = False
+  sd_config["SD_ENABLE_INTERLEAVING"] = True
   sd_config["SD_ENABLE_CHECKS"]       = False
   sd_config["SD_LLVM_CFI"]            = True
 
@@ -82,6 +82,9 @@ def is_on_rami_chrome():
 def is_on_rami_chromebuild():
   return get_hostname() == "chromebuild" and get_username() == "sd"
 
+def is_on_paul_local():
+  return get_username() == "paul" and get_hostname() == "paul-MacBookAir"
+
 def is_on_rami_local():
   return get_username() == "gokhan" and get_hostname() == "gokhan-ativ9"
 
@@ -104,6 +107,16 @@ def read_config():
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/libs/llvm3.7/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/libs/safedispatch-scripts",
       "MY_GCC_VER"         : "4.8.2"
+    }
+
+  elif is_on_paul_local(): # Linux paul-MacBookAir 3.19.0-25-generic #26~14.04.1-Ubuntu SMP Fri Jul 24 21:16:20 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+
+    clang_config = {
+      "LLVM_DIR"           : "/home/paul/Desktop/llvm/llvm",
+      "LLVM_BUILD_DIR"     : "/home/paul/Desktop/llvm/llvm-build/Release+Asserts/bin",
+      "BINUTILS_BUILD_DIR" : "/home/paul/Desktop/llvm/binutils-build",
+      "SD_DIR"             : "/home/paul/Desktop/llvm/llvm/scripts",
+      "MY_GCC_VER"         : "4.8.4"
     }
 
   elif is_on_rami_chrome(): # VM at goto
