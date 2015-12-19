@@ -56,7 +56,7 @@ namespace llvm {
     typedef std::vector<vtbl_t>                             order_t;
     typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
-    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> >     parent_map_t;
+    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t;
 
 private:
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
@@ -311,6 +311,7 @@ public:
     bool hasFirstDefinedChild(const vtbl_t &vtbl);
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
 
+    bool isAncestor(const vtbl_t &base, const vtbl_t &derived);
     int64_t getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base);
   };
 
