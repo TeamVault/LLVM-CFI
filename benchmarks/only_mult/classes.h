@@ -1,6 +1,16 @@
 #ifndef __CLASSES_H__
 #define __CLASSES_H__
 
+/*
+ 
+  A
+  |
+  B  C
+  \ /
+   D
+ 
+ */
+
 struct A {
   virtual void f ();
   virtual void h ();
