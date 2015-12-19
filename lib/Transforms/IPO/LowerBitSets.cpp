@@ -429,6 +429,8 @@ Value *LowerBitSets::lowerBitSetCall(
     return ConstantInt::getTrue(CombinedGlobal->getParent()->getContext());
   }
 
+  std::cerr << "llvm.llvmcfi.set_size: " << BSI.Bits.size() << "\n";
+
   Constant *GlobalAsInt = ConstantExpr::getPtrToInt(CombinedGlobal, IntPtrTy);
   Constant *OffsetedGlobalAsInt = ConstantExpr::getAdd(
       GlobalAsInt, ConstantInt::get(IntPtrTy, BSI.ByteOffset));
