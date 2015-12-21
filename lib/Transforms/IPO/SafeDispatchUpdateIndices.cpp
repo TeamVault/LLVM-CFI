@@ -111,7 +111,7 @@ namespace {
 
     bool runOnModule(Module &M) {
       int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0, constPtr = 0;
-      double sumWidth = 0.0;
+      uint64_t sumWidth = 0.0;
       Function *sd_subst_indexF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
        Function *sd_subst_rangeF =
@@ -189,7 +189,7 @@ namespace {
         }
       }
 
-      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", indexSubst, rangeSubst, eqSubst, constPtr, sumWidth/(rangeSubst + eqSubst + constPtr));
+      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
     }
 
@@ -394,10 +394,18 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       if (preciseClassName != className) {
         sd_print("More precise class name = %s\n", preciseClassName.c_str());
         int64_t ind = cha->getSubVTableIndex(preciseClassName, className);
-        sd_print("Index = %d \n", ind);
-        if (ind != -1) {
-          vtbl = SDLayoutBuilder::vtbl_t(preciseClassName, ind);
+        SDLayoutBuilder::vtbl_name_t n = preciseClassName;
+
+        if (ind == -1) {
+          ind = cha->getSubVTableIndex(className, preciseClassName);
+          n = className;
         }
+
+        if (ind != -1) {
+          vtbl = SDLayoutBuilder::vtbl_t(n, ind);
+        }
+
+        sd_print("Index = %d \n", ind);
       } 
     }
 
@@ -454,6 +462,7 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       }
     }
 
+    /*
     llvm::BasicBlock *checkFailed = llvm::BasicBlock::Create(F->getContext(), "sd.check.fail", F);
     llvm::Type* argTs[] = { Int8PtrTy, Int8PtrTy };
     llvm::FunctionType *vptr_safeT = llvm::FunctionType::get(llvm::Type::getInt1Ty(C), argTs, false);
@@ -471,6 +480,7 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       std::numeric_limits<uint32_t>::min()));
 
     builder.SetInsertPoint(checkFailed);
+    */
     // Insert Check Failure
     builder.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::trap));
     builder.CreateUnreachable();

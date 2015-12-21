@@ -527,13 +527,35 @@ bool SDBuildCHA::knowsAbout(const vtbl_t &vtbl) {
   return cloudMap.find(vtbl) != cloudMap.end();
 }
 
+bool SDBuildCHA::isAncestor(const vtbl_t &base,
+                            const vtbl_t &derived) {
+  if (derived == base)
+    return true;
+
+  const vtbl_set_t &pts = parentMap[derived.first][derived.second];
+  /*
+  std::cerr << "parents of " << derived.first << "," << derived.second << ":";
+  for (auto pt : pts)
+    std::cerr << pt.first << "," << pt.second << ";";
+  std::cerr << "\n";
+  */
+  for (auto pt : pts) {
+    if (isAncestor(base, pt))
+      return true;
+  }
+  return false;
+}
+
 int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived,
                                        const vtbl_name_t &base) {
   
   int res = -1;
   for (int64_t ind = 0; ind < subObjNameMap[derived].size(); ind++) {
-    if (subObjNameMap[derived][ind] == base) {
-      assert(res== -1 && "There should be a unique path for each upcast.");
+    if (isAncestor(vtbl_t(base, 0), vtbl_t(derived, ind))) {
+      if (res != -1) {
+        std::cerr << "Ambiguity: not a unique path for upcast " << derived << " to " << base << "\n";
+        return -1;
+      }
       res = ind;
     }
   }
