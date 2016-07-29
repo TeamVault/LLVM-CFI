@@ -113,7 +113,7 @@ def read_config():
 
     clang_config = {
       "LLVM_DIR"           : "/home/paul/Desktop/llvm/llvm",
-      "LLVM_BUILD_DIR"     : "/home/paul/Desktop/llvm/llvm-build/Release+Asserts/bin",
+      "LLVM_BUILD_DIR"     : "/home/paul/Desktop/llvm/llvm-build/",
       "BINUTILS_BUILD_DIR" : "/home/paul/Desktop/llvm/binutils-build",
       "SD_DIR"             : "/home/paul/Desktop/llvm/llvm/scripts",
       "MY_GCC_VER"         : "4.8.4"

@@ -19,6 +19,9 @@ run_benchmarks() {
 'md_test' 'multiple_secondary_partially_virtual_diamond' 'nonvirtual_covariant_thunks' 'quaternary_diamond' 'static_lib' 
 'member_ptr' 'multiple_secondary_virtual_diamond' 'non_virtual_diamond_with_virtual_ancestor' 'rtti_1' 'virtual_covariant_thunks' 
 'member_ptr2' 'multiple_virtual' 'only_mult' 'simp0' 'virtual_diamond' 'virtual_with_virtual_primary_base')
+ 
+  # only my program
+  #local -a benchmarks=('circle_base')
 
   local -a neg_benchs=('bad_cast' 'bad_multiple_inheritnace_cast'
     'bad_mult_inh_sibling_cast' 'bad_shrinkwrap_ex' 'bad_sibling_cast_parent_method_call')
