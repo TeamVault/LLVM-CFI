@@ -67,7 +67,7 @@ private:
     range_map_t rangeMap;                              // vtbl -> [(start,end)]
     ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
-    std::map<vtbl_t, uint32_t> cloudSizeMap;      // vtbl -> # vtables derived from (vtbl,0)
+    std::map<vtbl_t, uint32_t> cloudSizeMap;           // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
     /**
      * These functions and variables used to deal with duplication

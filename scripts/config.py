@@ -17,14 +17,14 @@ ENABLE_LLVM_CFI = False
 sd_config = {
   # SafeDispatch options
   "SD_ENABLE_INTERLEAVING" : True,  # interleave the vtables
-  "SD_ENABLE_ORDERING"     : False,  # order the vtables
+  "SD_ENABLE_ORDERING"     : False, # order the vtables
   "SD_ENABLE_CHECKS"       : True,  # add the range checks
 
   # LLVM's cfi sanitizer option
   "SD_LLVM_CFI"            : False, # compile with llvm's cfi technique
 
   # Common options
-  "SD_ENABLE_LINKER_O2"    : False,  # runs O2 level optimizations during linking
+  "SD_ENABLE_LINKER_O2"    : False, # runs O2 level optimizations during linking
   "SD_ENABLE_LTO"          : True,  # runs link time optimization passes
   "SD_LTO_SAVE_TEMPS"      : True,  # save bitcode before & after linker passes
   "SD_LTO_EMIT_LLVM"       : False, # emit bitcode rather than machine code

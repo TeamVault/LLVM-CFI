@@ -37,11 +37,11 @@ namespace llvm {
   public:
     static char ID; // Pass identification, replacement for typeid
     // variable definitions
-    typedef SDBuildCHA::vtbl_t         vtbl_t;
-    typedef SDBuildCHA::vtbl_name_t    vtbl_name_t;
-    typedef SDBuildCHA::order_t        order_t;
-    typedef SDBuildCHA::roots_t        roots_t;
-    typedef SDBuildCHA::range_t        range_t;
+    typedef SDBuildCHA::vtbl_t                              vtbl_t;
+    typedef SDBuildCHA::vtbl_name_t                         vtbl_name_t;
+    typedef SDBuildCHA::order_t                             order_t;
+    typedef SDBuildCHA::roots_t                             roots_t;
+    typedef SDBuildCHA::range_t                             range_t;
     typedef std::pair<Constant*, uint64_t>  mem_range_t;
     typedef std::map<vtbl_t, std::vector<uint64_t>>         new_layout_inds_t;
     typedef std::map<vtbl_t, std::map<uint64_t, uint64_t>>  new_layout_inds_map_t;
@@ -55,13 +55,13 @@ namespace llvm {
     typedef std::map<vtbl_t, std::vector<mem_range_t> >     mem_range_map_t;
     typedef std::map<vtbl_t, uint64_t>                      pad_map_t;
 
-    new_layout_inds_t newLayoutInds;                   // (vtbl,ind) -> [new ind inside interleaved vtbl]
-    interleaving_map_t interleavingMap;                // root -> new layouts map
-    vtbl_start_map_t newVTableStartAddrMap;            // Starting addresses of all new vtables
-    cloud_start_map_t cloudStartMap;                   // Mapping from new vtable names to their corresponding cloud starts
+    new_layout_inds_t newLayoutInds;                        // (vtbl,ind) -> [new ind inside interleaved vtbl]
+    interleaving_map_t interleavingMap;                     // root -> new layouts map
+    vtbl_start_map_t newVTableStartAddrMap;                 // Starting addresses of all new vtables
+    cloud_start_map_t cloudStartMap;                        // Mapping from new vtable names to their corresponding cloud starts
     std::map<vtbl_name_t, unsigned> alignmentMap;
     vtbl_t dummyVtable;
-    range_map_t rangeMap;                             // Map of ranges for vptrs in terms of preorder indices
+    range_map_t rangeMap;                                   // Map of ranges for vptrs in terms of preorder indices
     mem_range_map_t memRangeMap;
     pad_map_t prePadMap;
     bool interleave;
