@@ -116,12 +116,12 @@ namespace {
      *
      * when a class doesn't have virtual base class -> D1 = D2
      */
-    bool fixDestructors();
+    bool fixDestructors(); // Paul: this fix is not used 
 
     /**
      * Change D1Ev to D2Ev if it doesn't exist
      */
-    bool fixDestructors2();
+    bool fixDestructors2(); // Paul: this is the used fix
 
     /**
      * Figure out the start/end of the subvtables by just looking at the vtable elements
@@ -227,6 +227,8 @@ namespace {
   };
 }
 
+/*Paul:
+this fix is not used*/
 bool SDFix::fixDestructors() {
   bool replaced = false;
 
@@ -320,6 +322,8 @@ bool SDFix::fixDestructors() {
   return replaced;
 }
 
+/*Paul:
+this fix will be used inside this pass*/
 bool SDFix::fixDestructors2() {
   bool replaced = false;
 
@@ -363,7 +367,7 @@ bool SDFix::fixDestructors2() {
       Function* f2 = module->getFunction(gv2Name);
       assert(f2 && ! f2->isDeclaration());
 
-      sd_print("Replacing %s with %s inside %s\n",
+      sd_print("Replacing %s with %s inside %s \n",
                f1->getName().data(),
                gv2Name.c_str(),
                gv.getName().data());

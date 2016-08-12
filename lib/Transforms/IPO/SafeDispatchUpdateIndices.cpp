@@ -60,14 +60,14 @@ namespace {
       cha = &getAnalysis<SDBuildCHA>();
       assert(layoutBuilder);
 
-      sd_print("inside the 2nd pass\n");
+      sd_print("Started running the 2nd pass (Update indices) ...\n");
 
       handleSDGetVtblIndex(&M);
       handleSDCheckVtbl(&M);
       handleSDGetCheckedVtbl(&M);
       handleRemainingSDGetVcallIndex(&M);
 
-      sd_print("Finished running the 2nd pass...\n");
+      sd_print("Finished running the 2nd pass (Update indices) ...\n");
 
       layoutBuilder->removeOldLayouts(M);
       layoutBuilder->clearAnalysisResults();

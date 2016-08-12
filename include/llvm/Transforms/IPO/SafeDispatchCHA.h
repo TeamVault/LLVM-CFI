@@ -151,7 +151,7 @@ public:
       It seems tha these passes are initiated from their .h files.
       The executed code resides than in the corresponding .cpp file
       */
-      sd_print("Started building CHA\n");
+      sd_print("Started building CHA ...\n");
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
@@ -169,11 +169,14 @@ public:
         std::cerr << i << "\n";
       }
 
-      sd_print("Finished building CHA\n");
+      sd_print("Finished building CHA ...\n");
 
       return roots.size() > 0;
     }
 
+    /*Paul:
+    this method is used to pass the CHA pass results to the 
+    SD Layout builder pass in the cha variable*/
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesAll();
     }
@@ -234,6 +237,7 @@ public:
     vtbl_name_t getAncestor(const vtbl_t &v) {
       return ancestorMap[v];
     }
+
     /*
      * Old VTable Accessors
      */
@@ -274,12 +278,17 @@ public:
     const roots_t::const_iterator roots_end() {
       return roots.cend();
     }
-    /*
-     * Range Map Accessors
+
+    /* Paul:
+     * Range Map Accessors based on v table pair
      */
     const range_t& getRange(const vtbl_t &v) {
       return rangeMap[v.first][v.second];
     }
+
+    /* Paul:
+     * Range Map Accessors based on v table name and numeric order
+     */
     const range_t& getRange(const vtbl_name_t &name, uint64_t order) {
       return rangeMap[name][order];
     }
@@ -288,12 +297,16 @@ public:
       return rangeMap.find(name.first) != rangeMap.end() &&
              rangeMap[name.first].size() > name.second;
     }
-    /*
-     * SubObj Name Map Accessors
+    /* Paul:
+     * SubObj Name Map Accessors, pair based (for this reason you see .first and .second accessors)
      */
     const vtbl_name_t& getLayoutClassName(const vtbl_t &vtbl) {
       return subObjNameMap[vtbl.first][vtbl.second];
     }
+
+    /*Paul:
+     * SubObj Name Map Accessors based on v table name and index
+     */
     const vtbl_name_t& getLayoutClassName(const vtbl_name_t &name, uint64_t ind) {
       return subObjNameMap[name][ind];
     }
@@ -303,6 +316,9 @@ public:
      * starting from the given node
      */
     order_t preorder(const vtbl_t& root);
+
+    /*Paul: 
+    the preorder function from above calls this preorderHelper function*/
     void preorderHelper(order_t& nodes, const vtbl_t& root, vtbl_set_t &visited);
 
     /**
@@ -311,15 +327,28 @@ public:
      * the vtable pointer must lie in.
      */
     int64_t getCloudSize(const vtbl_name_t& vtbl);
+    
     /**
      * Get the start of the valid range for vptrs for a (potentially non-primary) vtable.
      * In practice we are always interested in primary vtables here.
      */
     vtbl_t getFirstDefinedChild(const vtbl_t &vtbl);
+
+    /*Paul:
+    check if it has a first defined child*/
     bool hasFirstDefinedChild(const vtbl_t &vtbl);
+
+    /*Paul:
+    check if we found a module containig the given v table
+    */
     bool knowsAbout(const vtbl_t &vtbl); // Have we ever seen md about this vtable?
 
+    /*Paul:
+    check if the base v table is an anchestor of the derived v table */
     bool isAncestor(const vtbl_t &base, const vtbl_t &derived);
+
+    /*Paul:
+    get the sub vtable index*/
     int64_t getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base);
   };
 

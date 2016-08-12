@@ -45,7 +45,7 @@ namespace {
     static char ID; // Pass identification, replacement for typeid
 
     SDMoveBasicBlocks() : ModulePass(ID) {
-      sd_print("initializing SDMoveBasicBlocks pass\n");
+      sd_print("Initializing SDMoveBasicBlocks pass ...\n");
       initializeSDMoveBasicBlocksPass(*PassRegistry::getPassRegistry());
     }
 
@@ -54,28 +54,32 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
-      sd_print("removed thunks...\n");
-      for (auto fIt = M.begin(); fIt != M.end(); fIt++) {
-        std::vector<BasicBlock*> toMove;
-        for (auto bbIt = fIt->begin(); bbIt != fIt->end(); bbIt ++) {
-          std::string name = bbIt->getName().str();
+      sd_print("Removing thunks started ...\n");
 
+      for (auto fIt = M.begin(); fIt != M.end(); fIt++) {
+        std::vector<BasicBlock*> toMove; //Paul: collect the bb which will be removed
+        for (auto bbIt = fIt->begin(); bbIt != fIt->end(); bbIt ++) {
+
+          std::string name = bbIt->getName().str();
           if (name == "sd.check.fail" || name.find("sd.fastcheck.fail") != std::string::npos) {
             toMove.push_back(bbIt);
           }
         }
 
-        Function::BasicBlockListType &bbs = fIt->getBasicBlockList();
+        Function::BasicBlockListType &bbs = fIt->getBasicBlockList(); //Paul; this is a LLVM bb function list type
         for (auto bb : toMove) {
           std::cerr << "Moving " << bb->getName().str() << " to end in " << 
             fIt->getName().str() << "\n";
-          bbs.remove(bb);
-          bbs.insert(bbs.end(), bb);
+          bbs.remove(bb); //Paul: remove bb
+          bbs.insert(bbs.end(), bb); //Paul: add the bb at the end
         }
       }
+      
+      sd_print("Removing thunks finished ...\n");
       return true;
     }
-
+    
+    //Paul: this function is used to pass information between passes. In our case we do not pass any info.   
     void getAnalysisUsage(AnalysisUsage &AU) const override { }
 
   private:

@@ -75,26 +75,57 @@ namespace llvm {
     virtual ~SDLayoutBuilder() { }
 
     bool runOnModule(Module &M) {
-      sd_print("Started build layout\n");
-      cha = &getAnalysis<SDBuildCHA>();
+      sd_print("Started build layout ...\n");
 
+      /**Paul:
+      first pass the results from the CHA pass
+       to the SD Layout Builder pass inside the new cha variable*/
+      cha = &getAnalysis<SDBuildCHA>();
+      
+      /* Paul:
+      this builds the new layouts. The layouts will be stored 
+      in the metadata of the GlobalVariables. First, this will be
+      removed and our data will be inserted there.
+      The buildNewLayouts(M) method is located
+      // at the bottom of the SDLayoutBuilder class and it is the main
+      //driver of this pass 
+      */
       buildNewLayouts(M);
+
+      //after building the new layout verify it
       assert(verifyNewLayouts(M));
-      sd_print("Finished building layout\n");
+
+      sd_print("Finished building layout ...\n");
       return 1;
     }
-
+    
+    /*Paul:
+    this is used in order to pass info from CHA pass to this pass 
+    */
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<SDBuildCHA>();
       AU.addPreserved<SDBuildCHA>();
     }
-
-    virtual void clearAnalysisResults();
+ 
+     /*Paul:
+    build the analysis results of interleave and order*/
     virtual void buildNewLayouts(Module &M);
+    
+    /*Paul:
+    verify the analysis results of interleave and order*/
     virtual bool verifyNewLayouts(Module &M);
+
+    /*Paul:
+    remove the analysis results of interleave and order*/
     virtual void removeOldLayouts(Module &M);
+    
+    /*Paul:
+    clear the analysis results after we are done with building the new layouts*/
+    virtual void clearAnalysisResults();
+   
 
     virtual int64_t translateVtblInd(vtbl_t vtbl, int64_t offset, bool isRelative);
+   
     /**
      * Get the start of the valid range for vptrs for a (potentially non-primary) vtable.
      * In practice we are always interested in primary vtables here.
@@ -104,6 +135,7 @@ namespace llvm {
 
     bool hasMemRange(const vtbl_t& vtbl);
     const std::vector<mem_range_t> &getMemRange(const vtbl_t& vtbl);
+  
   private:
     /**
      * New starting address point inside the interleaved vtable
@@ -121,6 +153,7 @@ namespace llvm {
      * Order and pad the cloud given by the root element.
      */
     void orderCloud(vtbl_name_t& vtbl);
+
     /**
      * Interleave and pad the cloud given by the root element.
      */
@@ -131,8 +164,19 @@ namespace llvm {
      */
     void calculateNewLayoutInds(vtbl_name_t& vtbl);
 
+    /** Paul
+     * Calculate the v pointer ranges
+     */
     void calculateVPtrRanges(Module& M, vtbl_name_t& vtbl);
+  
+    /** Paul
+     * helper for the above function
+     */
     void calculateVPtrRangesHelper(const vtbl_t& vtbl, std::map<vtbl_t, uint64_t> &indMap);
+
+     /** Paul
+     * after calculating the ranges, see method above, these will be checked
+     */
     void verifyVPtrRanges(vtbl_name_t& vtbl);
 
     /**
@@ -160,8 +204,15 @@ namespace llvm {
 
     void createThunkFunctions(Module&, const vtbl_name_t& rootName);
     Function* getVthunkFunction(Constant* vtblElement);
-
-    SDBuildCHA *cha;
+    
+    /*Paul: 
+     *cha stores the result of the CHA pass.
+     The CHA pass is just responsible for collecting
+     the v tables which are contained in the metadata. The CHA pass
+     results will be passed to SDLayoutBuilder pass after
+     CHA has finisched inside *char variable.
+    */
+    SDBuildCHA *cha; 
   };
 
 }
