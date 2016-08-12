@@ -93,7 +93,7 @@ namespace {
     bool runOnModule(Module &M) {
       module = &M;
 
-      sd_print("Started running fix pass...\n");
+      sd_print("Started running fix pass...\nn");
 
       bool isChanged = fixDestructors2();
 
@@ -358,7 +358,7 @@ bool SDFix::fixDestructors2() {
       assert(f1);
       std::string gv2Name = f1->getName();
       unsigned l = gv2Name.length();
-      gv2Name = gv2Name.replace(l-3, 1, "2");
+      gv2Name = gv2Name.replace(l-3, 1, "2"); //cut a part out from the name
 
       Function* f2 = module->getFunction(gv2Name);
       assert(f2 && ! f2->isDeclaration());

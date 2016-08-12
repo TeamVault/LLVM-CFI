@@ -47,23 +47,23 @@ namespace llvm {
     typedef std::string                                     vtbl_name_t;
     typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;
     typedef std::set<vtbl_t>                                vtbl_set_t;
-    typedef std::map<vtbl_t, vtbl_set_t>                    cloud_map_t;
+    typedef std::map<vtbl_t, vtbl_set_t>                    cloud_map_t; //Paul: this is heavily used inside the CHA pass
     typedef std::set<vtbl_name_t>                           roots_t;
     typedef std::map<vtbl_name_t, std::vector<uint64_t>>    addrpt_map_t;
-    typedef std::pair<uint64_t, uint64_t>                   range_t;
-    typedef std::map<vtbl_name_t, std::vector<range_t>>     range_map_t;
-    typedef std::map<vtbl_t, vtbl_name_t>                   ancestor_map_t;
-    typedef std::vector<vtbl_t>                             order_t;
-    typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;
-    typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;
-    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t;
+    typedef std::pair<uint64_t, uint64_t>                   range_t; //Paul: start and end address of a range
+    typedef std::map<vtbl_name_t, std::vector<range_t>>     range_map_t; // Paul: v table name (name) -> vector of range pairs
+    typedef std::map<vtbl_t, vtbl_name_t>                   ancestor_map_t; //Paul: pair (v table name, address) -> v table name
+    typedef std::vector<vtbl_t>                             order_t; //Paul: vector of pairs of (v table name, and address)
+    typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t; //Paul: map of v table name -> vector of vt names
+    typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t; //Paul: map of v table name -> ConstantArray
+    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t; //Paul: map of v table name -> vector of vt sets of names
 
 private:
-    cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>
-    parent_map_t parentMap;                            // vtbl -> [(vtbl, ind)]
-    roots_t roots;                                     // set<vtbl>
-    subvtbl_map_t subObjNameMap;                       // vtbl -> [vtbl]
-    addrpt_map_t addrPtMap;                            // vtbl -> [addr pt]
+    cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>; pair -> set
+    parent_map_t parentMap;                            // vtbl -> [(vtbl, ind)]; string -> vector of sets
+    roots_t roots;                                     // set<vtbl> set
+    subvtbl_map_t subObjNameMap;                       // vtbl -> [vtbl]; string (vtable name) -> vector of strings (vtable name)
+    addrpt_map_t addrPtMap;                            // vtbl -> [addr pt]; string (vtable name) -> vector of addresses (vtable address)
     range_map_t rangeMap;                              // vtbl -> [(start,end)]
     ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
@@ -78,18 +78,18 @@ private:
 
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
-      uint64_t order;
+      uint64_t    order;
       vtbl_name_t parentName;
-      uint64_t parentOrder;
-      vtbl_set_t parents;
-      uint64_t start; // range boundaries are inclusive
-      uint64_t end;
-      uint64_t addressPoint;
+      uint64_t    parentOrder;
+      vtbl_set_t  parents;
+      uint64_t    start; // range boundaries are inclusive
+      uint64_t    end;
+      uint64_t    addressPoint;
     };
 
     struct nmd_t {
-      vtbl_name_t className;
-      std::vector<nmd_sub_t> subVTables;
+      vtbl_name_t className; // Paul: this is just a string
+      std::vector<nmd_sub_t> subVTables; //Paul: see the struct from above
     };
 
     /**
@@ -113,7 +113,9 @@ private:
      * Verify that the cloud information we got is sane
      */
     void verifyClouds(Module &M);
-
+    /** Paul: 
+    used to prin the clounds, these are all the class hierarchies
+    */
     void printClouds(const std::string &suffix);
 
     /**
@@ -125,7 +127,6 @@ public:
     SDBuildCHA() : ModulePass(ID) {
       std::cerr << "Creating SDBuildCHA pass!\n";
       initializeSDBuildCHAPass(*PassRegistry::getPassRegistry());
-
     }
 
     virtual ~SDBuildCHA() {
@@ -145,22 +146,29 @@ public:
      *       => map<pair<vtbl,ind>, vtbl>
      */
     bool runOnModule(Module &M) {
+      /* Paul:
+      this is where the Class Hierachy Ananlysis (CHA) pass starts.
+      It seems tha these passes are initiated from their .h files.
+      The executed code resides than in the corresponding .cpp file
+      */
       sd_print("Started building CHA\n");
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
-      buildClouds(M);
-      printClouds("");
+      buildClouds(M);//Paul: builds the class hierachy
+      printClouds("");//Paul: print the clouds
 
       for (auto rootName : roots) {
         calculateChildrenCounts(vtbl_t(rootName, 0));
       }
 
-      verifyClouds(M);
+      verifyClouds(M); //Paul: do a verification of the clouds
+
       std::cerr << "Undefined vtables: \n";
       for (auto i : undefinedVTables) {
         std::cerr << i << "\n";
       }
+
       sd_print("Finished building CHA\n");
 
       return roots.size() > 0;

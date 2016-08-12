@@ -55,8 +55,7 @@ unsigned SDBuildCHA::getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
 
   std::vector<range_t>& ranges = rangeMap[vtbl];
   for (int i = 0; i < ranges.size(); i++) {
-    if (ranges[i].first <= ind && 
-        ranges[i].second >= ind)
+    if (ranges[i].first <= ind && ranges[i].second >= ind) //Paul: if first is less than ind and second is greather than ind
       return i;
   }
 
@@ -66,23 +65,23 @@ unsigned SDBuildCHA::getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
 
 
 
-void SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes,
-  const SDBuildCHA::vtbl_t& root,
-  vtbl_set_t &visited) {
+void 
+SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes, const SDBuildCHA::vtbl_t& root, vtbl_set_t &visited) {
   if (visited.find(root) != visited.end())
     return;
 
   nodes.push_back(root);
   visited.insert(root);
 
-  if (cloudMap.find(root) != cloudMap.end()) {
+  if (cloudMap.find(root) != cloudMap.end()) { //Paul: check that cloudmap is not empty
     for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) {
       preorderHelper(nodes, n, visited);
     }
   }
 }
 
-std::vector<SDBuildCHA::vtbl_t> SDBuildCHA::preorder(const vtbl_t& root) {
+std::vector<SDBuildCHA::vtbl_t> 
+SDBuildCHA::preorder(const vtbl_t& root) {
   order_t nodes;
   vtbl_set_t visited;
   preorderHelper(nodes, root, visited);
@@ -116,10 +115,10 @@ void SDBuildCHA::verifyClouds(Module &M) {
   }
 }
 
-SDBuildCHA::vtbl_t SDBuildCHA::findLeastCommonAncestor(
-  const SDBuildCHA::vtbl_set_t &vtbls,
-  SDBuildCHA::cloud_map_t &ptMap) {
-  cloud_map_t ancestorsMap;
+SDBuildCHA::vtbl_t 
+SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuildCHA::cloud_map_t &ptMap) {
+
+ cloud_map_t ancestorsMap;
 
   for (auto vtbl : vtbls) {
     std::vector<vtbl_t> q;
@@ -136,7 +135,9 @@ SDBuildCHA::vtbl_t SDBuildCHA::findLeastCommonAncestor(
       }
     }
   }
-
+  
+  /**Paul: this a great place to improve. Their implementation is not optimal.
+  */
   // TODO(dbounov) The below algorithm is a conservative
   // heuristic. The actual problem to solve is the "lowest"
   // node in the CHA that intercepts all paths leading up to the root.
@@ -165,11 +166,13 @@ SDBuildCHA::vtbl_t SDBuildCHA::findLeastCommonAncestor(
       break;
 
     candidate = nextCandidate;
-  } while (1);
+  } while (1); //Paul: run once
 
   return candidate;
 }
 
+/*Paul:
+this is the main method here. This method builds the cloud map */
 void SDBuildCHA::buildClouds(Module &M) {
   // this set is used for checking if a parent class is defined or not
   std::set<vtbl_t> build_undefinedVtables;
@@ -187,6 +190,10 @@ void SDBuildCHA::buildClouds(Module &M) {
 
     for (const nmd_t& info : infoVec) {
       // record the old vtable array
+      /* Paul:
+      this GlobalVariable holds the metadata for each module.
+      Inside the metadata the v tables are contained.
+      */
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
       //sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
@@ -205,7 +212,8 @@ void SDBuildCHA::buildClouds(Module &M) {
       } else {
         undefinedVTables.insert(info.className);
       }
-
+      
+      //Paul: iterate trough the sub v tables of the metadata vector
       for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
@@ -236,6 +244,7 @@ void SDBuildCHA::buildClouds(Module &M) {
         }
 
         vtbl_set_t parents;
+        //Paul: interate now through each subinfo and get the parents
         for (auto it : subInfo->parents) {
           if (it.first != "") {
             vtbl_t &parent = it;
@@ -257,7 +266,8 @@ void SDBuildCHA::buildClouds(Module &M) {
             roots.insert(info.className);
           }
         }
-
+        
+        // Paul: record the parrents for each class 
         parentMap[info.className].push_back(parents);
 
         // record the original address points
@@ -275,6 +285,7 @@ void SDBuildCHA::buildClouds(Module &M) {
       sd_print("%s,%d\n", n.first.c_str(), n.second);
     }
   }
+
   assert(build_undefinedVtables.size() == 0);
 
   for (auto rootName : roots) {
@@ -328,6 +339,8 @@ void SDBuildCHA::buildClouds(Module &M) {
   }
 }
 
+/*Paul:
+convert module node (metadata) to Global variable*/
 static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
   llvm::MDNode* mdNode = dyn_cast<llvm::MDNode>(vtblMd);
   assert(mdNode);
@@ -352,6 +365,10 @@ static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
   return vtblGV;
 }
 
+/* Paul:
+this method extracts the metadata for each module.
+This is used in the buildClouds method from above.
+*/
 std::vector<SDBuildCHA::nmd_t>
 SDBuildCHA::extractMetadata(NamedMDNode* md) {
   std::set<vtbl_name_t> classes;
@@ -364,32 +381,42 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
     MDString* infoMDstr = dyn_cast_or_null<MDString>(md->getOperand(op++)->getOperand(0));
     assert(infoMDstr);
     info.className = infoMDstr->getString().str();
+    /*Paul: 
+     get from the module all the operands and convert them a Global Variable (GV)
+    */
     GlobalVariable* classVtbl = sd_mdnodeToGV(md->getOperand(op++));
 
     if (classVtbl) {
       info.className = classVtbl->getName();
     }
-
+    
+    /*Paul:
+    get the total number of operands for each module*/
     unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(op++)->getOperand(0));
 
     for (unsigned i = op; i < op + numOperands; ++i) {
       SDBuildCHA::nmd_sub_t subInfo;
       llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i));
       assert(tup);
+      /*Paul:
+      assert that the tuple has exactly 5 operands, 
+      this will be used next*/
       assert(tup->getNumOperands() == 5);
 
-      subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));
-      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1));
-      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));
-      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(3));
-      llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4));
+      subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0)); // Paul: this gives the order
+      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1)); //Paul: this gives the start address
+      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));   // Paul: this gives the end address
+      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(3)); //Paul: this gives the address point
+      llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4)); //Paul: this returns the parents tuple
 
-      unsigned numParents = sd_getNumberFromMDTuple(parentsTup->getOperand(0));
+      /*Paul: get the number of parents for the first parent
+      */
+      unsigned numParents = sd_getNumberFromMDTuple(parentsTup->getOperand(0)); 
       for (int j = 0; j < numParents; j++) {
-        vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3));
-        unsigned ptIdx = sd_getNumberFromMDTuple(parentsTup->getOperand(1+j*3+1));
-        GlobalVariable* parentVtable = sd_mdnodeToGV(parentsTup->getOperand(1+j*3+2).get());
-
+        vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3)); //Paul: give the name of the v table
+        unsigned ptIdx = sd_getNumberFromMDTuple(parentsTup->getOperand(1+j*3+1)); // Paul: one more index position to the right, get pointer index
+        GlobalVariable* parentVtable = sd_mdnodeToGV(parentsTup->getOperand(1+j*3+2).get()); // Paul: one more index to the right, 
+                                                                                             // get the node and convert to global variable
         if (parentVtable) {
           ptName = parentVtable->getName();
         }
@@ -397,10 +424,10 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
       }
 
       bool currRangeCheck = (subInfo.start <= subInfo.addressPoint &&
-                     subInfo.addressPoint <= subInfo.end);
+                             subInfo.addressPoint <= subInfo.end);
       bool prevVtblCheck = (i == op || (--info.subVTables.end())->end < subInfo.start);
 
-      assert(currRangeCheck && prevVtblCheck);
+      assert(currRangeCheck && prevVtblCheck); // Paul: this conditions have to hold
 
       info.subVTables.push_back(subInfo);
     }
@@ -410,7 +437,7 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
       classes.insert(info.className);
       infoVec.push_back(info);
     }
-  } while (op < md->getNumOperands());
+  } while (op < md->getNumOperands()); // Paul: iterate until all module operands have been visited
 
   return infoVec;
 }
@@ -422,8 +449,9 @@ int64_t SDBuildCHA::getCloudSize(const SDBuildCHA::vtbl_name_t& vtbl) {
 
 uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
   uint32_t count = isDefined(root) ? 1 : 0;
-  if (cloudMap.find(root) != cloudMap.end()) {
-    for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) {
+  if (cloudMap.find(root) != cloudMap.end()) { // Paul: check if cloud is not empty
+    for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) { //Paul: the cloud map has several root nodes
+      //Paul: the number of children is determined for each root node
       count += calculateChildrenCounts(n);
     }
   }
@@ -434,6 +462,8 @@ uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
   return count;
 }
 
+/*Paul:
+after the CHA analysis the results will be cleared*/
 void SDBuildCHA::clearAnalysisResults() {
   cloudMap.clear();
   roots.clear();
@@ -443,13 +473,14 @@ void SDBuildCHA::clearAnalysisResults() {
   oldVTables.clear();
   cloudSizeMap.clear();
 
-  sd_print("Cleared SDBuildCHA analysis results\n");
+  sd_print("Cleared SDBuildCHA analysis results ... \n");
 }
 
 /// ----------------------------------------------------------------------------
 /// Helper functions
 /// ----------------------------------------------------------------------------
 
+/*Paul: print the clouns in .dot files and open than afterwards with GraphViz for display*/
 void SDBuildCHA::printClouds(const std::string &suffix) {
   int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
   assert(rc == 0);
@@ -527,8 +558,7 @@ bool SDBuildCHA::knowsAbout(const vtbl_t &vtbl) {
   return cloudMap.find(vtbl) != cloudMap.end();
 }
 
-bool SDBuildCHA::isAncestor(const vtbl_t &base,
-                            const vtbl_t &derived) {
+bool SDBuildCHA::isAncestor(const vtbl_t &base, const vtbl_t &derived) {
   if (derived == base)
     return true;
 
@@ -546,8 +576,11 @@ bool SDBuildCHA::isAncestor(const vtbl_t &base,
   return false;
 }
 
-int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived,
-                                       const vtbl_name_t &base) {
+/*Paul:
+this function allready talks about upcasting. This can be used in the future
+to build a tool which detects not allowed casts*/
+int64_t 
+SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base) {
   
   int res = -1;
   for (int64_t ind = 0; ind < subObjNameMap[derived].size(); ind++) {
