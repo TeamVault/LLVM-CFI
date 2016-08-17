@@ -26,6 +26,12 @@
 #include <algorithm>
 #include <sstream>
 
+// you have to modify the following 4 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
+
 using namespace llvm;
 
 #define WORD_WIDTH 8

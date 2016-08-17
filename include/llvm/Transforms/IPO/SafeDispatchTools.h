@@ -9,6 +9,9 @@
 
 #include "SafeDispatchLog.h"
 
+/*Paul:
+helper method from the one underneath
+*/
 static bool sd_isVtableName_ref(const llvm::StringRef& name) {
   if (name.size() <= 4) {
     // name is too short, cannot be a vtable name
@@ -23,7 +26,13 @@ static bool sd_isVtableName_ref(const llvm::StringRef& name) {
   return false;
 }
 
+/*Paul:
+this method is used to check if the name is a real v table name.
+This method is used when checking that the extracted metadata from 
+the Global Variable is a v table.
+*/
 static bool sd_isVtableName(std::string& className) {
+  //just convert the string to a llvm string ref
   llvm::StringRef name(className);
 
   return sd_isVtableName_ref(name);

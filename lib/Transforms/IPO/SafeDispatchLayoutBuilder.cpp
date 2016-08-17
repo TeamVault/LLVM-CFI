@@ -28,6 +28,12 @@
 #include <map>
 #include <algorithm>
 
+// you have to modify the following 4 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
+
 using namespace llvm;
 
 #define WORD_WIDTH 8
@@ -48,8 +54,9 @@ static bool sd_isVthunk(const llvm::StringRef& name) {
 
 /**Paul:
 this function is used to dump the new layout. 
-It is 7 times used in the analysis in order to check if
-the new layout is ok (as expected)*/
+It is used 7 times in this pass in order to check if
+the new layout is ok, as expected)
+The check is done by printing the v table in the terminal*/
 static void dumpNewLayout(const SDLayoutBuilder::interleaving_list_t &interleaving) {
   uint64_t ind = 0;
   std::cerr << "New vtable layout:\n";
@@ -262,6 +269,7 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
       assert(cha->isUndefined(vtbl));
       continue;
     }
+
     ConstantArray* vtableArr = cha->getOldVTable(vtbl);
 
     // iterate over the vtable elements
@@ -402,7 +410,8 @@ The interleaving can be shut down and it is not dependent of
 the ordering operation from above
 */
 void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
-  sd_print("Started Interleaving for one v table...\n");
+  sd_print("Started Interleaving for one v table (root) ...\n");
+  
   /*Paul:
   check that the v table is a root in a subcloud of the main cloud. 
   The CHA pass has previously generated a cloud. 
@@ -460,9 +469,12 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positivePart.begin(), positivePart.end());
   alignmentMap[vtbl] = WORD_WIDTH;
   
-  sd_print("Finishing Interleaving for one v table...\n");
+  sd_print("Finishing Interleaving for one v table (root)...\n");
 }
 
+/*Paul:
+calculate the new layout indices
+*/
 void SDLayoutBuilder::calculateNewLayoutInds(SDLayoutBuilder::vtbl_name_t& vtbl){
   
   assert(interleavingMap.count(vtbl));
@@ -479,6 +491,9 @@ void SDLayoutBuilder::calculateNewLayoutInds(SDLayoutBuilder::vtbl_name_t& vtbl)
   }
 }
 
+/*Paul:
+this is a helper function for the v pointer range calculator 
+*/
 void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& vtbl, std::map<vtbl_t, uint64_t> &indMap){
   // Already computed
   if (rangeMap.find(vtbl) != rangeMap.end())
@@ -633,6 +648,10 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   }
 }
 
+/*Paul
+this method creates a new v table which will be added to a new constant.
+The new constant will replace the old one in the end of this method.
+*/
 void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& vtbl){
   // get the interleaved order
   interleaving_list_t& newVtbl = interleavingMap[vtbl];
@@ -677,6 +696,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
 
   // create the global variable
+  // thi variable will replace the old global variable
   GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
                                                  GlobalVariable::InternalLinkage,
                                                  nullptr, NEW_VTABLE_NAME(vtbl));
@@ -865,6 +885,7 @@ is attached to an LLVM GlobalVariable this has to erased from the
 parent in order to be replaced with the new metadata which we will generate.
 The result of the whole interleaving and reordering analysis is just the
 new metadata which will be put back in place of the older one*/
+
 void SDLayoutBuilder::removeOldLayouts(Module &M) {
   for (auto itr = cha->oldVTables_begin(); itr != cha->oldVTables_end(); itr ++) {
     GlobalVariable* var = M.getGlobalVariable(itr->first, true);
@@ -952,6 +973,8 @@ Value* SDLayoutBuilder::newVtblAddress(Module& M, const vtbl_name_t& name, Instr
   return vtableAddrPtr;
 }
 
+/*Paul:
+create a new v table address constant LLVM variable*/
 Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
   const DataLayout &DL = M.getDataLayout();
   assert(cha->hasAncestor(vtbl));
@@ -1007,10 +1030,12 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
       interleaveCloud(vtbl);         // interleave the cloud
     else
       orderCloud(vtbl);              // order the cloud
-      calculateNewLayoutInds(vtbl);  // calculate the new indices from the interleaved vtable
+      
+    calculateNewLayoutInds(vtbl);    // calculate the new indices from the interleaved vtable
   }
   
-  //second, we iterate through all roots contained in the cloud replace v thunks and emit global variables.
+  //second, we iterate through all roots contained in the cloud replace 
+  //v thunks and emit global variables.
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;         // get the v table name as string
     createThunkFunctions(M, vtbl);   // replace the virtual thunks with the modified ones

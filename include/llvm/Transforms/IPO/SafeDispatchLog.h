@@ -9,8 +9,8 @@
 
 #define SD_DEBUG
 
-static void
-sd_print(const char* fmt, ...) {
+//Paul: this is the default terminal printing method
+static void sd_print(const char* fmt, ...) {
 #ifdef SD_DEBUG
   va_list args;
   va_start(args,fmt);

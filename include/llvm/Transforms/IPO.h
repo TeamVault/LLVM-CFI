@@ -203,6 +203,9 @@ ModulePass *createBarrierNoopPass();
 /// to bitsets.
 ModulePass *createLowerBitSetsPass();
 
+/*Paul:
+this are the safedispatch passes*/
+
 // safedispatch additions
 ModulePass* createSDFixPass();
 ModulePass* createSDBuildCHAPass();

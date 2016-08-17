@@ -29,10 +29,11 @@
 #include <algorithm>
 #include <deque>
 
-// you have to modify the following files for each additional LLVM pass
-// 1. IPO.h and IPO.cpp
-// 2. LinkAllPasses.h
-// 3. InitializePasses.h
+// you have to modify the following 4 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
 
 using namespace llvm;
 
@@ -186,6 +187,7 @@ void SDBuildCHA::buildClouds(Module &M) {
 
     //sd_print("GOT METADATA: %s\n", md->getName().data());
 
+    //Paul: extractMetadata() extracts the metadata from each module
     std::vector<nmd_t> infoVec = extractMetadata(md);
 
     for (const nmd_t& info : infoVec) {
@@ -196,7 +198,7 @@ void SDBuildCHA::buildClouds(Module &M) {
       */
       GlobalVariable* oldVtable = M.getGlobalVariable(info.className, true);
 
-      //sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
+      sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
 
       /*
       sd_print("oldvtables: %p, %d, class %s\n",
@@ -403,10 +405,10 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
       this will be used next*/
       assert(tup->getNumOperands() == 5);
 
-      subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0)); // Paul: this gives the order
-      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1)); //Paul: this gives the start address
-      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));   // Paul: this gives the end address
-      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(3)); //Paul: this gives the address point
+      subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));             //Paul: this gives the order
+      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1));             //Paul: this gives the start address
+      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));               //Paul: this gives the end address
+      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(3));      //Paul: this gives the address point
       llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4)); //Paul: this returns the parents tuple
 
       /*Paul: get the number of parents for the first parent
@@ -462,8 +464,8 @@ uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
   return count;
 }
 
-/*Paul:
-after the CHA analysis the results will be cleared*/
+/* Paul:
+after the CHA analysis the results will be cleared */
 void SDBuildCHA::clearAnalysisResults() {
   cloudMap.clear();
   roots.clear();
@@ -483,7 +485,8 @@ void SDBuildCHA::clearAnalysisResults() {
 /*Paul: print the clouns in .dot files and open than afterwards with GraphViz for display*/
 void SDBuildCHA::printClouds(const std::string &suffix) {
   int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
-  assert(rc == 0);
+
+    assert(rc == 0);
 
   for(const vtbl_name_t& rootName : roots) {
     assert(rootName.length() <= 490);

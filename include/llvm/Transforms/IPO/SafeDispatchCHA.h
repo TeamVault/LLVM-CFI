@@ -88,8 +88,8 @@ private:
     };
 
     struct nmd_t {
-      vtbl_name_t className; // Paul: this is just a string
-      std::vector<nmd_sub_t> subVTables; //Paul: see the struct from above
+      vtbl_name_t className;             // Paul: this is just a string
+      std::vector<nmd_sub_t> subVTables; // Paul: see the struct from above
     };
 
     /**

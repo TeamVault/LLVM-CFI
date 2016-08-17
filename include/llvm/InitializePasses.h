@@ -298,12 +298,26 @@ void initializePlaceSafepointsPass(PassRegistry&);
 void initializeDwarfEHPreparePass(PassRegistry&);
 void initializeFloat2IntPass(PassRegistry&);
 
-// safedispatch additions
+/*Paul:
+these are the 6 passes used by safe dispatch*/
+// safedispatch additions, this are the SD passes
+
+//this pass is used to make virtual constructor fixes in the program
 void initializeSDFixPass(PassRegistry&);
+
+//this pass is used to collect the v tables 
 void initializeSDBuildCHAPass(PassRegistry&);
+
+//this pass is used to build the new v table layout
 void initializeSDLayoutBuilderPass(PassRegistry&);
+
+//this pass is used to build the 
 void initializeSDUpdateIndicesPass(PassRegistry&);
+
+//this pass is used for updating the annotated instructions with the new indices
 void initializeSDMoveBasicBlocksPass(PassRegistry&);
+
+//this pass is used to add the new checks before the v call site
 void initializeSDSubstModule3Pass(PassRegistry&);
 }
 

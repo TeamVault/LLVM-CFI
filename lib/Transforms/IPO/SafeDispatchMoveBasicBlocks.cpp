@@ -30,10 +30,11 @@
 #include <algorithm>
 #include <iostream>
 
-// you have to modify the following files for each additional LLVM pass
-// 1. IPO.h and IPO.cpp
-// 2. LinkAllPasses.h
-// 3. InitializePasses.h
+// you have to modify the following 4 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
 
 using namespace llvm;
 
@@ -54,7 +55,7 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
-      sd_print("Removing thunks started ...\n");
+      sd_print("Removing thunks started (SDMoveBasicsBlocks pass) ...\n");
 
       for (auto fIt = M.begin(); fIt != M.end(); fIt++) {
         std::vector<BasicBlock*> toMove; //Paul: collect the bb which will be removed
@@ -65,21 +66,24 @@ namespace {
             toMove.push_back(bbIt);
           }
         }
-
+        
+        // Paul: this is an internal LLVM Function
         Function::BasicBlockListType &bbs = fIt->getBasicBlockList(); //Paul; this is a LLVM bb function list type
         for (auto bb : toMove) {
           std::cerr << "Moving " << bb->getName().str() << " to end in " << 
             fIt->getName().str() << "\n";
-          bbs.remove(bb); //Paul: remove bb
+          bbs.remove(bb); //Paul: remove the bb
           bbs.insert(bbs.end(), bb); //Paul: add the bb at the end
         }
       }
       
-      sd_print("Removing thunks finished ...\n");
+      sd_print("Removing thunks finished (SDMoveBasicsBlocks pass) ...\n");
       return true;
     }
     
-    //Paul: this function is used to pass information between passes. In our case we do not pass any info.   
+    /*Paul: this function is used to pass information between passes. 
+    In our case we do not pass any info. This is why this method is empty. 
+    */
     void getAnalysisUsage(AnalysisUsage &AU) const override { }
 
   private:

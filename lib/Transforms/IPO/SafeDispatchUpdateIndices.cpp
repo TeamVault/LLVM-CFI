@@ -32,10 +32,11 @@
 #include <iostream>
 #include <limits>
 
-// you have to modify the following files for each additional LLVM pass
-// 1. IPO.h and IPO.cpp
-// 2. LinkAllPasses.h
-// 3. InitializePasses.h
+// you have to modify the following 4 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
 
 using namespace llvm;
 
@@ -72,14 +73,16 @@ namespace {
       layoutBuilder->removeOldLayouts(M);
       layoutBuilder->clearAnalysisResults();
 
-      sd_print("removed thunks...\n");
+      sd_print("removed thunks from (Update indices) pass...\n");
       return true;
     }
 
+    /*Paul: 
+    this method is used to get analysis results on which this pass depends*/
     void getAnalysisUsage(AnalysisUsage &AU) const override {
-      AU.addRequired<SDLayoutBuilder>();
-      AU.addRequired<SDBuildCHA>();
-      AU.addPreserved<SDBuildCHA>();
+      AU.addRequired<SDLayoutBuilder>(); //Paul: depends on layout builder pass
+      AU.addRequired<SDBuildCHA>(); //Paul: depends on CHA pass
+      AU.addPreserved<SDBuildCHA>(); //Paul: should preserve the information from the CHA pass
     }
 
   private:
