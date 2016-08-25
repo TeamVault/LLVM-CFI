@@ -522,11 +522,14 @@ void PassManagerBuilder::addLateLTOOptimizationPasses(
 void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (LibraryInfo)
     PM.add(new TargetLibraryInfoWrapperPass(*LibraryInfo));
-
+  
+  //Paul: emit interleaved or ordered v tables
   if (EmitIVTBLs || EmitOVTBLs) {
     // Lets get the sd passes out of the way
     // Remove unused vtables (pure virtual or unrereferenced) before interleaving
-    PM.add(createGlobalDCEPass());         
+    PM.add(createGlobalDCEPass()); 
+   
+    //Paul: these are the 4 four passes, the other 2 passes are down        
     PM.add(llvm::createSDFixPass());
     PM.add(llvm::createSDBuildCHAPass());
     PM.add(llvm::createSDLayoutBuilderPass(EmitIVTBLs));
@@ -540,6 +543,8 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
     addLTOOptimizationPasses(PM);
 
   if (EmitIVTBLs || EmitOVTBLs ) {
+    
+    //Paul: this pass adds the checks
     PM.add(llvm::createSDSubstModule3Pass());
   }
 
@@ -552,6 +557,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
     addLateLTOOptimizationPasses(PM);
 
   if (EmitIVTBLs || EmitOVTBLs) {
+     //Paul: this pass moves some bb 
     PM.add(llvm::createSDMoveBasicBlocksPass());
   }
 

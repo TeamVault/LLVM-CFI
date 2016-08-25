@@ -30,10 +30,12 @@
 
 #include <iostream>
 
-// you have to modify the following files for each additional LLVM pass
-// 1. IPO.h and IPO.cpp
-// 2. LinkAllPasses.h
-// 3. InitializePasses.h
+// you have to modify the following 5 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 namespace llvm {
   /**
@@ -146,30 +148,35 @@ public:
      *       => map<pair<vtbl,ind>, vtbl>
      */
     bool runOnModule(Module &M) {
+      
       /* Paul:
       this is where the Class Hierachy Ananlysis (CHA) pass starts.
       It seems tha these passes are initiated from their .h files.
       The executed code resides than in the corresponding .cpp file
       */
-      sd_print("Started building CHA ...\n");
+      sd_print("P2. Started building CHA ...\n");
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
-      buildClouds(M);//Paul: builds the class hierachy
-      printClouds("");//Paul: print the clouds
+      //Paul: builds the class hierachy
+      buildClouds(M);
+
+      //Paul: print the clouds in tmp/dot; can be viewed with graphviz
+      printClouds("");
 
       for (auto rootName : roots) {
         calculateChildrenCounts(vtbl_t(rootName, 0));
       }
-
-      verifyClouds(M); //Paul: do a verification of the clouds
+      
+      //Paul: do a verification of the clouds
+      verifyClouds(M); 
 
       std::cerr << "Undefined vtables: \n";
       for (auto i : undefinedVTables) {
         std::cerr << i << "\n";
       }
 
-      sd_print("Finished building CHA ...\n");
+      sd_print("P2. Finished building CHA ...\n");
 
       return roots.size() > 0;
     }

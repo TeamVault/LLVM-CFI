@@ -311,7 +311,7 @@ void initializeSDBuildCHAPass(PassRegistry&);
 //this pass is used to build the new v table layout
 void initializeSDLayoutBuilderPass(PassRegistry&);
 
-//this pass is used to build the 
+//this pass is used to update the indices of the new layout of the v tables
 void initializeSDUpdateIndicesPass(PassRegistry&);
 
 //this pass is used for updating the annotated instructions with the new indices

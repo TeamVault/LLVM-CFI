@@ -33,6 +33,7 @@
 // 2. lib/Transforms/IPO/IPO.cpp
 // 3. include/llvm/LinkAllPasses.h
 // 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
 
@@ -173,8 +174,10 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
         uint64_t childAddrPt = cha->addrPt(*child);
         uint64_t childRelAddrPt = childAddrPt - childStart;
 
-        if ((ptAddrPt - ptStart + prePadMap[pt]) > (childAddrPt - childStart + prePadMap[*child]) ||
+        if ((ptAddrPt - ptStart + prePadMap[pt]) > 
+            (childAddrPt - childStart + prePadMap[*child]) ||
             ptEnd - ptAddrPt > childEnd - childAddrPt) {
+              
           sd_print("Parent vtable(%s,%d) [%d-%d,%d,%d] is not contained in child vtable(%s,%d) [%d-%d,%d,%d]",
               pt.first.c_str(), pt.second, ptStart, prePadMap[pt],ptAddrPt, ptEnd, 
               child->first.c_str(), child->second, childStart, prePadMap[*child], childAddrPt, childEnd);
@@ -887,6 +890,8 @@ The result of the whole interleaving and reordering analysis is just the
 new metadata which will be put back in place of the older one*/
 
 void SDLayoutBuilder::removeOldLayouts(Module &M) {
+ 
+  //collect GV and than remove
   for (auto itr = cha->oldVTables_begin(); itr != cha->oldVTables_end(); itr ++) {
     GlobalVariable* var = M.getGlobalVariable(itr->first, true);
     assert(var && var->use_empty());
@@ -901,6 +906,7 @@ void SDLayoutBuilder::removeOldLayouts(Module &M) {
     f->eraseFromParent();
   }
 
+  //collect and than remove
   for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
        itr != M.getFunctionList().end(); itr++){
     if (sd_isVthunk(itr->getName()) &&
@@ -1024,10 +1030,10 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
   //first, we iterate through all roots contained in the cloud and/or order and interleave
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
    
-    vtbl_name_t vtbl = *itr; // get the v table name as string
+    vtbl_name_t vtbl = *itr;         // get the v table name as string
 
     if (interleave)
-      interleaveCloud(vtbl);         // interleave the cloud
+      interleaveCloud(vtbl);         // interleave the cloud or
     else
       orderCloud(vtbl);              // order the cloud
       
@@ -1042,7 +1048,7 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     createNewVTable(M, vtbl);        // finally, emit the global variable
   }
 
-  // finally, we iterate through all roots contained in the cloud and 
+  // third, we iterate through all roots contained in the cloud and 
   // calculate v pointer ranges and than verify the v pointer ranges
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;  // get the v table name as string

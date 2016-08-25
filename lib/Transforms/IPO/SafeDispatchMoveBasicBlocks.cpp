@@ -35,6 +35,7 @@
 // 2. lib/Transforms/IPO/IPO.cpp
 // 3. include/llvm/LinkAllPasses.h
 // 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
 
@@ -55,7 +56,7 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
-      sd_print("Removing thunks started (SDMoveBasicsBlocks pass) ...\n");
+      sd_print("P6. Started Removing thunks started (SDMoveBasicsBlocks pass) ...\n");
 
       for (auto fIt = M.begin(); fIt != M.end(); fIt++) {
         std::vector<BasicBlock*> toMove; //Paul: collect the bb which will be removed
@@ -77,7 +78,7 @@ namespace {
         }
       }
       
-      sd_print("Removing thunks finished (SDMoveBasicsBlocks pass) ...\n");
+      sd_print("P6. Finished Removing thunks finished (SDMoveBasicsBlocks pass) ...\n");
       return true;
     }
     

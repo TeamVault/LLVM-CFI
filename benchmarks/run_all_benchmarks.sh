@@ -20,7 +20,7 @@ run_benchmarks() {
 'member_ptr' 'multiple_secondary_virtual_diamond' 'non_virtual_diamond_with_virtual_ancestor' 'rtti_1' 'virtual_covariant_thunks' 
 'member_ptr2' 'multiple_virtual' 'only_mult' 'simp0' 'virtual_diamond' 'virtual_with_virtual_primary_base')
  
-  # only my program
+  # only my program, does not correctly compile
   #local -a benchmarks=('circle_base')
 
   local -a neg_benchs=('bad_cast' 'bad_multiple_inheritnace_cast'

@@ -31,6 +31,7 @@
 // 2. lib/Transforms/IPO/IPO.cpp
 // 3. include/llvm/LinkAllPasses.h
 // 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
 
@@ -99,11 +100,11 @@ namespace {
     bool runOnModule(Module &M) {
       module = &M;
 
-      sd_print("Started running fix pass...\nn");
+      sd_print("P1. Started running fix pass...\nn");
 
       bool isChanged = fixDestructors2();
 
-      sd_print("Finished running fix pass...\n");
+      sd_print("P1. Finished running fix pass...\n");
 
       return isChanged;
     }
@@ -368,7 +369,7 @@ bool SDFix::fixDestructors2() {
       assert(f1);
       std::string gv2Name = f1->getName();
       unsigned l = gv2Name.length();
-      gv2Name = gv2Name.replace(l-3, 1, "2"); //cut a part out from the name
+      gv2Name = gv2Name.replace(l-3, 1, "2"); //replace at position l-3 the letter/number with 2
 
       Function* f2 = module->getFunction(gv2Name);
       assert(f2 && ! f2->isDeclaration());

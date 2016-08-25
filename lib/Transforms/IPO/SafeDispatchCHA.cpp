@@ -34,6 +34,7 @@
 // 2. lib/Transforms/IPO/IPO.cpp
 // 3. include/llvm/LinkAllPasses.h
 // 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
 
@@ -144,6 +145,7 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
   // node in the CHA that intercepts all paths leading up to the root.
   // The current implementation just finds the topmost common ancestor.
   vtbl_t candidate(ancestorMap[*vtbls.begin()], 0);
+  
   do {
     vtbl_t nextCandidate;
     int nChildrenCommonAncestors = 0;
@@ -167,7 +169,7 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
       break;
 
     candidate = nextCandidate;
-  } while (1); //Paul: run once
+  } while (1); //Paul: run until it breaks
 
   return candidate;
 }
@@ -364,6 +366,7 @@ static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
   Constant* vtblC = vtblCAM->getValue();
   GlobalVariable* vtblGV = dyn_cast<GlobalVariable>(vtblC);
   assert(vtblGV);
+
   return vtblGV;
 }
 
@@ -405,6 +408,7 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
       this will be used next*/
       assert(tup->getNumOperands() == 5);
 
+      //Paul: these are the 5 operand mentioned above
       subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));             //Paul: this gives the order
       subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1));             //Paul: this gives the start address
       subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));               //Paul: this gives the end address
@@ -433,6 +437,7 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
 
       info.subVTables.push_back(subInfo);
     }
+    
     op += numOperands;
 
     if (classes.count(info.className) == 0) {
@@ -485,8 +490,8 @@ void SDBuildCHA::clearAnalysisResults() {
 /*Paul: print the clouns in .dot files and open than afterwards with GraphViz for display*/
 void SDBuildCHA::printClouds(const std::string &suffix) {
   int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
-
-    assert(rc == 0);
+  
+  assert(rc == 0);
 
   for(const vtbl_name_t& rootName : roots) {
     assert(rootName.length() <= 490);

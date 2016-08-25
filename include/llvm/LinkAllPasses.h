@@ -185,6 +185,8 @@ namespace {
       (void) llvm::AreStatisticsEnabled();
       (void) llvm::sys::RunningOnValgrind();
 
+      /*Paul:
+      used to link all passes*/
       (void) llvm::createSDFixPass();
       (void) llvm::createSDBuildCHAPass();
       (void) llvm::createSDLayoutBuilderPass();

@@ -610,36 +610,49 @@ def int_masked_scatter: Intrinsic<[],
                                    LLVMVectorSameWidth<0, llvm_i1_ty>],
                                   [IntrReadWriteArgMem]>;
 
-// Intrinsics to support bit sets.
-def int_bitset_test : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_metadata_ty],
+// Intrinsics to support bit sets. Paul: add new intrinsic functions
+def int_bitset_test : Intrinsic<[llvm_i1_ty], 
+             [llvm_ptr_ty, llvm_metadata_ty],
                                 [IntrNoMem]>;
 
-def int_sd_check_vtbl : Intrinsic<[llvm_i1_ty], [llvm_ptr_ty, llvm_metadata_ty, llvm_metadata_ty],
-                                [IntrNoMem]>;
+def int_sd_check_vtbl : Intrinsic<[llvm_i1_ty], 
+                                  [llvm_ptr_ty, 
+                              llvm_metadata_ty,    
+                             llvm_metadata_ty],
+                                  [IntrNoMem]>;
 
-def int_sd_get_vtbl_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty, llvm_metadata_ty],
-                                [IntrNoMem]>;
-def int_sd_get_vcall_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty],
-                                [IntrNoMem]>;
+def int_sd_get_vtbl_index : Intrinsic<[llvm_i64_ty], 
+                   [llvm_i64_ty, llvm_metadata_ty],
+                                      [IntrNoMem]>;
 
-def int_sd_vtbl_range_start : Intrinsic<[llvm_i64_ty], [llvm_metadata_ty],
-                                [IntrNoMem]>;
+def int_sd_get_vcall_index : Intrinsic<[llvm_i64_ty], 
+                                       [llvm_i64_ty],
+                                        [IntrNoMem]>;
 
-def int_sd_vtbl_range_end : Intrinsic<[llvm_i64_ty], [llvm_metadata_ty],
-                                [IntrNoMem]>;
+def int_sd_vtbl_range_start : Intrinsic<[llvm_i64_ty], 
+                                   [llvm_metadata_ty],
+                                         [IntrNoMem]>;
+
+def int_sd_vtbl_range_end : Intrinsic<[llvm_i64_ty], 
+                                 [llvm_metadata_ty],
+                                       [IntrNoMem]>;
 
 def int_sd_subst_check_range : Intrinsic<[llvm_i1_ty],
-                                [llvm_ptr_ty,
-                                 llvm_i64_ty,
-                                 llvm_i64_ty,
-                                 llvm_i64_ty],
-                                [IntrNoMem]>;
+                                         [llvm_ptr_ty,
+                                          llvm_i64_ty,
+                                          llvm_i64_ty,
+                                         llvm_i64_ty],
+                                         [IntrNoMem]>;
 
-def int_sd_subst_vtbl_index : Intrinsic<[llvm_i64_ty], [llvm_i64_ty],
-                                [IntrNoMem]>;
+def int_sd_subst_vtbl_index : Intrinsic<[llvm_i64_ty], 
+                                        [llvm_i64_ty],
+                                         [IntrNoMem]>;
 
-def int_sd_get_checked_vptr: Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty, llvm_metadata_ty, llvm_metadata_ty],
-                                [IntrNoMem]>;
+def int_sd_get_checked_vptr: Intrinsic<[llvm_ptr_ty], 
+                                        [llvm_ptr_ty, 
+                                    llvm_metadata_ty, 
+                                   llvm_metadata_ty],
+                                        [IntrNoMem]>;
 
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics

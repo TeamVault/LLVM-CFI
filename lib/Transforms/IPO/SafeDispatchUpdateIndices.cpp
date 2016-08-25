@@ -37,12 +37,16 @@
 // 2. lib/Transforms/IPO/IPO.cpp
 // 3. include/llvm/LinkAllPasses.h
 // 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
 
 namespace {
   /**
    * Pass for updating the annotated instructions with the new indices
+   Paul: the UpdateIndices pass just runs the runOnModule() function
+   all the function called in this module reside in the next pass, Subst_Module3.
+   This pass adds the needed checks.
    */
   struct SDUpdateIndices : public ModulePass {
     static char ID; // Pass identification, replacement for typeid
@@ -57,23 +61,25 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
+      //Paul: first get the results from the previous layout builder pass 
       layoutBuilder = &getAnalysis<SDLayoutBuilder>();
-      cha = &getAnalysis<SDBuildCHA>();
       assert(layoutBuilder);
 
-      sd_print("Started running the 2nd pass (Update indices) ...\n");
+      //Paul: second get the results from the class hierarchy analysis pass
+      cha = &getAnalysis<SDBuildCHA>();
 
-      handleSDGetVtblIndex(&M);
-      handleSDCheckVtbl(&M);
-      handleSDGetCheckedVtbl(&M);
-      handleRemainingSDGetVcallIndex(&M);
+      sd_print("P4. Started running the 4th pass (Update indices) ...\n");
 
-      sd_print("Finished running the 2nd pass (Update indices) ...\n");
+      handleSDGetVtblIndex(&M);//Paul: create a new call instruction
+      handleSDCheckVtbl(&M);//Paul: create a new call instruction
+      handleSDGetCheckedVtbl(&M);//Paul: insert check failed
+      handleRemainingSDGetVcallIndex(&M);//Paul: handle remainig indexes
+
 
       layoutBuilder->removeOldLayouts(M);
       layoutBuilder->clearAnalysisResults();
 
-      sd_print("removed thunks from (Update indices) pass...\n");
+      sd_print("P4. Finished removing thunks from (Update indices) pass...\n");
       return true;
     }
 
@@ -88,6 +94,7 @@ namespace {
   private:
     SDLayoutBuilder* layoutBuilder;
     SDBuildCHA* cha;
+    
     // metadata ids
     void handleSDGetVtblIndex(Module* M);
     void handleSDCheckVtbl(Module* M);
@@ -113,10 +120,15 @@ namespace {
     }
 
     bool runOnModule(Module &M) {
+      sd_print("P5. Started running SDSubstModule3 pass...\n");
       int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0, constPtr = 0;
       uint64_t sumWidth = 0.0;
+
+      //Paul: substitute the v table index
       Function *sd_subst_indexF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
+
+       //Paul: substitute the v table range   
        Function *sd_subst_rangeF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
 
@@ -192,6 +204,7 @@ namespace {
         }
       }
 
+      sd_print("P5. Finished running SDSubstModule3 pass...\n");
       sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
     }
@@ -257,6 +270,7 @@ static std::string
 sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
 //  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
 //  assert(mdTuple);
+
   llvm::MDTuple* mdTuple = cast<llvm::MDTuple>(mdNode);
   assert(mdTuple->getNumOperands() > operandNo + 1);
 
@@ -311,14 +325,16 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
 
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
+    
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
-    // get the arguments
+    // get the old arguments
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
     assert(arg1);
     llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
     assert(arg2);
+
     MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
     assert(mdNode);
 
@@ -343,7 +359,7 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
           Intrinsic::sd_subst_vtbl_index),
           Args);
 
-    CI->replaceAllUsesWith(newIntr);
+    CI->replaceAllUsesWith(newIntr); //Paul: replace with new instruction
     CI->eraseFromParent();
   }
 }
@@ -355,8 +371,7 @@ struct range_less_than_key {
 };
 
 void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
-  Function *sd_vtbl_indexF =
-      M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
+  Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
   const DataLayout &DL = M->getDataLayout();
   llvm::LLVMContext& C = M->getContext();
   Type *IntPtrTy = DL.getIntPtrType(C, 0);
@@ -373,8 +388,10 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
     // get the arguments
     llvm::Value* vptr = CI->getArgOperand(0);
     assert(vptr);
+
     llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
     assert(arg2);
+
     MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
     assert(mdNode);
     llvm::MetadataAsValue* arg3 = dyn_cast<MetadataAsValue>(CI->getArgOperand(2));
@@ -431,6 +448,7 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       SDLayoutBuilder::vtbl_name_t root = cha->getAncestor(vtbl);
       assert(layoutBuilder->alignmentMap.count(root));
       llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, layoutBuilder->alignmentMap[root]);
+      
       int i = 0;
 
       std::vector<SDLayoutBuilder::mem_range_t> ranges(layoutBuilder->getMemRange(vtbl));
@@ -448,19 +466,22 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
         llvm::Value *start = rangeIt.first;
         llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeIt.second);
         llvm::Value *Args[] = {castVptr, start, width, alignment};
+
         llvm::Value* fastPathSuccess = builder.CreateCall(Intrinsic::getDeclaration(M,
               Intrinsic::sd_subst_check_range),
               Args);
 
         char blockName[256];
         snprintf(blockName, sizeof(blockName), "sd.fastcheck.fail.%d", i);
+
         llvm::BasicBlock *fastCheckFailed = llvm::BasicBlock::Create(F->getContext(), blockName, F);
         llvm::BranchInst *BI = builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
         llvm::MDBuilder MDB(BI->getContext());
         BI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(
           std::numeric_limits<uint32_t>::max(),
           std::numeric_limits<uint32_t>::min()));
-        builder.SetInsertPoint(fastCheckFailed);
+
+        builder.SetInsertPoint(fastCheckFailed); //Paul: builder set the insertion point
         i++;
       }
     }
@@ -485,18 +506,17 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
     builder.SetInsertPoint(checkFailed);
     */
     // Insert Check Failure
-    builder.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::trap));
+    builder.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::trap)); //Paul: insert the check failure
     builder.CreateUnreachable();
 
-    oldTerminator->eraseFromParent();
-    CI->replaceAllUsesWith(vptr);
+    oldTerminator->eraseFromParent();//Paul: remove old terminator
+    CI->replaceAllUsesWith(vptr);//Paul: replace all uses with the new v pointer
     CI->eraseFromParent();
   }
 }
 
 void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
-  Function *sd_vtbl_indexF =
-      M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
+  Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
   const DataLayout &DL = M->getDataLayout();
   llvm::LLVMContext& C = M->getContext();
   Type *IntPtrTy = DL.getIntPtrType(C, 0);
@@ -507,18 +527,23 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
 
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
+    
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
     // get the arguments
     llvm::Value* vptr = CI->getArgOperand(0);
-    assert(vptr);
+    assert(vptr); //Paul: this is the v pointer
+
     llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
     assert(arg2);
+
     MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
     assert(mdNode);
+
     llvm::MetadataAsValue* arg3 = dyn_cast<MetadataAsValue>(CI->getArgOperand(2));
     assert(arg3);
+
     MDNode* mdNode1 = dyn_cast<MDNode>(arg3->getMetadata());
     assert(mdNode1);
 
@@ -527,8 +552,9 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     std::string className = sd_getClassNameFromMD(mdNode,0);
     std::string preciseClassName = sd_getClassNameFromMD(mdNode1,0);
     SDLayoutBuilder::vtbl_t vtbl(className, 0);
-    llvm::Constant *start;
-    int64_t rangeWidth;
+
+    llvm::Constant *start; //Paul: range start
+    int64_t rangeWidth; //Paul: range width
 
     sd_print("Callsite for %s cha->knowsAbout(%s,%d)=%d) ", className.c_str(),
       vtbl.first.c_str(), vtbl.second, cha->knowsAbout(vtbl));
@@ -548,9 +574,10 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
        (!cha->isUndefined(vtbl) || cha->hasFirstDefinedChild(vtbl))) {
       // calculate the new index
       start = cha->isUndefined(vtbl) ?
-        layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) :
+        layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) : //Paul: first child or first v table
         layoutBuilder->getVTableRangeStart(vtbl);
-      rangeWidth = cha->getCloudSize(vtbl.first);
+
+      rangeWidth = cha->getCloudSize(vtbl.first);//Paul: cloud size represents the range width
       sd_print(" [rangeWidth=%d start = %p]  \n", rangeWidth, start);
     } else {
       // This is a class we have no metadata about (i.e. doesn't have any
@@ -561,6 +588,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
       //std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
       sd_print(" [ no metadata ] \n");
     }
+
     LLVMContext& C = CI->getContext();
 
     if (start) {
@@ -578,17 +606,19 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
         sd_print("%s\n", vtbl.first.data());
         assert(false);
       }
+
       SDLayoutBuilder::vtbl_name_t root = cha->getAncestor(vtbl);
       assert(layoutBuilder->alignmentMap.count(root));
 
       llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, layoutBuilder->alignmentMap[root]);
       llvm::Value *Args[] = {castVptr, start, width, alignment};
       llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
-            Intrinsic::sd_subst_check_range),
-            Args);
+                                                Intrinsic::sd_subst_check_range),
+                                                Args);
 
-      CI->replaceAllUsesWith(newIntr);
+      CI->replaceAllUsesWith(newIntr);//Paul: add a new call instrction
       CI->eraseFromParent();
+
       /*
       if (rangeWidth > 1) {
         // The shift here is implicit since rangeWidth is in terms of indices, not bytes
@@ -614,7 +644,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
         CI->eraseFromParent();
       }        
       */
-    } else {
+    } else { //Paul: if start == NULL
       std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
         << std::endl;
       CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
@@ -636,9 +666,9 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
-    // get the arguments
+    // get the arguments, Paul: this argument is the v pointer.
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
-    assert(arg1);
+    assert(arg1); 
 
     // since the result of the call instruction is i64, replace all of its occurence with this one
     CI->replaceAllUsesWith(arg1);

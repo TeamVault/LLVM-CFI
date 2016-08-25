@@ -1,6 +1,14 @@
 
 #include <iostream>
-
+/*Diamond shape class hierarchy
+      Parent
+       /\
+      /  \
+ child1  child2
+      \   /
+       \ /
+    MixedChild    
+*/
 using namespace std;
 
 class Parent{

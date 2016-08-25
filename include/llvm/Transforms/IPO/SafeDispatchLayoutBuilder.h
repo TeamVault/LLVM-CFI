@@ -28,6 +28,13 @@
 #include <math.h>
 #include <algorithm>
 
+// you have to modify the following 4 files for each additional LLVM pass
+// 1. include/llvm/IPO.h
+// 2. lib/Transforms/IPO/IPO.cpp
+// 3. include/llvm/LinkAllPasses.h
+// 4. include/llvm/InitializePasses.h
+// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
+
 namespace llvm {
 
   /**
@@ -42,7 +49,8 @@ namespace llvm {
     typedef SDBuildCHA::order_t                             order_t;
     typedef SDBuildCHA::roots_t                             roots_t;
     typedef SDBuildCHA::range_t                             range_t;
-    typedef std::pair<Constant*, uint64_t>  mem_range_t;
+    
+    typedef std::pair<Constant*, uint64_t>                  mem_range_t;
     typedef std::map<vtbl_t, std::vector<uint64_t>>         new_layout_inds_t;
     typedef std::map<vtbl_t, std::map<uint64_t, uint64_t>>  new_layout_inds_map_t;
     typedef std::pair<vtbl_t, uint64_t>       					    interleaving_t;
@@ -75,7 +83,7 @@ namespace llvm {
     virtual ~SDLayoutBuilder() { }
 
     bool runOnModule(Module &M) {
-      sd_print("Started build layout ...\n");
+      sd_print("P3. Started building layout ...\n");
 
       /**Paul:
       first pass the results from the CHA pass
@@ -95,7 +103,7 @@ namespace llvm {
       //after building the new layout verify it
       assert(verifyNewLayouts(M));
 
-      sd_print("Finished building layout ...\n");
+      sd_print("P3. Finished building layout ...\n");
       return 1;
     }
     
