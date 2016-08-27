@@ -545,7 +545,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (EmitIVTBLs || EmitOVTBLs ) {
     
     //Paul: this pass adds the checks
-    PM.add(llvm::createSDSubstModule3Pass());
+    PM.add(llvm::createSDSubstModulePass());
   }
 
   // Lower bit sets to globals. This pass supports Clang's control flow

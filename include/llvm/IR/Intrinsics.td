@@ -611,6 +611,11 @@ def int_masked_scatter: Intrinsic<[],
                                   [IntrReadWriteArgMem]>;
 
 // Intrinsics to support bit sets. Paul: add new intrinsic functions
+// Paul functions (next 9) are used to check the ranges of the v tables and are 
+// inserted before the v table dispatches
+// These definitions have counterparts in the file ItaniumCXXABI.cpp.
+// Check thse in ItaniumCXXABI.cpp in order to understand what thesea are doing 
+
 def int_bitset_test : Intrinsic<[llvm_i1_ty], 
              [llvm_ptr_ty, llvm_metadata_ty],
                                 [IntrNoMem]>;
@@ -652,7 +657,7 @@ def int_sd_get_checked_vptr: Intrinsic<[llvm_ptr_ty],
                                         [llvm_ptr_ty, 
                                     llvm_metadata_ty, 
                                    llvm_metadata_ty],
-                                        [IntrNoMem]>;
+                                      [IntrNoMem]>;
 
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics

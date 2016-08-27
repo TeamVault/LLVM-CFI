@@ -44,19 +44,21 @@ namespace llvm {
   public:
     static char ID; // Pass identification, replacement for typeid
     // variable definitions
-    typedef SDBuildCHA::vtbl_t                              vtbl_t;
-    typedef SDBuildCHA::vtbl_name_t                         vtbl_name_t;
-    typedef SDBuildCHA::order_t                             order_t;
-    typedef SDBuildCHA::roots_t                             roots_t;
-    typedef SDBuildCHA::range_t                             range_t;
+    typedef SDBuildCHA::vtbl_t                              vtbl_t;     //Paul: pair v table name and index
+    typedef SDBuildCHA::vtbl_name_t                         vtbl_name_t;//Paul: v table name as a string
+    typedef SDBuildCHA::order_t                             order_t;    //Paul: vector of pairs of vtbl_t (string and index)
+    typedef SDBuildCHA::roots_t                             roots_t;    //Paul: set of vtbl_name_t (strings)
+    typedef SDBuildCHA::range_t                             range_t;    //Paul: pair of uint64_t and uint64_t
     
     typedef std::pair<Constant*, uint64_t>                  mem_range_t;
     typedef std::map<vtbl_t, std::vector<uint64_t>>         new_layout_inds_t;
     typedef std::map<vtbl_t, std::map<uint64_t, uint64_t>>  new_layout_inds_map_t;
+
     typedef std::pair<vtbl_t, uint64_t>       					    interleaving_t;
     typedef std::list<interleaving_t>                       interleaving_list_t;
     typedef std::vector<interleaving_t>                     interleaving_vec_t;
     typedef std::map<vtbl_name_t, interleaving_list_t>      interleaving_map_t;
+
     typedef std::map<vtbl_t, Constant*>                     vtbl_start_map_t;
     typedef std::map<vtbl_name_t, GlobalVariable*>          cloud_start_map_t;
     typedef std::map<vtbl_t, std::vector<range_t> >         range_map_t;
@@ -68,7 +70,7 @@ namespace llvm {
     vtbl_start_map_t newVTableStartAddrMap;                 // Starting addresses of all new vtables
     cloud_start_map_t cloudStartMap;                        // Mapping from new vtable names to their corresponding cloud starts
     std::map<vtbl_name_t, unsigned> alignmentMap;
-    vtbl_t dummyVtable;
+    vtbl_t dummyVtable;                                     // Paul: this v tavle is used for the interleaving
     range_map_t rangeMap;                                   // Map of ranges for vptrs in terms of preorder indices
     mem_range_map_t memRangeMap;
     pad_map_t prePadMap;
@@ -92,15 +94,17 @@ namespace llvm {
       
       /* Paul:
       this builds the new layouts. The layouts will be stored 
-      in the metadata of the GlobalVariables. First, this will be
+      in the metadata of the GlobalVariables. 
+      First, this will be
       removed and our data will be inserted there.
       The buildNewLayouts(M) method is located
-      // at the bottom of the SDLayoutBuilder class and it is the main
-      //driver of this pass 
+      at the bottom of the SDLayoutBuilder class and it is the main
+      driver of this pass. 
+      The v tables area interleaved or order depending on the imposed conditions 
       */
       buildNewLayouts(M);
 
-      //after building the new layout verify it
+      //after building the new layout verify them according to some imposed conditions 
       assert(verifyNewLayouts(M));
 
       sd_print("P3. Finished building layout ...\n");

@@ -46,19 +46,19 @@ namespace llvm {
     static char ID; // Pass identification, replacement for typeid
 
     // variable definitions
-    typedef std::string                                     vtbl_name_t;
-    typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;
-    typedef std::set<vtbl_t>                                vtbl_set_t;
-    typedef std::map<vtbl_t, vtbl_set_t>                    cloud_map_t; //Paul: this is heavily used inside the CHA pass
-    typedef std::set<vtbl_name_t>                           roots_t;
-    typedef std::map<vtbl_name_t, std::vector<uint64_t>>    addrpt_map_t;
-    typedef std::pair<uint64_t, uint64_t>                   range_t; //Paul: start and end address of a range
-    typedef std::map<vtbl_name_t, std::vector<range_t>>     range_map_t; // Paul: v table name (name) -> vector of range pairs
+    typedef std::string                                     vtbl_name_t;    //Paul: v table name as string
+    typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;         //Paul: pair string and index 
+    typedef std::set<vtbl_t>                                vtbl_set_t;     //Paul: v table set
+    typedef std::map<vtbl_t, vtbl_set_t>                    cloud_map_t;    //Paul: this is heavily used inside the CHA pass
+    typedef std::set<vtbl_name_t>                           roots_t;        //Paul: set of the v table roots as string
+    typedef std::map<vtbl_name_t, std::vector<uint64_t>>    addrpt_map_t;   //Paul: map of v table string name and vector of the indexes
+    typedef std::pair<uint64_t, uint64_t>                   range_t;        //Paul: start and end address of a range
+    typedef std::map<vtbl_name_t, std::vector<range_t>>     range_map_t;    //Paul: v table name (name) -> vector of range pairs
     typedef std::map<vtbl_t, vtbl_name_t>                   ancestor_map_t; //Paul: pair (v table name, address) -> v table name
-    typedef std::vector<vtbl_t>                             order_t; //Paul: vector of pairs of (v table name, and address)
-    typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t; //Paul: map of v table name -> vector of vt names
-    typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t; //Paul: map of v table name -> ConstantArray
-    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t; //Paul: map of v table name -> vector of vt sets of names
+    typedef std::vector<vtbl_t>                             order_t;        //Paul: vector of pairs of (v table name, and address)
+    typedef std::map<vtbl_name_t, std::vector<vtbl_name_t>> subvtbl_map_t;  //Paul: map of v table name -> vector of vt names
+    typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;  //Paul: map of v table name -> ConstantArray
+    typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t;   //Paul: map of v table name -> vector of vt sets of names
 
 private:
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>; pair -> set
@@ -71,6 +71,7 @@ private:
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
     std::map<vtbl_t, uint32_t> cloudSizeMap;           // vtbl -> # vtables derived from (vtbl,0)
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
+    
     /**
      * These functions and variables used to deal with duplication
      * of the vthunks in the vtables
@@ -88,7 +89,9 @@ private:
       uint64_t    end;
       uint64_t    addressPoint;
     };
-
+    
+    //Paul: this is the basic CHA node type, maybe based on the ShrinkWrap approach we need to 
+    // add additional elements 
     struct nmd_t {
       vtbl_name_t className;             // Paul: this is just a string
       std::vector<nmd_sub_t> subVTables; // Paul: see the struct from above
@@ -103,18 +106,18 @@ private:
      * (primitive) vtable
      */
     uint32_t calculateChildrenCounts(const vtbl_t& vtbl);
+    
     /**
      * Remove diamonds created due to virtual inheritance
      * TODO(dbounov): After we add multiple range checks remove this
      */
-    vtbl_t findLeastCommonAncestor(
-      const vtbl_set_t &vtbls,
-      cloud_map_t &ptMap);
+    vtbl_t findLeastCommonAncestor(const vtbl_set_t &vtbls, cloud_map_t &ptMap);
 
     /**
      * Verify that the cloud information we got is sane
      */
     void verifyClouds(Module &M);
+   
     /** Paul: 
     used to prin the clounds, these are all the class hierarchies
     */
@@ -151,7 +154,7 @@ public:
       
       /* Paul:
       this is where the Class Hierachy Ananlysis (CHA) pass starts.
-      It seems tha these passes are initiated from their .h files.
+      This pass is initiated from their this .h file.
       The executed code resides than in the corresponding .cpp file
       */
       sd_print("P2. Started building CHA ...\n");
@@ -188,6 +191,10 @@ public:
       AU.setPreservesAll();
     }
 
+    int getNumberOfRoots(){
+      return this->roots.size();
+    }
+
     void clearAnalysisResults();
 
     /**
@@ -222,16 +229,17 @@ public:
       return addrPtMap[vtbl].size();
     }
 
+    //Paul: the v table is checke if it is contained in the undefinedVTables set 
     bool isUndefined(const vtbl_name_t &vtbl) {
       return undefinedVTables.find(vtbl) != undefinedVTables.end();
     }
 
     bool isUndefined(const vtbl_t &vtbl) {
-      return isUndefined(vtbl.first);
+      return isUndefined(vtbl.first);//Paul: notice this calls the above method 
     }
 
     bool isDefined(const vtbl_t &vtbl) {
-      return !isUndefined(vtbl);
+      return !isUndefined(vtbl); //Paul: notice this calls the above method 
     }
 
     /*
@@ -271,6 +279,7 @@ public:
     vtbl_set_t::const_iterator children_end(const vtbl_t &v) {
       return cloudMap[v].end();
     }
+    
     /*
      * Roots Set Accessors
      */

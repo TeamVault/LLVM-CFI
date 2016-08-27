@@ -67,8 +67,9 @@ unsigned SDBuildCHA::getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
 
 
 
-void 
-SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes, const SDBuildCHA::vtbl_t& root, vtbl_set_t &visited) {
+void SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes, 
+                                   const SDBuildCHA::vtbl_t& root, 
+                                              vtbl_set_t &visited) {
   if (visited.find(root) != visited.end())
     return;
 
@@ -77,7 +78,7 @@ SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes, const SDBuild
 
   if (cloudMap.find(root) != cloudMap.end()) { //Paul: check that cloudmap is not empty
     for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) {
-      preorderHelper(nodes, n, visited);
+      preorderHelper(nodes, n, visited); //Paul: recursive call 
     }
   }
 }
@@ -117,6 +118,9 @@ void SDBuildCHA::verifyClouds(Module &M) {
   }
 }
 
+ /**Paul: this a great place to improve. Their implementation is not optimal.
+ This method is not even used at all in the initial implementation.
+  */
 SDBuildCHA::vtbl_t 
 SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuildCHA::cloud_map_t &ptMap) {
 
@@ -138,8 +142,6 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
     }
   }
   
-  /**Paul: this a great place to improve. Their implementation is not optimal.
-  */
   // TODO(dbounov) The below algorithm is a conservative
   // heuristic. The actual problem to solve is the "lowest"
   // node in the CHA that intercepts all paths leading up to the root.
@@ -181,6 +183,8 @@ void SDBuildCHA::buildClouds(Module &M) {
   std::set<vtbl_t> build_undefinedVtables;
 
   for(auto itr = M.getNamedMDList().begin(); itr != M.getNamedMDList().end(); itr++) {
+    
+    //Paul: get all metadata of this module
     NamedMDNode* md = itr;
 
     // check if this is a metadata that we've added
@@ -190,6 +194,7 @@ void SDBuildCHA::buildClouds(Module &M) {
     //sd_print("GOT METADATA: %s\n", md->getName().data());
 
     //Paul: extractMetadata() extracts the metadata from each module
+    // and puts it into this vector
     std::vector<nmd_t> infoVec = extractMetadata(md);
 
     for (const nmd_t& info : infoVec) {
@@ -244,10 +249,13 @@ void SDBuildCHA::buildClouds(Module &M) {
 
         if (cloudMap.find(name) == cloudMap.end()){
           //sd_print("Inserting %s, %d in cloudMap\n", name.first.c_str(), name.second);
-          cloudMap[name] = std::set<vtbl_t>();
+
+          //Paul: here the cloudMap is filled for the first time 
+          cloudMap[name] = std::set<vtbl_t>(); //empty set
         }
 
         vtbl_set_t parents;
+        
         //Paul: interate now through each subinfo and get the parents
         for (auto it : subInfo->parents) {
           if (it.first != "") {
@@ -274,10 +282,10 @@ void SDBuildCHA::buildClouds(Module &M) {
         // Paul: record the parrents for each class 
         parentMap[info.className].push_back(parents);
 
-        // record the original address points
+        // record the original address points for each class 
         addrPtMap[info.className].push_back(subInfo->addressPoint);
 
-        // record the sub-vtable ends
+        // record the sub-vtable ends for each class
         rangeMap[info.className].push_back(range_t(subInfo->start, subInfo->end));
       }
     }
@@ -289,9 +297,11 @@ void SDBuildCHA::buildClouds(Module &M) {
       sd_print("%s,%d\n", n.first.c_str(), n.second);
     }
   }
-
+  
+  //Paul: assertion to check that the are no undefined v tables
   assert(build_undefinedVtables.size() == 0);
-
+  
+  //Paul: build the ancestor map for each of the child nodes of a root node
   for (auto rootName : roots) {
     vtbl_t root(rootName, 0);
     for (auto child : preorder(root)) {
@@ -301,14 +311,15 @@ void SDBuildCHA::buildClouds(Module &M) {
     }
   }
 
+  //Paul: print the parent map for each of the classes 
   for (auto it : parentMap) {
     const vtbl_name_t &className = it.first;
     const std::vector<vtbl_set_t> &parentSetV = it.second;
 
-    std::cerr << "(" << className << ",[";
+    std::cerr << "(class name: " << className << ", parents: [";
 
     for (int ind = 0; ind < parentSetV.size(); ind++) {
-      std::cerr << "{";
+      std::cerr << "index: "<< ind <<"{";
       for (auto ptIt : parentSetV[ind])
         std::cerr << "<" << ptIt.first << "," << ptIt.second << ">,";
       std::cerr << "},";
@@ -316,7 +327,8 @@ void SDBuildCHA::buildClouds(Module &M) {
 
     std::cerr << "]\n";
   }
-
+  
+  
   for (auto it : parentMap) {
     const vtbl_name_t &className = it.first;
     const std::vector<vtbl_set_t> &parentSetV = it.second;
@@ -374,8 +386,8 @@ static llvm::GlobalVariable* sd_mdnodeToGV(Metadata* vtblMd) {
 this method extracts the metadata for each module.
 This is used in the buildClouds method from above.
 */
-std::vector<SDBuildCHA::nmd_t>
-SDBuildCHA::extractMetadata(NamedMDNode* md) {
+std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
+  
   std::set<vtbl_name_t> classes;
   std::vector<SDBuildCHA::nmd_t> infoVec;
 
@@ -383,11 +395,12 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
 
   do {
     SDBuildCHA::nmd_t info;
+
     MDString* infoMDstr = dyn_cast_or_null<MDString>(md->getOperand(op++)->getOperand(0));
     assert(infoMDstr);
     info.className = infoMDstr->getString().str();
     /*Paul: 
-     get from the module all the operands and convert them a Global Variable (GV)
+     get from the module the operands one by one and convert them a Global Variable (GV)
     */
     GlobalVariable* classVtbl = sd_mdnodeToGV(md->getOperand(op++));
 
@@ -396,23 +409,26 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
     }
     
     /*Paul:
-    get the total number of operands for each module*/
+    get the number of operands for the first operand 0 for each of the module operands*/
     unsigned numOperands = sd_getNumberFromMDTuple(md->getOperand(op++)->getOperand(0));
 
     for (unsigned i = op; i < op + numOperands; ++i) {
-      SDBuildCHA::nmd_sub_t subInfo;
+
+      SDBuildCHA::nmd_sub_t subInfo;//Paul: this will be added into the info struct
+
       llvm::MDTuple* tup = dyn_cast<llvm::MDTuple>(md->getOperand(i));
       assert(tup);
+      
       /*Paul:
       assert that the tuple has exactly 5 operands, 
       this will be used next*/
       assert(tup->getNumOperands() == 5);
 
       //Paul: these are the 5 operand mentioned above
-      subInfo.order = sd_getNumberFromMDTuple(tup->getOperand(0));             //Paul: this gives the order
-      subInfo.start = sd_getNumberFromMDTuple(tup->getOperand(1));             //Paul: this gives the start address
-      subInfo.end = sd_getNumberFromMDTuple(tup->getOperand(2));               //Paul: this gives the end address
-      subInfo.addressPoint = sd_getNumberFromMDTuple(tup->getOperand(3));      //Paul: this gives the address point
+      subInfo.order             = sd_getNumberFromMDTuple(tup->getOperand(0)); //Paul: this gives the order
+      subInfo.start             = sd_getNumberFromMDTuple(tup->getOperand(1)); //Paul: this gives the start address
+      subInfo.end               = sd_getNumberFromMDTuple(tup->getOperand(2)); //Paul: this gives the end address
+      subInfo.addressPoint      = sd_getNumberFromMDTuple(tup->getOperand(3)); //Paul: this gives the address point
       llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4)); //Paul: this returns the parents tuple
 
       /*Paul: get the number of parents for the first parent
@@ -429,20 +445,19 @@ SDBuildCHA::extractMetadata(NamedMDNode* md) {
         subInfo.parents.insert(vtbl_t(ptName, ptIdx));
       }
 
-      bool currRangeCheck = (subInfo.start <= subInfo.addressPoint &&
-                             subInfo.addressPoint <= subInfo.end);
+      bool currRangeCheck = (subInfo.start <= subInfo.addressPoint && subInfo.addressPoint <= subInfo.end);
       bool prevVtblCheck = (i == op || (--info.subVTables.end())->end < subInfo.start);
 
-      assert(currRangeCheck && prevVtblCheck); // Paul: this conditions have to hold
+      assert(currRangeCheck && prevVtblCheck); // Paul: this conditions has to hold
 
-      info.subVTables.push_back(subInfo);
+      info.subVTables.push_back(subInfo); //Paul: subInfo struct is contained in the info struct
     }
     
     op += numOperands;
 
     if (classes.count(info.className) == 0) {
-      classes.insert(info.className);
-      infoVec.push_back(info);
+        classes.insert(info.className);
+        infoVec.push_back(info);
     }
   } while (op < md->getNumOperands()); // Paul: iterate until all module operands have been visited
 

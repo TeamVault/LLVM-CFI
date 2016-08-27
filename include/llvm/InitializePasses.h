@@ -318,7 +318,7 @@ void initializeSDUpdateIndicesPass(PassRegistry&);
 void initializeSDMoveBasicBlocksPass(PassRegistry&);
 
 //this pass is used to add the new checks before the v call site
-void initializeSDSubstModule3Pass(PassRegistry&);
+void initializeSDSubstModulePass(PassRegistry&);
 }
 
 #endif

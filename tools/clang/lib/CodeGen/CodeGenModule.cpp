@@ -508,7 +508,7 @@ llvm::User* sd_unfold_map_cb(llvm::User* root,
       for (int i = 0; i < children.size(); i++) {
         auto childConst = dyn_cast<llvm::Constant>(children[i]);
         if (!childConst) {
-          unsigned int indices[1] = { i } ;
+          unsigned int indices[1] = { (unsigned int) i } ;
           newStruct = llvm::InsertValueInst::Create(newStruct, children[i], indices, "", arg.insertPos);
         }
       }

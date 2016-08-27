@@ -9,5 +9,8 @@
 
     "editor.formatOnType": true,
 
+    // Controls the font size.
+    "editor.fontSize": 14,
+
     "editor.parameterHints": false
 }
