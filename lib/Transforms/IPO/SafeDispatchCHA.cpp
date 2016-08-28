@@ -65,34 +65,39 @@ unsigned SDBuildCHA::getVTableOrder(const vtbl_name_t& vtbl, uint64_t ind) {
   assert(false && "Index not in range");
 }
 
-
-
+//Paul: this runs recursivelly until all nodes where visited 
+// it is called once from the preorder function from underneath 
 void SDBuildCHA::preorderHelper(std::vector<SDBuildCHA::vtbl_t>& nodes, 
                                    const SDBuildCHA::vtbl_t& root, 
                                               vtbl_set_t &visited) {
+  //Paul: while not each node was visited 
   if (visited.find(root) != visited.end())
-    return;
+    return;//in case all nodes were visited than stop the recursion 
 
-  nodes.push_back(root);
-  visited.insert(root);
+  nodes.push_back(root);// ad the node to the preorder traversal 
+  visited.insert(root);//now it is visited 
 
-  if (cloudMap.find(root) != cloudMap.end()) { //Paul: check that cloudmap is not empty
+  // Paul: if the node is found, this means before
+  // reaching the end of the set the node has to be found 
+  if (cloudMap.find(root) != cloudMap.end()) { 
     for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) {
       preorderHelper(nodes, n, visited); //Paul: recursive call 
     }
   }
 }
 
-std::vector<SDBuildCHA::vtbl_t> 
-SDBuildCHA::preorder(const vtbl_t& root) {
+//Paul: return the nodes in preorder for the given root node 
+std::vector<SDBuildCHA::vtbl_t> SDBuildCHA::preorder(const vtbl_t& root) {
+  //vector of pairs (std::pair<vtbl_name_t, uint64_t> )
   order_t nodes;
+
+  //set of pairs (std::pair<vtbl_name_t, uint64_t>)
   vtbl_set_t visited;
   preorderHelper(nodes, root, visited);
   return nodes;
 }
 
-static inline uint64_t
-sd_getNumberFromMDTuple(const MDOperand& op) {
+static inline uint64_t sd_getNumberFromMDTuple(const MDOperand& op) {
   Metadata* md = op.get();
   assert(md);
   ConstantAsMetadata* cam = dyn_cast_or_null<ConstantAsMetadata>(md);
@@ -103,8 +108,7 @@ sd_getNumberFromMDTuple(const MDOperand& op) {
   return ci->getSExtValue();
 }
 
-static inline SDBuildCHA::vtbl_name_t
-sd_getStringFromMDTuple(const MDOperand& op) {
+static inline SDBuildCHA::vtbl_name_t sd_getStringFromMDTuple(const MDOperand& op) {
   MDString* mds = dyn_cast_or_null<MDString>(op.get());
   assert(mds);
 
@@ -112,9 +116,10 @@ sd_getStringFromMDTuple(const MDOperand& op) {
 }
 
 void SDBuildCHA::verifyClouds(Module &M) {
+  //Paul: iterate throug all roots 
   for (auto rootName : roots) {
     vtbl_t root(rootName, 0);
-    assert(cloudMap.count(root)); 
+    assert(cloudMap.count(root)); //Paul: check that the cloud map for each of the roots is not empty  
   }
 }
 
@@ -197,6 +202,7 @@ void SDBuildCHA::buildClouds(Module &M) {
     // and puts it into this vector
     std::vector<nmd_t> infoVec = extractMetadata(md);
 
+    //nmd_t is the main top root node type, now iterate through the info vector   
     for (const nmd_t& info : infoVec) {
       // record the old vtable array
       /* Paul:
@@ -260,7 +266,7 @@ void SDBuildCHA::buildClouds(Module &M) {
         for (auto it : subInfo->parents) {
           if (it.first != "") {
             vtbl_t &parent = it;
-            parents.insert(parent);
+            parents.insert(parent); // parent is a pair of <vtbl_name_t, uint64_t> 
 
             // if the parent class is not defined yet, add it to the
             // undefined vtable set
@@ -274,6 +280,7 @@ void SDBuildCHA::buildClouds(Module &M) {
             cloudMap[parent].insert(name);
           } else {
             assert(ind == 0); // make sure secondary vtables have a direct parent
+            
             // add the class to the root set
             roots.insert(info.className);
           }
@@ -399,6 +406,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
     MDString* infoMDstr = dyn_cast_or_null<MDString>(md->getOperand(op++)->getOperand(0));
     assert(infoMDstr);
     info.className = infoMDstr->getString().str();
+   
     /*Paul: 
      get from the module the operands one by one and convert them a Global Variable (GV)
     */
@@ -434,6 +442,8 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       /*Paul: get the number of parents for the first parent
       */
       unsigned numParents = sd_getNumberFromMDTuple(parentsTup->getOperand(0)); 
+      
+      //Paul: iterate through all the parents 
       for (int j = 0; j < numParents; j++) {
         vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3)); //Paul: give the name of the v table
         unsigned ptIdx = sd_getNumberFromMDTuple(parentsTup->getOperand(1+j*3+1)); // Paul: one more index position to the right, get pointer index
@@ -449,7 +459,8 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       bool prevVtblCheck = (i == op || (--info.subVTables.end())->end < subInfo.start);
 
       assert(currRangeCheck && prevVtblCheck); // Paul: this conditions has to hold
-
+      
+      //Paul: add the subInfos to the info 
       info.subVTables.push_back(subInfo); //Paul: subInfo struct is contained in the info struct
     }
     
@@ -457,6 +468,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
 
     if (classes.count(info.className) == 0) {
         classes.insert(info.className);
+        //Paul: put the info in the infoVec vector 
         infoVec.push_back(info);
     }
   } while (op < md->getNumOperands()); // Paul: iterate until all module operands have been visited
@@ -508,8 +520,9 @@ void SDBuildCHA::printClouds(const std::string &suffix) {
   
   assert(rc == 0);
 
+  //Paul: these roots are only the name of the classes.
   for(const vtbl_name_t& rootName : roots) {
-    assert(rootName.length() <= 490);
+    assert(rootName.length() <= 490);//Paul: hard bound set on the length of each root name 
 
     char filename[512];
     sprintf(filename, "/tmp/dot/%s.%s.dot", rootName.data(), suffix.c_str());
@@ -520,23 +533,36 @@ void SDBuildCHA::printClouds(const std::string &suffix) {
     fprintf(file, "digraph %s {\n", rootName.data());
 
     vtbl_t root(rootName,0);
-
+    
+    //Paul: all classes names
     std::deque<vtbl_t> classes;
+
+    //Paul: all visited 
     std::set<vtbl_t> visited;
+
     classes.push_back(root);
 
+    //until classe are not empty, all classes visited once 
     while(! classes.empty()) {
+
+      //extract front element 
       vtbl_t vtbl = classes.front();
 
       fprintf(file, "\t \"(%s,%lu)\";\n", vtbl.first.data(), vtbl.second);
-      classes.pop_front();
 
+      //remove fron element 
+      classes.pop_front();
+      
+      //iterate through all children of this root 
       for (const vtbl_t& child : cloudMap[vtbl]) {
         fprintf(file, "\t \"(%s,%lu)\" -> \"(%s,%lu)\";\n",
-                vtbl.first.data(), vtbl.second,
-                child.first.data(), child.second);
+                          vtbl.first.data(), vtbl.second,
+                          child.first.data(), child.second);
         if (visited.find(child) == visited.end()) {
+          //add class name
           classes.push_back(child);
+
+          //add visited child 
           visited.insert(child);
         }
       }

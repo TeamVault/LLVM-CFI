@@ -437,25 +437,34 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   assert(cha->isRoot(vtbl));
 
   // create a temporary list for the positive part
-  interleaving_list_t positivePart;
+  interleaving_list_t positive_list_Part;
 
+  //Paul: this is a a vector of all the nodes in the sub-tree having as root the vtbl 
   vtbl_t root(vtbl,0);
-  //Paul: return the nodes of the tree in preorder order in a vector of pairs 
-  order_t pre = cha->preorder(root);  
+  
+  //Paul: return the nodes of the sub tree having 
+  // as root vtbl in preorder 
+  order_t preorderNodeSet = cha->preorder(root);  
   
   std::map<vtbl_t, uint64_t> indMap;
-  for (uint64_t i = 0; i < pre.size(); i++)
-    indMap[pre[i]] = i;
+  for (uint64_t i = 0; i < preorderNodeSet.size(); i++)
+    indMap[preorderNodeSet[i]] = i;
 
   // First check if any vtable needs pre-padding. (All vtables must contain their parents).
   int numParent =0;
-  for (auto parent : pre) {
+
+  //Paul: iterate through all the nodes in this sub tree 
+  for (auto parent : preorderNodeSet) {
     if (cha->isUndefined(parent))
       continue; 
       
-      numParent++;
+    numParent++;//Paul: count number of parents 
 
-    int numChildrenPerParent =0;
+    int numChildrenPerParent = 0;
+
+    //Paul: search only in the children of the current node 
+    // the definition of the children should take into account
+    // both the inheritance between classes and between v tables 
     for (auto child = cha->children_begin(parent); child != cha->children_end(parent); child++) {
         if (cha->isUndefined(parent))
           continue; 
@@ -469,11 +478,12 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
         const range_t &parentRange = cha->getRange(parent);
         const range_t &childRange = cha->getRange(*child);
 
-        //Paul: get the ranges and the 
+        //Paul: get the ranges of the parent 
         uint64_t parentStart  = parentRange.first;
         uint64_t parentEnd    = parentRange.second;
         uint64_t parentAddrPt = cha->addrPt(parent);
-
+        
+        //Paul: get the ranges of the child 
         uint64_t childStart  = childRange.first;
         uint64_t childEnd    = childRange.second;
         uint64_t childAddrPt = cha->addrPt(*child);
@@ -481,6 +491,9 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
         uint64_t parentPreAddrPt = parentAddrPt - parentStart + prePadMap[parent];
         uint64_t childPreAddrPt  = childAddrPt  - childStart  + prePadMap[*child];
 
+        //Paul: the prepad value for the child is eath the 
+        //difference between parent (prepad address point) and of the child (prepad address point) 
+        // or the old value contained in the child 
         prePadMap[*child] = (parentPreAddrPt > childPreAddrPt ?
                              parentPreAddrPt - childPreAddrPt : prePadMap[*child]);
     }
@@ -492,12 +505,14 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   // initialize the cloud's interleaving list
   interleavingMap[vtbl] = interleaving_list_t();
 
-  // fill both parts
-  fillVtablePart(interleavingMap[vtbl], pre, false); //Paul: one time with false, negative part
-  fillVtablePart(positivePart, pre, true);           //Paul: one time with true , positive part
+  // fill the negative part of the interleaving map 
+  fillVtablePart(interleavingMap[vtbl], preorderNodeSet, false); //Paul: one time with false, negative part
+  
+  // fill the positive part of the interleaving map 
+  fillVtablePart(positive_list_Part, preorderNodeSet, true);     //Paul: one time with true , positive part
 
-  // append positive part to the negative
-  interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positivePart.begin(), positivePart.end());
+  // append the positive part to the negative part in the interleaving map 
+  interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positive_list_Part.begin(), positive_list_Part.end());
   alignmentMap[vtbl] = WORD_WIDTH;
   
   sd_print("Finishing Interleaving for v table %s...\n", vtbl.c_str());
@@ -816,44 +831,49 @@ static bool sd_isLE(int64_t lhs, int64_t rhs) { return lhs <= rhs; }
 check if lhs (left hand side) it is greather equal rhs (right hand side)*/
 static bool sd_isGE(int64_t lhs, int64_t rhs) { return lhs >= rhs; }
 
-void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblPart, 
-                                              const SDLayoutBuilder::order_t& order, 
-                                                                    bool positiveOff) {
+//Paul: this is used to fill (with positive and negative part) the interleaving map with the rest of the component
+//after the interleaving was performed 
+void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblPartList, 
+                                              const SDLayoutBuilder::order_t& nodesInPreorder, 
+                                                                    bool positivePartOn_Off) {
   std::map<vtbl_t, int64_t> posMap;     // current position
   std::map<vtbl_t, int64_t> lastPosMap; // last possible position
-
-  for(const vtbl_t& n : order) {
+ 
+  //Paul: traverse only the ones from this child 
+  // This is ok. 
+  for(const vtbl_t& n : nodesInPreorder) {
     uint64_t addrPt = cha->addrPt(n);  // get the address point of the vtable
-    const range_t &r = cha->getRange(n);
-    posMap[n]     = positiveOff ? addrPt : (addrPt - 1); // start interleaving from that address
-    lastPosMap[n] = positiveOff ? r.second : (r.first - prePadMap[n]);
+    const range_t &r = cha->getRange(n); // get the range (start & end address) of that particular v table 
+    posMap[n]     = positivePartOn_Off ? addrPt : (addrPt - 1); // position map = addrPt or addrPt - 1
+    lastPosMap[n] = positivePartOn_Off ? r.second : (r.first - prePadMap[n]); //set last position map 
   }
 
   interleaving_list_t current; // interleaving of one element
-  bool (*check)(int64_t,int64_t) = positiveOff ? sd_isLE : sd_isGE;
-  int increment = positiveOff ? 1 : -1;
+  bool (*check)(int64_t,int64_t) = positivePartOn_Off ? sd_isLE : sd_isGE;//Paul: use one or the other check 
+  int increment = positivePartOn_Off ? 1 : -1; //use either 1 or -1
   int64_t pos;
 
   // while we have an element to insert to the vtable, continue looping
   while(true) {
-    // do a preorder traversal and add the remaining elements
-    for (const vtbl_t& n : order) {
+    // traverse all the nodes from the hierarchy 
+    for (const vtbl_t& n : nodesInPreorder) {
       pos = posMap[n];
       if (!cha->isUndefined(n.first) && check(pos, lastPosMap[n])) {
+        //Paul: add all the nodes from this hierarchy n == node == v table to a certain position 
         current.push_back(interleaving_t(n, pos));
-        posMap[n] += increment;
+        posMap[n] += increment; // this adds 1 or substract -1 from the position map for each of the nodes 
       }
     }
 
     if (current.size() == 0)
       break;
 
-    // for positive offset, append the current interleaved part to the end
-    // otherwise, insert to the front
-    interleaving_list_t::iterator itr =
-        positiveOff ? vtblPart.end() : vtblPart.begin();
+    // declare an interator to the interleaving list pointing at the beginning or the end of the interleaving list 
+    interleaving_list_t::iterator itr = positivePartOn_Off ? vtblPart.end() : vtblPart.begin();
 
-    vtblPart.insert(itr, current.begin(), current.end());
+    //Paul: in the end add the results contained in current interleaving list baset on the iterator itr
+    // (at the end or beginning) of the final interleaving list 
+    vtblPartList.insert(itr, current.begin(), current.end());
 
     current.clear();
   }

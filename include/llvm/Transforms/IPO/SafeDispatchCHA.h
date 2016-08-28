@@ -82,16 +82,17 @@ private:
     // these should match the structs defined at SafeDispatchVtblMD.h
     struct nmd_sub_t {
       uint64_t    order;
-      vtbl_name_t parentName;
+      vtbl_name_t parentName; //string 
       uint64_t    parentOrder;
-      vtbl_set_t  parents;
+      vtbl_set_t  parents; //std::set of pairs (<vtbl_name_t, uint64_t>)
       uint64_t    start; // range boundaries are inclusive
       uint64_t    end;
       uint64_t    addressPoint;
     };
     
     //Paul: this is the basic CHA node type, maybe based on the ShrinkWrap approach we need to 
-    // add additional elements 
+    // add additional elements. Basically the class hierarchy has to checked and v table inheritance
+    // hierarchy 
     struct nmd_t {
       vtbl_name_t className;             // Paul: this is just a string
       std::vector<nmd_sub_t> subVTables; // Paul: see the struct from above
