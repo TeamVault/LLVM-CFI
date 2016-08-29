@@ -176,7 +176,7 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
       break;
 
     candidate = nextCandidate;
-  } while (1); //Paul: run until it breaks
+  } while (1); //Paul: run until breack is called 
 
   return candidate;
 }
@@ -213,13 +213,11 @@ void SDBuildCHA::buildClouds(Module &M) {
 
       sd_print("class %s with %d subtables\n", info.className.c_str(), info.subVTables.size());
 
-      /*
       sd_print("oldvtables: %p, %d, class %s\n",
                oldVtable,
                oldVtable ? oldVtable->hasInitializer() : -1,
                info.className.c_str());
-      */
-
+      
       if (oldVtable && oldVtable->hasInitializer()) {
         ConstantArray* vtable = dyn_cast<ConstantArray>(oldVtable->getInitializer());
         assert(vtable);
@@ -229,24 +227,26 @@ void SDBuildCHA::buildClouds(Module &M) {
       }
       
       //Paul: iterate trough the sub v tables of the metadata vector
+      // and build the roots, parents, addres pointer and the range maps
+      // for each root node 
       for(unsigned ind = 0; ind < info.subVTables.size(); ind++) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
-        /*
+        
         sd_print("SubVtable[%d] Order: %d Parents[%d]: ",
           ind, 
           subInfo->order,
           subInfo->parents.size());
 
         for (auto it : subInfo->parents) {
-          sd_print("(%s,%d),", it.first.c_str(), it.second);
+          sd_print("subInfo parents (%s, %d),", it.first.c_str(), it.second);
         }
 
-        sd_print(" [%d-%d] AddrPt: %d\n",
+        sd_print("subInfo start-end [%d-%d] AddrPt: %d\n",
           subInfo->start,
           subInfo->end,
           subInfo->addressPoint);
-        */
+        
 
         if (build_undefinedVtables.find(name) != build_undefinedVtables.end()) {
           //sd_print("Removing %s,%d from build_udnefinedVtables\n", name.first.c_str(), name.second);
@@ -286,8 +286,8 @@ void SDBuildCHA::buildClouds(Module &M) {
           }
         }
         
-        // Paul: record the parrents for each class 
-        parentMap[info.className].push_back(parents);
+        // Paul: record the parents for each class 
+        parentMap[info.className].push_back(parents); //parents set 
 
         // record the original address points for each class 
         addrPtMap[info.className].push_back(subInfo->addressPoint);
@@ -335,7 +335,7 @@ void SDBuildCHA::buildClouds(Module &M) {
     std::cerr << "]\n";
   }
   
-  
+  //Paul: Check that all possible parents are in the same layout cloud
   for (auto it : parentMap) {
     const vtbl_name_t &className = it.first;
     const std::vector<vtbl_set_t> &parentSetV = it.second;
@@ -349,7 +349,7 @@ void SDBuildCHA::buildClouds(Module &M) {
           assert(layoutClass == ancestorMap[ptIt] &&
             "All parents of a primitive vtable should have the same root layout.");
         } else
-          layoutClass = ancestorMap[ptIt];
+          layoutClass = ancestorMap[ptIt];//set the layout class 
       }
 
       // No parents - then our "layout class" is ourselves.

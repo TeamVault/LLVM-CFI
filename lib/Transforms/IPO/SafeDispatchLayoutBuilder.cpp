@@ -268,6 +268,8 @@ Function* SDLayoutBuilder::getVthunkFunction(Constant* vtblElement) {
   return NULL;
 }
 
+//Paul: replace the old v call index with a new one using Intrinsic::sd_get_vcall_index
+//this is necessary since the layout of the v tables is changed 
 void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
   // for all defined vtables
   vtbl_t root(rootName,0);
@@ -277,6 +279,7 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
 
   LLVMContext& C = M.getContext();
 
+  //Paul: get the v call index using the Intrinsic::sd_get_vcall_index 
   Function *sd_vcall_indexF =
       M.getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
 
@@ -325,6 +328,7 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
           Instruction* inst = i_itr;
 
           if ((CI = dyn_cast<CallInst>(inst)) && CI->getCalledFunction() == sd_vcall_indexF) {
+            
             // get the arguments
             llvm::ConstantInt* oldVal = dyn_cast<ConstantInt>(CI->getArgOperand(0));
             assert(oldVal);
@@ -332,12 +336,14 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
             // extract the old index
             int64_t oldIndex = oldVal->getSExtValue() / WORD_WIDTH;
 
-            // calculate the new one
+            // calculate the new index 
             //sd_print("Create thunk function %s\n", newThunkName.c_str());
             int64_t newIndex = translateVtblInd(vtbl_t(vtbl,order), oldIndex, true);
-
+            
+            //multiply with word_width 
             Value* newValue = ConstantInt::get(IntegerType::getInt64Ty(C), newIndex * WORD_WIDTH);
-
+            
+            //set the new index value 
             CI->replaceAllUsesWith(newValue);
 
           }
@@ -445,6 +451,7 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   //Paul: return the nodes of the sub tree having 
   // as root vtbl in preorder 
   order_t preorderNodeSet = cha->preorder(root);  
+  sd_print("Root node: %s has %d nodes in preoder \n", vtbl.c_str(), preorderNodeSet.size());
   
   std::map<vtbl_t, uint64_t> indMap;
   for (uint64_t i = 0; i < preorderNodeSet.size(); i++)
@@ -524,13 +531,17 @@ how many v tables are contained in the interleavingMap per each v table
 */
 void SDLayoutBuilder::calculateNewLayoutInds(SDLayoutBuilder::vtbl_name_t& vtbl){
   
+  //assert map is not empty 
   assert(interleavingMap.count(vtbl));
-  sd_print("v table: %s has in the interleaving map: %d v tables \n", vtbl.c_str(), interleavingMap.count(vtbl));
+  sd_print("v table: %s has in the interleaving map: %d v tables \n", 
+  vtbl.c_str(), interleavingMap.count(vtbl));
 
   uint64_t currentIndex = 0;
+ 
   //Paul: the interleaving map was computed in the ordering or interleaving algoritm 
   for (const interleaving_t& ivtbl : interleavingMap[vtbl]) {
-    //sd_print("NewLayoutInds for vtable (%s,%d)\n", ivtbl.first.first.c_str(), ivtbl.first.second);
+    
+    sd_print("NewLayoutInds for vtable (%s, %d)\n", ivtbl.first.first.c_str(), ivtbl.first.second);
     if(ivtbl.first != dummyVtable) {//Paul: do not count dummy v tables
       // record the new index of the vtable element coming from the current vtable
       newLayoutInds[ivtbl.first].push_back(currentIndex++);
@@ -599,37 +610,43 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
 }
 
 /*Paul:
-final step of the analysis after the v pointer ranges have been generated*/
+final step of the Layout builder analysis is to check that ranges are disjoint*/
 void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
   SDLayoutBuilder::vtbl_t root(vtbl, 0);
   order_t pre = cha->preorder(root);
   std::map<vtbl_t, uint64_t> indMap;
   std::map<vtbl_t, order_t> descendantsMap;
-  for (uint64_t i = 0; i < pre.size(); i++) {
-    indMap[pre[i]] = i;
-    descendantsMap[pre[i]] = cha->preorder(pre[i]);
-  }
 
-  for (auto v : descendantsMap) {
+  for (uint64_t i = 0; i < pre.size(); i++) {
+
+    //set the indexes 
+    indMap[pre[i]] = i;
+
+    //get the descendents map 
+    descendantsMap[pre[i]] = cha->preorder(pre[i]); //each element is an order_t == std::vector<vtbl_t>
+  }
+  
+  //iterate through the descendens map and check that ranges are dijoint 
+  for (auto descendantVector : descendantsMap) {
     uint64_t totalRange = 0;
     int64_t lastEnd = -1;
 
-    // Check ranges are disjoint
-    for (auto range : rangeMap[v.first]) {
+    // Check that ranges are disjoint, they do not overlap at all
+    for (auto range : rangeMap[descendantVector.first]) {
       totalRange += range.second - range.first;
       assert(lastEnd < ((int64_t)range.first));
       lastEnd = range.second;
     }
 
     // Sum of ranges length equals the number of descendents
-    assert(totalRange == v.second.size());
+    assert(totalRange == descendantVector.second.size());
 
     // Each descendent is in one of the ranges.
-    for (auto descendant : v.second) {
-      uint64_t ind = indMap[descendant];
+    for (auto descendantElement : descendantVector.second) {
+      uint64_t ind = indMap[descendantElement];
       bool found = false;
-      for (auto range : rangeMap[v.first]) {
-        if (range.first <= ind && range.second > ind) {
+      for (auto range : rangeMap[descendantVector.first]) {
+        if (range.first <= ind && ind < range.second) {
           found = true;
           break;
         }
@@ -657,44 +674,45 @@ v call site*/
 void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_t& vtbl){
   SDLayoutBuilder::vtbl_t root(vtbl, 0); // Paul: declare a v table with name vtbl and index 0
 
-  order_t pre = cha->preorder(root); //Paul: return the nodes in preorder after a preoder travelsal of the cloud 
+  //Paul: nodes in preorder for one each root node one by one
+  order_t preorderV = cha->preorder(root); 
 
   std::map<vtbl_t, uint64_t> indMap;
-  for (uint64_t i = 0; i < pre.size(); i++) indMap[pre[i]] = i;
+  for (uint64_t i = 0; i < preorderV.size(); i++) indMap[preorderV[i]] = i;
 
   calculateVPtrRangesHelper(root, indMap);
  
   //Paul: iterate through all the nodes 
-  for (uint64_t i = 0; i < pre.size(); i++) {
-//    std::cerr << "For " << pre[i].first << "," << pre[i].second << " ";
+  for (uint64_t i = 0; i < preorderV.size(); i++) {
+    std::cerr << "For " << preorderV[i].first << "," << preorderV[i].second << " ";
 
-    for (auto it : rangeMap[pre[i]]) {
+    for (auto it : rangeMap[preorderV[i]]) {
       uint64_t start = it.first,
-               end = it.second,
-               def_count = 0;
+      end = it.second,
+      def_count = 0;
 
       //Paul: each time the 
       for (int j = start; j < end; j++)
-        if (cha->isDefined(pre[j])) def_count++;
-/*
+        if (cha->isDefined(preorderV[j])) def_count++;
+
       std::cerr << "(range " << start << "-" << end << " contains "
         << def_count << " defined,";
-*/
+
       if (def_count == 0)
         continue;
 
-      while (cha->isUndefined(pre[start]) && start < end) {
-//        std::cerr << "skipping " << pre[start].first << "," << pre[start].second 
-//          << ",";
+      while (cha->isUndefined(preorderV[start]) && start < end) {
+        std::cerr << "skipping " << preorderV[start].first << "," << preorderV[start].second 
+          << ",";
         start++;
       }
-/*
-      std::cerr << "final range " << pre[start].first << "," << pre[start].second
+
+      std::cerr << "final range " << preorderV[start].first << "," << preorderV[start].second
         << "+" << def_count << ")";
-*/    
-      //Paul: for each node a memory range will be added to the map and 
+    
+      // Paul: for each node a memory range will be added to the map and 
       // and a definition count will be icremented and added
-      memRangeMap[pre[i]].push_back(mem_range_t(newVtblAddressConst(M, pre[start]), def_count));
+      memRangeMap[preorderV[i]].push_back(mem_range_t(newVtblAddressConst(M, preorderV[start]), def_count));
     }
     //std::cerr << "\n";
   }
@@ -747,19 +765,31 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   // create the constant initializer
   Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
 
-  // create the global variable
-  // thi variable will replace the old global variable
-  GlobalVariable* newVtable = new GlobalVariable(M, newArrType, true,
-                                                 GlobalVariable::InternalLinkage,
-                                                 nullptr, NEW_VTABLE_NAME(vtbl));
+  // create the new v table which will be used to create the new constant 
+  GlobalVariable* newVtable = new GlobalVariable(M,
+                                        newArrType, 
+                                              true,
+                   GlobalVariable::InternalLinkage,
+                    nullptr, NEW_VTABLE_NAME(vtbl));
+
   assert(alignmentMap.count(vtbl));
+
+  // compute the new v table alignment
+  // this will be put inside the new 
+  // constant which will be added at the end
   newVtable->setAlignment(alignmentMap[vtbl]);
+
+  //set initializer 
   newVtable->setInitializer(newVtableInit);
+
+  //set unnamed address to true 
   newVtable->setUnnamedAddr(true);
 
   cloudStartMap[NEW_VTABLE_NAME(vtbl)] = newVtable;
 
-  // to start changing the original uses of the vtables, first get all the classes in the cloud
+  // to start changing the original uses of the vtables, 
+  // first get all the classes in the cloud
+  // these are all the nodes associated to a root node contained in the roots vector 
   order_t cloud = cha->preorder(vtbl_t(vtbl, 0));
 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
@@ -813,10 +843,19 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
       std::vector<Constant*> indices;
       indices.push_back(zero);
       indices.push_back(newOffsetCons);
+      
+      /*Constant *ConstantExpr::getGetElementPtr(Type *Ty, 
+                                              Constant *C,
+                                   ArrayRef<Value *> Idxs, 
+                                            bool InBounds,
+                                     Type *OnlyIfReducedTy)
+      */
 
       Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
+      
       // replace the constant expression with the one that uses the new vtable
       userCE->replaceAllUsesWith(newConst);
+     
       // and then remove it
       userCE->destroyConstant();
     }
@@ -869,7 +908,7 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
       break;
 
     // declare an interator to the interleaving list pointing at the beginning or the end of the interleaving list 
-    interleaving_list_t::iterator itr = positivePartOn_Off ? vtblPart.end() : vtblPart.begin();
+    interleaving_list_t::iterator itr = positivePartOn_Off ? vtblPartList.end() : vtblPartList.begin();
 
     //Paul: in the end add the results contained in current interleaving list baset on the iterator itr
     // (at the end or beginning) of the final interleaving list 
@@ -879,6 +918,7 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
   }
 }
 
+//Paul: compute the new translated v table index 
 int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t offset, bool isRelative = true) {
 
   if (cha->isUndefined(name) && cha->hasFirstDefinedChild(name)) {
@@ -1106,25 +1146,39 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
 
     
     //Paul: calculate the new layout indices
-    // the new indices will be used when inserting the new v tale layouts inside the metadata
-    // inside this method the interleavedMap obtained in the interleaveCloud or orderCloud will be used 
+    // the new indices will be used when inserting the new v table layouts inside the metadata.
+    // Inside this method the interleavedMap obtained in the interleaveCloud or 
+    // orderCloud will be used to compute the new index of the v table. 
+    // This is just a simple counting and ssigning index numbers to the elements.
     calculateNewLayoutInds(vtbl);    // calculate the new indices from the interleaved vtable
   }
   
   //second, we iterate through all roots contained in the cloud and replace 
   //v thunks and emit global variables.
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
-    vtbl_name_t vtbl = *itr;         // get the v table name as string
-    createThunkFunctions(M, vtbl);   // replace the virtual thunks with the modified ones
-    createNewVTable(M, vtbl);        // finally, emit the global variable
+
+    // get the v table name as string
+    vtbl_name_t vtbl = *itr;        
+
+    // replace the virtual thunks with the modified ones
+    createThunkFunctions(M, vtbl); 
+
+    // finally, emit the global variable with the new v tables inside  
+    createNewVTable(M, vtbl);        
   }
 
   // third, we iterate through all roots contained in the cloud and 
   // calculate v pointer ranges and than verify the v pointer ranges
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;  // get the v table name as string
-    calculateVPtrRanges(M, vtbl);    //calculate the v ptr ranges, these will added into the checks 
-    verifyVPtrRanges(vtbl);          //check that the ranges meet some given conditions 
+    
+    //calculate the v ptr ranges, these will added into the checks.
+    //this range has to be most restrictive as posible and precise.
+    calculateVPtrRanges(M, vtbl);  
+
+    //check that the ranges of the descendant are disjoint 
+    // this means they do not overlap at all.  
+    verifyVPtrRanges(vtbl);         
   }
 }
 

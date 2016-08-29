@@ -92,7 +92,8 @@ private:
     
     //Paul: this is the basic CHA node type, maybe based on the ShrinkWrap approach we need to 
     // add additional elements. Basically the class hierarchy has to checked and v table inheritance
-    // hierarchy 
+    // hierarchy. The v tables which are added during interleaving need to reside on an v table
+    // inheritance path. For this we need to determine the v table inheritance paths.
     struct nmd_t {
       vtbl_name_t className;             // Paul: this is just a string
       std::vector<nmd_sub_t> subVTables; // Paul: see the struct from above

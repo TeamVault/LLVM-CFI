@@ -40,6 +40,7 @@ using namespace CodeGen;
 
 /**
  * Adds the metadata to the vcall access inside the function
+ This function is not used at all
  */
 //static void
 //sd_addVcallMetadata(CodeGenModule& CGM, llvm::Value *adjustedThisPtr, const GlobalDecl& GD,
@@ -744,12 +745,11 @@ void CodeGenVTables::PrintVTableInitializer(
   }
 }
 
-llvm::GlobalVariable *
-CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
-                                      const BaseSubobject &Base,
-                                      bool BaseIsVirtual,
-                                   llvm::GlobalVariable::LinkageTypes Linkage,
-                                      VTableAddressPointsMapTy& AddressPoints) {
+llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
+                                                               const BaseSubobject &Base,
+                                                                      bool BaseIsVirtual,
+                                              llvm::GlobalVariable::LinkageTypes Linkage,
+                                                 VTableAddressPointsMapTy& AddressPoints) {
   if (CGDebugInfo *DI = CGM.getModuleDebugInfo())
     DI->completeClassData(Base.getBase());
 
@@ -802,6 +802,8 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
 
   std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
+
+  //Paul: this function is calling into our SD_VtableMD class 
   sd_insertVtableMD(&CGM, VTable, VTLayout.get(), RD, &Base);
 
   return VTable;

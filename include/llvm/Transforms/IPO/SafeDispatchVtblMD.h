@@ -91,8 +91,7 @@ sd_getClassName(clang::CodeGen::CGCXXABI* ABI, const clang::CXXRecordDecl *RD,
 /**
  * Helper function to extract the CXXRecordDecl from a QualType
  */
-static const clang::CXXRecordDecl*
-sd_getDeclFromQual(const clang::QualType& qt){
+static const clang::CXXRecordDecl* sd_getDeclFromQual(const clang::QualType& qt){
   const clang::Type* type = qt.getTypePtr();
   const clang::RecordType* recordType = llvm::dyn_cast<clang::RecordType>(type);
   assert(recordType);
@@ -110,8 +109,7 @@ sd_getDeclFromQual(const clang::QualType& qt){
  * Since we expect that given set of subobjects follow a inheritence chain,
  * we can "safely" return that is derived from all of them.
  */
-static const clang::BaseSubobject*
-sd_findMostDerived(std::set<const clang::BaseSubobject*>& objs) {
+static const clang::BaseSubobject*sd_findMostDerived(std::set<const clang::BaseSubobject*>& objs) {
   auto itr = objs.begin();
   const clang::BaseSubobject* mostDerived = *itr;
   itr++;
@@ -135,10 +133,11 @@ sd_findMostDerived(std::set<const clang::BaseSubobject*>& objs) {
 /**
  * Calculate the sub-vtable regions, their parent classes and their address points
  */
-static std::vector<SD_VtableMD>
-sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
-                    clang::CodeGen::CGCXXABI* ABI, const clang::VTableLayout* VTLayout,
-                    const clang::CXXRecordDecl *RD, const clang::BaseSubobject* Base = NULL) {
+static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
+                                                              clang::CodeGen::CGCXXABI* ABI, 
+                                                        const clang::VTableLayout* VTLayout,
+                                                             const clang::CXXRecordDecl *RD,
+                                                  const clang::BaseSubobject* Base = NULL) {
 
   //std::map<uint64_t, std::set<const clang::BaseSubobject*> > subObjMap;
   clang::ItaniumVTableContext &ctx = CGM->getVTables().getItaniumVTableContext();
@@ -253,12 +252,14 @@ sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
 
 /**
  * Given a vtable layout, insert a NamedMDNode that contains the information about the
- * vtable that is required for interleaving.
+ * vtable that is required for interleaving. This function is called from CGVTables.cpp
  */
-static void
-sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, llvm::GlobalVariable* VTable,
-                  const clang::VTableLayout* VTLayout, const clang::CXXRecordDecl *RD,
-                  const clang::BaseSubobject* Base = NULL) {
+static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, 
+                                    llvm::GlobalVariable* VTable,
+                             const clang::VTableLayout* VTLayout, 
+                                  const clang::CXXRecordDecl *RD,
+                         const clang::BaseSubobject* Base = NULL) {
+
   std::cerr << CGM << "," << VTLayout << "," << RD << "," << RD->getQualifiedNameAsString() <<"\n";
   assert(CGM && VTLayout && RD);
 

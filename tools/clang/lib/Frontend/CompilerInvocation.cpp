@@ -642,8 +642,11 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   parseSanitizerKinds("-fsanitize-recover=",
                       Args.getAllArgValues(OPT_fsanitize_recover_EQ), Diags,
                       Opts.SanitizeRecover);
-
+  
+  //Paul: emit v table checks 
   Opts.EmitVTBLChecks = Args.hasArg(OPT_femit_vtbl_checks);
+
+  //Paul: emit interleaved v tables
   Opts.EmitIVTBL = Args.hasArg(OPT_femit_ivtbl);
 
   return Success;

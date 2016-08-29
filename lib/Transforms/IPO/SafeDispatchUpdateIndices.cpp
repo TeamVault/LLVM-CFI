@@ -120,17 +120,34 @@ namespace {
 
     bool runOnModule(Module &M) {
       sd_print("P5. Started running SDSubstModule pass...\n");
-      int64_t indexSubst = 0, rangeSubst = 0, eqSubst = 0, constPtr = 0;
+      
+      //Paul: count the number of indexes substituted
+      int64_t indexSubst = 0;
+
+      //Paul: count number of range substituted
+      int64_t rangeSubst = 0;
+
+      //Paul: count number of equalities substituted
+      int64_t eqSubst = 0; 
+
+      //Paul: count the number of constant pointers
+      int64_t constPtr = 0;
+
+      //Paul: cum up the width of a range 
       uint64_t sumWidth = 0.0;
 
       //Paul: substitute the v table index
+      //this function is used to extract the v pinter
       Function *sd_subst_indexF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
 
-       //Paul: substitute the v table range   
+       //Paul: substitute the v table range  
+       //this function is used to substitute the range  
        Function *sd_subst_rangeF =
           M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
-
+      
+      // Paul: write the v pointer value back from all the functions which will
+      // be called based on this pointer
       if (sd_subst_indexF) {
         for (const Use &U : sd_subst_indexF->uses()) {
           // get the call inst
@@ -144,7 +161,9 @@ namespace {
           indexSubst += 1;
         }
       }
-
+      
+      //Paul: add the final range checks 
+      //Notice: that we have ranges with: width > 1 or < 1
       if (sd_subst_rangeF) {
         const DataLayout &DL = M.getDataLayout();
         LLVMContext& C = M.getContext();
@@ -152,6 +171,7 @@ namespace {
       
         //Paul: for all the places where the range check has to be added
         for (const Use &U : sd_subst_rangeF->uses()) {
+          
           // get the call inst
           llvm::CallInst* CI = cast<CallInst>(U.getUser());
           IRBuilder<> builder(CI);
@@ -171,14 +191,18 @@ namespace {
           llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(
             rootVtblInt->getOperand(0));
           llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
-
-          sumWidth += widthInt;
+ 
+          //Paul: sum up all the ranges widths which will be substituted 
+          sumWidth = sumWidth + widthInt;
 
           if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
             CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
             CI->eraseFromParent();
+            //Paul: sum up how many times we had constant pointers 
             constPtr++;
           } else
+
+          //Paul: if the range is grether than 1 do the rotation checks 
           if (widthInt > 1) {
             // Rotate right by 3 to push the lowest order bits into the higher order bits
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
@@ -193,8 +217,12 @@ namespace {
             CI->eraseFromParent();
 
             rangeSubst += 1;
+
+            //Paul: insert direct checks 
           } else {
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
+            //Paul: the pointer is compared against the start of the range 
+            //since the range gas width 0 we need to add a comparison check 
             llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, start);
 
             CI->replaceAllUsesWith(inRange);
@@ -205,19 +233,28 @@ namespace {
       }
 
       sd_print("P5. Finished running SDSubstModule pass...\n");
-      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
+      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", 
+      indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
     }
 
- bool validConstVptr(GlobalVariable *rootVtbl, int64_t start, int64_t width,
-        const DataLayout &DL, Value *V, uint64_t off) {
+//Paul: this validates a constant pointer 
+//it is only true if start <= off=0 && off < (start + width * 8)
+ bool validConstVptr(GlobalVariable *rootVtbl, 
+                                int64_t start, 
+                                int64_t width,
+                         const DataLayout &DL, 
+                                     Value *V, 
+                              uint64_t off) { //initial value is 0 
+
       if (auto GV = dyn_cast<GlobalVariable>(V)) {
         if (GV != rootVtbl)
           return false;
 
         if (off % 8 != 0)
           return false;
-
+        
+        //Paul: this is the only place that the check can get true in this method 
         return start <= off && off < (start + width * 8);
       }
 
@@ -228,16 +265,17 @@ namespace {
           return false;
 
         off += APOffset.getZExtValue();
-        return validConstVptr(rootVtbl, start, width, DL, GEP->getPointerOperand(), off);
+        return validConstVptr(rootVtbl, start, width, DL, GEP->getPointerOperand(), off); //recursive call 
       }
-
+      
+      //check the operant type 
       if (auto Op = dyn_cast<Operator>(V)) {
-        if (Op->getOpcode() == Instruction::BitCast)
-          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(0), off);
+        if (Op->getOpcode() == Instruction::BitCast)//bitcast operation
+          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(0), off);//recursive call
 
-        if (Op->getOpcode() == Instruction::Select)
+        if (Op->getOpcode() == Instruction::Select)//select operation
           return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(1), off) &&
-                 validConstVptr(rootVtbl, start, width, DL, Op->getOperand(2), off);
+                 validConstVptr(rootVtbl, start, width, DL, Op->getOperand(2), off); //two recursive calls 
       }
 
       return false;
@@ -312,6 +350,7 @@ static std::string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandN
 }
 
 //Paul: substitute the old v table index witht the new one
+//add the vtable extractor function from intrinsics 
 void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
   Function *sd_vtbl_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vtbl_index));
@@ -373,6 +412,7 @@ struct range_less_than_key {
 };
 
 //Paul: adds the range check (casted_vptr, start, width, alingment)
+//add check v table and check v table range 
 void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
   Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
   const DataLayout &DL = M->getDataLayout();
@@ -514,6 +554,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
 }
 
 //Paul: add the range checks, success, failed path, the trap and replace the terminator 
+//add checked v table pointer, add subst range and the trap if failed 
 void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
   Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
   const DataLayout &DL = M->getDataLayout(); //Paul: get data layout 
@@ -616,7 +657,8 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
         sum += rangeIt.second; //Paul: compute the width of the range 
       }
 
-      sd_print("{",vtbl.first.c_str(), ",", vtbl.second, "} Emitting ", ranges.size(), " range check(s) with total width ", sum, "\n");
+      sd_print("For v table {",vtbl.first.c_str(), ",", vtbl.second, "} Emitting ", ranges.size(), 
+      " range check(s) with total width ", sum, "\n");
   
       //Paul: iterate throught the ranges 
       for (auto rangeIt : ranges) {
@@ -635,14 +677,14 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
         //Paul: create the fast path failed  
         llvm::BasicBlock *fastCheckFailed = llvm::BasicBlock::Create(F->getContext(), blockName, F);
         
-        //Paul: create the the conditional branch 
+        //Paul: create the the conditional branch and add fast path success, success BB and fast check failed
         llvm::BranchInst *BI = builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
         llvm::MDBuilder MDB(BI->getContext());
 
         //Paul: set the branch weights 
         BI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(
-          std::numeric_limits<uint32_t>::max(),
-          std::numeric_limits<uint32_t>::min()));
+                                              std::numeric_limits<uint32_t>::max(),
+                                              std::numeric_limits<uint32_t>::min()));
 
         //Paul: set the insertion point 
         builder.SetInsertPoint(fastCheckFailed); //Paul: builder set the insertion point
@@ -681,8 +723,7 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
   }
 }
 
-//Paul: this is used for the additional v pointers which are not checked based on ranges 
-//this checks are appended with and operations at the end of a range check 
+//Paul: read the v call index and add replace all uses with this new value 
 void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
   Function *sd_vcall_indexF =
       M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));

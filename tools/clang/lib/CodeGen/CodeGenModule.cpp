@@ -341,7 +341,7 @@ void InstrProfStats::reportDiagnostics(DiagnosticsEngine &Diags,
 }
 
 //===----------------------------------------------------------------------===//
-//                        SafeDispatch Additions
+//                        SafeDispatch Additions begin 
 //===----------------------------------------------------------------------===//
 #include "llvm/IR/Value.h"
 #include "llvm/IR/User.h"
@@ -411,9 +411,11 @@ struct sd_unfold_map_cb_arg_t {
   llvm::Instruction *insertPos;
 };
 
+//Paul: unfold the map of 
 llvm::User* sd_unfold_map_cb(llvm::User* root,
                              std::vector<llvm::Value*> children,
                              struct sd_unfold_map_cb_arg_t &arg) {
+
   llvm::Constant* rootConst = dyn_cast<llvm::Constant>(root);
   llvm::ConstantMemberPointer *cmptr;
 
@@ -452,6 +454,7 @@ llvm::User* sd_unfold_map_cb(llvm::User* root,
     // Store the new vtable index + 1 in the member pointer
     newInd = llvm::BinaryOperator::Create(llvm::Instruction::Mul, newInd, 
       llvm::ConstantInt::get(newInd->getType(), 8), "", arg.insertPos);
+
     newInd = llvm::BinaryOperator::Create(llvm::Instruction::Add, newInd,
       llvm::ConstantInt::get(newInd->getType(), 1), "", arg.insertPos);
 
@@ -530,8 +533,7 @@ llvm::User* sd_unfold_map_cb(llvm::User* root,
   }
 }
 
-static void
-sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
+static void sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
   for(llvm::Module::iterator f_itr = M.begin(); f_itr != M.end(); f_itr++) {
     llvm::Function* f = f_itr;
     for(llvm::Function::iterator bb_itr = f->begin(); bb_itr != f->end(); bb_itr++) {
@@ -544,6 +546,7 @@ sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
           llvm::User* arg = dyn_cast<llvm::User>(inst->getOperand(i));
           if (arg && sd_contains_memptr(arg)) {
             sd_unfold_map_cb_arg_t unfold_arg = {M, CGM, inst};
+            //Paul: call the above function with the unfold arguments from above 
             inst->setOperand(i, sd_map<sd_unfold_map_cb_arg_t&>(arg, sd_unfold_map_cb, unfold_arg));
           }
         }
@@ -551,6 +554,10 @@ sd_rewriteMPtrToIntrinsics(llvm::Module& M, CodeGenModule &CGM) {
     }
   }
 }
+
+//===----------------------------------------------------------------------===//
+//                        SafeDispatch Additions end
+//===----------------------------------------------------------------------===//
 
 void CodeGenModule::Release() {
   EmitDeferred();
@@ -622,8 +629,9 @@ void CodeGenModule::Release() {
 
   assert(&TheModule);
 
+  //Paul: during code generation also do the following rewrite
   if (getCodeGenOpts().EmitIVTBL)
-    sd_rewriteMPtrToIntrinsics(TheModule, *this);
+    sd_rewriteMPtrToIntrinsics(TheModule, *this);//Paul: this is our function from above 
 
   if (getCodeGenOpts().EmitDeclMetadata)
     EmitDeclMetadata();
