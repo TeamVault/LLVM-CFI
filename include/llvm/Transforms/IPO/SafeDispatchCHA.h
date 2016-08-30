@@ -99,6 +99,15 @@ private:
       std::vector<nmd_sub_t> subVTables; // Paul: see the struct from above
     };
 
+//  vec<tree> vtbl_map_uniqueparents;   /* List of unique parents (type)      */
+//  vec<tree> vtbl_map_uniquebinfos;    /* List of unique parents (binfo)     */
+//  vec<tree> vtbl_map_parents;         /* List of vtables (type)             */
+//  vec<tree> vtbl_map_binfos;          /* List of vtables (binfos)           */
+//  vec<tree> vtbl_map_subvttbinfos;    /* List of sub-vtt entries            */
+//  vec<tree> vtbl_map_vttoffsets;      /* List of vtt entries (offset)       */
+//  vec<tree> vtbl_map_vttparents;      /* List of vtt entries (type)         */
+//  vec<tree> vtbl_map_vttbinfos;       /* List of vtt entries (binfos)       */
+
     /**
      * Reads the NamedMDNodes in the given module and creates the class hierarchy
      */

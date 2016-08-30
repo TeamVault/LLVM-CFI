@@ -181,8 +181,14 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
   return candidate;
 }
 
-/*Paul:
-this is the main method here. This method builds the cloud map */
+/*Paul: this is the main method in this class. This method builds the:
+cloudMap
+rangeMap
+parentsMap
+rangeMap
+roots
+addrPtMap
+*/
 void SDBuildCHA::buildClouds(Module &M) {
   // this set is used for checking if a parent class is defined or not
   std::set<vtbl_t> build_undefinedVtables;
@@ -192,11 +198,11 @@ void SDBuildCHA::buildClouds(Module &M) {
     //Paul: get all metadata of this module
     NamedMDNode* md = itr;
 
-    // check if this is a metadata that we've added
+    // only look at the modules we created and in which we added our class metadata. 
     if(! md->getName().startswith(SD_MD_CLASSINFO))
       continue;
 
-    //sd_print("GOT METADATA: %s\n", md->getName().data());
+    sd_print("GOT METADATA: %s\n", md->getName().data());
 
     //Paul: extractMetadata() extracts the metadata from each module
     // and puts it into this vector
@@ -458,7 +464,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       bool currRangeCheck = (subInfo.start <= subInfo.addressPoint && subInfo.addressPoint <= subInfo.end);
       bool prevVtblCheck = (i == op || (--info.subVTables.end())->end < subInfo.start);
 
-      assert(currRangeCheck && prevVtblCheck); // Paul: this conditions has to hold
+      assert(currRangeCheck && prevVtblCheck); // Paul: this conditions have to hold
       
       //Paul: add the subInfos to the info 
       info.subVTables.push_back(subInfo); //Paul: subInfo struct is contained in the info struct
@@ -478,7 +484,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
 
 int64_t SDBuildCHA::getCloudSize(const SDBuildCHA::vtbl_name_t& vtbl) {
   vtbl_t v(vtbl, 0);
-  return cloudSizeMap[v];
+  return cloudSizeMap[v];//returns the cloud size for a certain v table 
 }
 
 uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
@@ -514,7 +520,11 @@ void SDBuildCHA::clearAnalysisResults() {
 /// Helper functions
 /// ----------------------------------------------------------------------------
 
-/*Paul: print the clouns in .dot files and open than afterwards with GraphViz for display*/
+/*Paul: 
+print the clouns in a .dot file and open 
+than afterwards with GraphViz for display
+This file is located in the tmp/dot folder.
+*/
 void SDBuildCHA::printClouds(const std::string &suffix) {
   int rc = system("rm -rf /tmp/dot && mkdir /tmp/dot");
   

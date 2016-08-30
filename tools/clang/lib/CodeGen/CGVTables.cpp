@@ -673,14 +673,19 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
   return llvm::ConstantArray::get(ArrayType, Inits);
 }
 
-void CodeGenVTables::PrintVTableInitializer(
-    const CXXRecordDecl *RD, const VTableComponent *Components,
-    unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
-    unsigned NumVTableThunks, llvm::Constant *RTTI) {
+//Paul: this is used just for printing, currently not used
+// see line 556 in this file
+void CodeGenVTables::PrintVTableInitializer(const CXXRecordDecl *RD, 
+                                  const VTableComponent *Components,
+                                             unsigned NumComponents, 
+                    const VTableLayout::VTableThunkTy *VTableThunks,
+                                           unsigned NumVTableThunks, 
+                                               llvm::Constant *RTTI) {
   unsigned NextVTableThunkIndex = 0;
 
   for (unsigned I = 0; I != NumComponents; ++I) {
     VTableComponent Component = Components[I];
+    
     switch (Component.getKind()) {
     case VTableComponent::CK_VCallOffset:
       sd_print("CK_VCallOffset: %d\n",Component.getVCallOffset().getQuantity());
@@ -753,9 +758,13 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
   if (CGDebugInfo *DI = CGM.getModuleDebugInfo())
     DI->completeClassData(Base.getBase());
 
+  //declare a v table layout 
   std::unique_ptr<VTableLayout> VTLayout(
       getItaniumVTableContext().createConstructionVTableLayout(
-          Base.getBase(), Base.getBaseOffset(), BaseIsVirtual, RD));
+                           Base.getBase(), 
+                     Base.getBaseOffset(), 
+                            BaseIsVirtual, 
+                                      RD));
 
   // Add the address points.
   AddressPoints = VTLayout->getAddressPoints();
@@ -781,8 +790,7 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
     Linkage = llvm::GlobalVariable::InternalLinkage;
 
   // Create the variable that will hold the construction vtable.
-  llvm::GlobalVariable *VTable =
-    CGM.CreateOrReplaceCXXRuntimeVariable(Name, ArrayType, Linkage);
+  llvm::GlobalVariable *VTable = CGM.CreateOrReplaceCXXRuntimeVariable(Name, ArrayType, Linkage);
   CGM.setGlobalVisibility(VTable, RD);
 
   // V-tables are always unnamed_addr.
@@ -792,10 +800,12 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
       CGM.getContext().getTagDeclType(Base.getBase()));
 
   // Create and set the initializer.
-  llvm::Constant *Init = CreateVTableInitializer(
-      Base.getBase(), VTLayout->vtable_component_begin(),
-      VTLayout->getNumVTableComponents(), VTLayout->vtable_thunk_begin(),
-      VTLayout->getNumVTableThunks(), RTTI);
+  llvm::Constant *Init = CreateVTableInitializer(Base.getBase(), 
+                             VTLayout->vtable_component_begin(),
+                             VTLayout->getNumVTableComponents(), 
+                                 VTLayout->vtable_thunk_begin(),
+                                 VTLayout->getNumVTableThunks(), 
+                                                          RTTI);
 
   VTable->setInitializer(Init);
 
@@ -804,6 +814,8 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
   std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
 
   //Paul: this function is calling into our SD_VtableMD class 
+  //the goal is to make sure that the v table metadata is written
+  //into the class such that it gets accesible 
   sd_insertVtableMD(&CGM, VTable, VTLayout.get(), RD, &Base);
 
   return VTable;

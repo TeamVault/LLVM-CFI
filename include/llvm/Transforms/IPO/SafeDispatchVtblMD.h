@@ -32,10 +32,17 @@ namespace {
     uint64_t end;
     uint64_t addressPoint;
 
-    SD_VtableMD(uint64_t _order, const vtbl_set_t &_parents,
-                uint64_t _start, uint64_t _end, uint64_t _addrPt) :
-      order(_order), parents(_parents), start(_start),
-      end(_end), addressPoint(_addrPt) {}
+    //class constructor
+    SD_VtableMD(uint64_t _order, 
+     const vtbl_set_t &_parents,
+                uint64_t _start, 
+                  uint64_t _end, 
+              uint64_t _addrPt) : //this are initializers
+                  order(_order), 
+              parents(_parents), 
+                  start(_start),
+                      end(_end), 
+          addressPoint(_addrPt) {}
 
     llvm::MDNode* getMDNode(llvm::Module& M, llvm::LLVMContext& C) {
       std::vector<llvm::Metadata*> tuple;
@@ -76,9 +83,9 @@ namespace {
 /**
  * Returns the mangled name of the given vtable symbol
  */
-static std::string
-sd_getClassName(clang::CodeGen::CGCXXABI* ABI, const clang::CXXRecordDecl *RD,
-                const clang::BaseSubobject* Base) {
+static std::string sd_getClassName(clang::CodeGen::CGCXXABI* ABI, 
+                                  const clang::CXXRecordDecl *RD,
+                                const clang::BaseSubobject* Base) {
   assert(ABI && RD);
 
   if (Base) {
@@ -260,7 +267,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
                                   const clang::CXXRecordDecl *RD,
                          const clang::BaseSubobject* Base = NULL) {
 
-  std::cerr << CGM << "," << VTLayout << "," << RD << "," << RD->getQualifiedNameAsString() <<"\n";
+  std::cerr << "CGM " CGM << "VTLayout," << VTLayout << "RD," << RD << "RD->getQualifiedNameAsString()," << RD->getQualifiedNameAsString() <<"\n";
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI* ABI = & CGM->getCXXABI();
@@ -317,8 +324,11 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
 
     if (subRD != RD) {
       std::cerr << "Recursively calling sd_insertVtableMD for " << subRD->getQualifiedNameAsString() << "\n";
-      sd_insertVtableMD(CGM, NULL, &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
-                        subRD, NULL);
+      sd_insertVtableMD(CGM, 
+                       NULL, 
+                       &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
+                      subRD, 
+                       NULL);
     }
   }
 }
