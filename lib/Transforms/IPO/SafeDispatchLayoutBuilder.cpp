@@ -68,12 +68,18 @@ static void dumpNewLayout(const SDLayoutBuilder::interleaving_list_t &interleavi
 }
 
 /**Paul:
-check that the v table layouts are ok (match with the old ones)*/
+check that the v table layouts are ok (match with the old ones)
+This function is called from runonModule() located in SDLayoutBuilder.h
+*/
 bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
   new_layout_inds_map_t indMap;
+
+  //iterate through all the roots 
   for (auto vtblIt = cha->roots_begin(); vtblIt != cha->roots_end(); vtblIt++) { 
     vtbl_name_t vtbl = *vtblIt;
     vtbl_t root(vtbl, 0);
+
+    //make a copy of the interleaving map obtained during interleaving or ordering
     interleaving_list_t &interleaving = interleavingMap[vtbl];
     uint64_t i = 0;
 
@@ -85,7 +91,8 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
     for (auto elem : interleaving) {
       vtbl_t &v = elem.first;
       uint64_t oldPos = elem.second;
-
+      
+      //skyp dummy v tables 
       if (v == dummyVtable)
         continue;
 
@@ -161,21 +168,22 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
     if (!interleave) 
       return true;
 
-    // 1.5) Check that for each parent/child the child is contained in the parent
-    for (const vtbl_t& pt : cloud) {
-      if (cha->isUndefined(pt.first))  continue;
+    // 1.5) Check that for each parent/child
+    // the child is contained in the parent
+    for (const vtbl_t& parent : cloud) {
+      if (cha->isUndefined(parent.first))  continue;
 
-      for(auto child = cha->children_begin(pt); child != cha->children_end(pt); child++) {
+      for(auto child = cha->children_begin(parent); child != cha->children_end(parent); child++) {
         if (cha->isUndefined(child->first))  continue;
 
-        if (orderMap[*child] < orderMap[pt]) continue;
+        if (orderMap[*child] < orderMap[parent]) continue;
 
-        const range_t &ptR = cha->getRange(pt);
+        const range_t &ptR = cha->getRange(parent);
         const range_t &chR = cha->getRange(*child);
 
         uint64_t ptStart     = ptR.first;
         uint64_t ptEnd       = ptR.second;
-        uint64_t ptAddrPt    = cha->addrPt(pt);
+        uint64_t ptAddrPt    = cha->addrPt(parent);
         uint64_t ptRelAddrPt = ptAddrPt - ptStart;
 
         uint64_t childStart     = chR.first;
@@ -183,11 +191,11 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
         uint64_t childAddrPt    = cha->addrPt(*child);
         uint64_t childRelAddrPt = childAddrPt - childStart;
 
-        if ((ptAddrPt - ptStart + prePadMap[pt]) > (childAddrPt - childStart + prePadMap[*child]) ||
+        if ((ptAddrPt - ptStart + prePadMap[parent]) > (childAddrPt - childStart + prePadMap[*child]) ||
             ptEnd - ptAddrPt > childEnd - childAddrPt) {
               
           sd_print("Parent vtable(%s,%d) [%d-%d,%d,%d] is not contained in child vtable(%s,%d) [%d-%d,%d,%d]",
-              pt.first.c_str(), pt.second, ptStart, prePadMap[pt],ptAddrPt, ptEnd, 
+              parent.first.c_str(), parent.second, ptStart, prePadMap[parent],ptAddrPt, ptEnd, 
               child->first.c_str(), child->second, childStart, prePadMap[*child], childAddrPt, childEnd);
          
           //Paul: dump the new layout in case the parent layout is not contained in the child.   
@@ -270,6 +278,7 @@ Function* SDLayoutBuilder::getVthunkFunction(Constant* vtblElement) {
 
 //Paul: replace the old v call index with a new one using Intrinsic::sd_get_vcall_index
 //this is necessary since the layout of the v tables is changed 
+//This are the placeholders which will be filled with values of the ranges and widths 
 void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootName) {
   // for all defined vtables
   vtbl_t root(rootName,0);
@@ -427,6 +436,117 @@ void SDLayoutBuilder::orderCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   sd_print("Finishing ordering for vtable: %s ...\n", vtbl.c_str());
 }
 
+//check if v table lies in class or v table path inheritance
+bool checkVTablePath(SDLayoutBuilder::vtbl_name_t& vtbl){
+  //TODO, for now return true 
+  
+  return true;
+}
+
+// this is our new interleaving method
+// we need to check inside the interleaving
+// method for each vtbl if it lies in the class
+// or v table inheritance path
+void SDLayoutBuilder::interleaveCloudNew(SDLayoutBuilder::vtbl_name_t& vtbl) {
+  
+  // skyp v tables that do not belong
+  // to the class or vtbl path of inheritance
+  if(!checkVTablePath(vtbl))
+  return;
+
+  sd_print("Started New Interleaving for v table %s...\n", vtbl.c_str());
+  
+  /*Paul:
+  check that the v table is a root in a subcloud of the main cloud. 
+  The CHA pass has previously generated a cloud. 
+  Each subcloud of the cloud has a root.
+  */
+  assert(cha->isRoot(vtbl));
+
+  // create a temporary list for the positive part
+  interleaving_list_t positive_list_Part;
+
+  //Paul: this is a a vector of all the nodes in the sub-tree having as root the vtbl 
+  vtbl_t root(vtbl,0);
+  
+  //Paul: return the nodes of the sub tree having 
+  // as root vtbl in preorder 
+  order_t preorderNodeSet = cha->preorder(root);  
+  sd_print("Root node: %s has %d nodes in preoder \n", vtbl.c_str(), preorderNodeSet.size());
+  
+  std::map<vtbl_t, uint64_t> indMap;
+  for (uint64_t i = 0; i < preorderNodeSet.size(); i++)
+    indMap[preorderNodeSet[i]] = i;
+
+  // First check if any vtable needs pre-padding. (All vtables must contain their parents).
+  int numParent =0;
+
+  //Paul: iterate through all the nodes in this sub tree 
+  for (auto parent : preorderNodeSet) {
+    if (cha->isUndefined(parent))
+      continue; 
+      
+    numParent++;//Paul: count number of parents 
+
+    int numChildrenPerParent = 0;
+
+    //Paul: search only in the children of the current node 
+    // the definition of the children should take into account
+    // both the inheritance between classes and between v tables 
+    for (auto child = cha->children_begin(parent); child != cha->children_end(parent); child++) {
+        if (cha->isUndefined(parent))
+          continue; 
+        
+        numChildrenPerParent++;
+
+        if (indMap[*child] < indMap[parent])
+          continue; // Earlier in the preorder traversal - visited from a different node.
+        
+        //Paul: get the ranges of the parent and child
+        const range_t &parentRange = cha->getRange(parent);
+        const range_t &childRange = cha->getRange(*child);
+
+        //Paul: get the ranges of the parent 
+        uint64_t parentStart  = parentRange.first;
+        uint64_t parentEnd    = parentRange.second;
+        uint64_t parentAddrPt = cha->addrPt(parent);
+        
+        //Paul: get the ranges of the child 
+        uint64_t childStart  = childRange.first;
+        uint64_t childEnd    = childRange.second;
+        uint64_t childAddrPt = cha->addrPt(*child);
+
+        uint64_t parentPreAddrPt = parentAddrPt - parentStart + prePadMap[parent];
+        uint64_t childPreAddrPt  = childAddrPt  - childStart  + prePadMap[*child];
+
+        //Paul: the prepad value for the child is eath the 
+        //difference between parent (prepad address point) and of the child (prepad address point) 
+        // or the old value contained in the child 
+        prePadMap[*child] = (parentPreAddrPt > childPreAddrPt ?
+                             parentPreAddrPt - childPreAddrPt : prePadMap[*child]);
+    }
+    sd_print("Parent %d has %d children ...\n", numParent, numChildrenPerParent);
+  }
+
+  sd_print("Total number of parents %d...\n", numParent);
+
+  // initialize the cloud's interleaving list
+  interleavingMap[vtbl] = interleaving_list_t();
+
+  // fill the negative part of the interleaving map 
+  fillVtablePart(interleavingMap[vtbl], preorderNodeSet, false); //Paul: one time with false, negative part
+  
+  // fill the positive part of the interleaving map 
+  fillVtablePart(positive_list_Part, preorderNodeSet, true);     //Paul: one time with true , positive part
+
+  // append the positive part to the negative part in the interleaving map 
+  interleavingMap[vtbl].insert(interleavingMap[vtbl].end(), positive_list_Part.begin(), positive_list_Part.end());
+  alignmentMap[vtbl] = WORD_WIDTH;
+  
+  sd_print("Finishing Interleaving for v table %s...\n", vtbl.c_str());
+}
+
+
 /*Paul: 
 this function is used to interleave the cloud.
 The interleaving can be shut down and it is not dependent of
@@ -575,7 +695,7 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
 
   std::sort(ranges.begin(), ranges.end());
 
-  // Coalesce ranges
+  // Coalesce (combine, put together) ranges
   std::vector<range_t> coalesced_ranges;
   int64_t start = -1, end;
   for (auto it : ranges) {
@@ -597,7 +717,6 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
   if (start != -1)
     coalesced_ranges.push_back(range_t(start,end));
 
-  /*
   std::cerr << "{" << vtbl.first << "," << vtbl.second << "} From ranges [";
   for (auto it : ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
@@ -605,7 +724,7 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
   for (auto it : coalesced_ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
   std::cerr << "]\n";
-  */
+  
   rangeMap[vtbl] = coalesced_ranges;
 }
 
@@ -613,16 +732,17 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
 final step of the Layout builder analysis is to check that ranges are disjoint*/
 void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
   SDLayoutBuilder::vtbl_t root(vtbl, 0);
+  
+  //get the nodes in preordering for this top root node 
   order_t pre = cha->preorder(root);
   std::map<vtbl_t, uint64_t> indMap;
   std::map<vtbl_t, order_t> descendantsMap;
 
   for (uint64_t i = 0; i < pre.size(); i++) {
-
     //set the indexes 
     indMap[pre[i]] = i;
 
-    //get the descendents map 
+    //set the descendents map, this are the descendant nodes in prorder 
     descendantsMap[pre[i]] = cha->preorder(pre[i]); //each element is an order_t == std::vector<vtbl_t>
   }
   
@@ -633,15 +753,18 @@ void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
 
     // Check that ranges are disjoint, they do not overlap at all
     for (auto range : rangeMap[descendantVector.first]) {
+      //sum ranges up
       totalRange += range.second - range.first;
+
+      //check that the ranges do not overlap 
       assert(lastEnd < ((int64_t)range.first));
       lastEnd = range.second;
     }
 
-    // Sum of ranges length equals the number of descendents
+    // Sum of ranges length equals the total number of descendants
     assert(totalRange == descendantVector.second.size());
 
-    // Each descendent is in one of the ranges.
+    // check that each descendent is in one of the ranges.
     for (auto descendantElement : descendantVector.second) {
       uint64_t ind = indMap[descendantElement];
       bool found = false;
@@ -651,10 +774,10 @@ void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
           break;
         }
       }
-
       assert(found);
     }
   }
+
 }
 
 bool SDLayoutBuilder::hasMemRange(const vtbl_t &vtbl) {
@@ -663,8 +786,7 @@ bool SDLayoutBuilder::hasMemRange(const vtbl_t &vtbl) {
 
 /*Paul
 get the memory range*/
-const std::vector<SDLayoutBuilder::mem_range_t>& 
-SDLayoutBuilder::getMemRange(const vtbl_t &vtbl) {
+const std::vector<SDLayoutBuilder::mem_range_t>& SDLayoutBuilder::getMemRange(const vtbl_t &vtbl) {
   return memRangeMap[vtbl];
 }
 
@@ -678,29 +800,39 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   order_t preorderV = cha->preorder(root); 
 
   std::map<vtbl_t, uint64_t> indMap;
-  for (uint64_t i = 0; i < preorderV.size(); i++) indMap[preorderV[i]] = i;
 
+  //init the indices map 
+  for (uint64_t i = 0; i < preorderV.size(); i++) 
+      indMap[preorderV[i]] = i;
+  
+  //coalesce ranges, mix them together 
   calculateVPtrRangesHelper(root, indMap);
  
-  //Paul: iterate through all the nodes 
+  //Paul: iterate through all the nodes for this root 
+  //and print the ranges 
+  std::cerr << "Printing and buid memRangeMap for each root node ... \n";
   for (uint64_t i = 0; i < preorderV.size(); i++) {
-    std::cerr << "For " << preorderV[i].first << "," << preorderV[i].second << " ";
+    std::cerr << "For pre node first: " << preorderV[i].first << ", and pre node second:" << preorderV[i].second << " ";
 
     for (auto it : rangeMap[preorderV[i]]) {
       uint64_t start = it.first,
       end = it.second,
       def_count = 0;
 
-      //Paul: each time the 
+      //Paul: count number of times this is defined in the CHA
+      //Notice, this number of times this has to be added in 
+      //the memRangeMap at the end 
       for (int j = start; j < end; j++)
-        if (cha->isDefined(preorderV[j])) def_count++;
+        if (cha->isDefined(preorderV[j])) 
+        def_count++;
 
       std::cerr << "(range " << start << "-" << end << " contains "
         << def_count << " defined,";
 
       if (def_count == 0)
         continue;
-
+      
+      //if undefined than skip it 
       while (cha->isUndefined(preorderV[start]) && start < end) {
         std::cerr << "skipping " << preorderV[start].first << "," << preorderV[start].second 
           << ",";
@@ -711,10 +843,10 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
         << "+" << def_count << ")";
     
       // Paul: for each node a memory range will be added to the map and 
-      // and a definition count will be icremented and added
+      // and a definition count will be icremented and added. Add to the memRangeMap. 
       memRangeMap[preorderV[i]].push_back(mem_range_t(newVtblAddressConst(M, preorderV[start]), def_count));
     }
-    //std::cerr << "\n";
+    std::cerr << "\n";
   }
 }
 
@@ -723,12 +855,15 @@ this method creates a new v table which will be added to a new constant.
 The new constant will replace the old one in the end of this method.
 */
 void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& vtbl){
-  // get the interleaved order
+  
+  // get the new v table from the interleaving map (interleaving or ordering)
   interleaving_list_t& newVtbl = interleavingMap[vtbl];
 
-  // calculate the global variable type
+  // get the size
   uint64_t newSize = newVtbl.size();
+  //set the v table to pointer type
   PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), WORD_WIDTH), 0);
+  //create and array of pointers of newSize 
   ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
 
   LLVMContext& C = M.getContext();
@@ -738,8 +873,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   for (const interleaving_t& ivtbl : newVtbl) {
     const range_t &r = cha->getRange(ivtbl.first);
     if (cha->isUndefined(ivtbl.first.first) || ivtbl.first == dummyVtable || ivtbl.second < r.first) {
-      newVtableElems.push_back(
-        Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
+      newVtableElems.push_back(Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
     } else {
       assert(cha->hasOldVTable(ivtbl.first.first));
 
@@ -748,12 +882,10 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
       Function* thunk = getVthunkFunction(c);
 
       if (thunk) {
-        Function* newThunk = M.getFunction(
-              NEW_VTHUNK_NAME(thunk, cha->getLayoutClassName(ivtbl.first)));
+        Function* newThunk = M.getFunction(NEW_VTHUNK_NAME(thunk, cha->getLayoutClassName(ivtbl.first)));
         assert(newThunk);
 
-        Constant* newC = ConstantExpr::getBitCast(newThunk,
-          IntegerType::getInt8PtrTy(C));
+        Constant* newC = ConstantExpr::getBitCast(newThunk, IntegerType::getInt8PtrTy(C));
         newVtableElems.push_back(newC);
         vthunksToRemove.insert(thunk);
       } else {
@@ -775,8 +907,8 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   assert(alignmentMap.count(vtbl));
 
   // compute the new v table alignment
-  // this will be put inside the new 
-  // constant which will be added at the end
+  // this will be put inside the new v table 
+  // The new v table will be added in the end in the new Constant
   newVtable->setAlignment(alignmentMap[vtbl]);
 
   //set initializer 
@@ -785,15 +917,17 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
   //set unnamed address to true 
   newVtable->setUnnamedAddr(true);
 
+  //attach "_SD" in the name of the new v table 
   cloudStartMap[NEW_VTABLE_NAME(vtbl)] = newVtable;
 
   // to start changing the original uses of the vtables, 
   // first get all the classes in the cloud
-  // these are all the nodes associated to a root node contained in the roots vector 
-  order_t cloud = cha->preorder(vtbl_t(vtbl, 0));
+  // these are all the nodes associated to a root node contained
+  // in the roots vector. Get the nodes in preorder traversal.
+  order_t cloudPreorder = cha->preorder(vtbl_t(vtbl, 0));
 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
-  for (const vtbl_t& v : cloud) {
+  for (const vtbl_t& v : cloudPreorder) {
     if (cha->isDefined(v)) {
       assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
       newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
@@ -802,7 +936,7 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
     if (cha->isUndefined(v.first))
       continue;
 
-    // find the original vtable
+    // get the original global variable holding the v table
     GlobalVariable* globalVar = M.getGlobalVariable(v.first, true);
     assert(globalVar);
 
@@ -850,7 +984,8 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
                                             bool InBounds,
                                      Type *OnlyIfReducedTy)
       */
-
+      
+      //this is the new constant which will be inserted containing the new v tables 
       Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
       
       // replace the constant expression with the one that uses the new vtable
@@ -991,7 +1126,7 @@ void SDLayoutBuilder::removeOldLayouts(Module &M) {
   for (auto itr = cha->oldVTables_begin(); itr != cha->oldVTables_end(); itr ++) {
     GlobalVariable* var = M.getGlobalVariable(itr->first, true);
     assert(var && var->use_empty());
-//    sd_print("deleted vtbl: %s\n", var->getName().data());
+    sd_print("deleted vtbl: %s\n", var->getName().data());
     var->eraseFromParent();
   }
 
@@ -999,15 +1134,15 @@ void SDLayoutBuilder::removeOldLayouts(Module &M) {
   while (! vthunksToRemove.empty()) {
     Function* f = * vthunksToRemove.begin();
     vthunksToRemove.erase(f);
+    //erase the Function from the parent
     f->eraseFromParent();
   }
 
   //collect and than remove
   for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
        itr != M.getFunctionList().end(); itr++){
-    if (sd_isVthunk(itr->getName()) &&
-        (itr->user_begin() == itr->user_end())) {
-      vthunksToRemove.insert(itr);
+    if (sd_isVthunk(itr->getName()) && (itr->user_begin() == itr->user_end())) {
+      vthunksToRemove.insert(itr); //collect the v thunks 
     }
   }
 
@@ -1107,9 +1242,9 @@ Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
   assert(gv);
 
   // add the offset to the beginning of the vtable
-  Constant* gvInt         = ConstantExpr::getPtrToInt(gv, IntPtrTy);
-  Constant* offsetVal     = ConstantInt::get(IntPtrTy, addrPtOff * WORD_WIDTH);
-  Constant* gvOffInt      = ConstantExpr::getAdd(gvInt, offsetVal);
+  Constant* gvInt     = ConstantExpr::getPtrToInt(gv, IntPtrTy);
+  Constant* offsetVal = ConstantInt::get(IntPtrTy, addrPtOff * WORD_WIDTH);
+  Constant* gvOffInt  = ConstantExpr::getAdd(gvInt, offsetVal);
 
   return gvOffInt;
 }
@@ -1132,19 +1267,20 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
  
     //Paul: interleave or order for each v table separatelly 
     if (interleave){
-      sd_print("Started interleaving ... \n");
-      interleaveCloud(vtbl);         // interleave the cloud or
+      //interleaveCloud(vtbl);         // interleave the cloud or
+
+      //our interleaving method 
+      interleaveCloudNew(vtbl);         // interleave the cloud or
+
     }else{
-      sd_print("Started ordering ... \n");
       orderCloud(vtbl);              // order the cloud
     }
-      
     
     // Paul: we can create a new algorithm which is a combination of the interleaving and ordering algorithms
     // The algorithm should remove the disadvantages of both of these algorithms and it should carefully 
     // filter out v tables which are not the v table ancestor path 
 
-    
+
     //Paul: calculate the new layout indices
     // the new indices will be used when inserting the new v table layouts inside the metadata.
     // Inside this method the interleavedMap obtained in the interleaveCloud or 
@@ -1163,7 +1299,7 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     // replace the virtual thunks with the modified ones
     createThunkFunctions(M, vtbl); 
 
-    // finally, emit the global variable with the new v tables inside  
+    // emit the new global variables with the new v tables inside  
     createNewVTable(M, vtbl);        
   }
 
@@ -1173,11 +1309,14 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     vtbl_name_t vtbl = *itr;  // get the v table name as string
     
     //calculate the v ptr ranges, these will added into the checks.
-    //this range has to be most restrictive as posible and precise.
+    //this ranges have to be the most restrictive as posible and precise.
+    //There is at the moment no better way as considering the object base class 
+    //and the base class of the function which the object is calling, see SW paper.
     calculateVPtrRanges(M, vtbl);  
 
-    //check that the ranges of the descendant are disjoint 
-    // this means they do not overlap at all.  
+    //Check that the ranges of the descendants are disjoint. 
+    //This means they do not overlap at all.
+    //Check that each descendent is in one of the ranges. 
     verifyVPtrRanges(vtbl);         
   }
 }

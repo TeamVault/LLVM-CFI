@@ -72,9 +72,9 @@ namespace llvm {
     std::map<vtbl_name_t, unsigned> alignmentMap;
     vtbl_t dummyVtable;                                     // Paul: this v tavle is used for the interleaving
     range_map_t rangeMap;                                   // Map of ranges for vptrs in terms of preorder indices
-    mem_range_map_t memRangeMap;
+    mem_range_map_t memRangeMap;                            // this is the memory range map for each of the nodes in a cloud
     pad_map_t prePadMap;
-    bool interleave;
+    bool interleave;                                        // this is a flag used to decide if we interleave or order the cloud 
 
     SDLayoutBuilder(bool interl = false) : ModulePass(ID), interleave(interl) {
       std::cerr << "SDLayoutBuilder(" << interl << ")\n";
@@ -100,7 +100,8 @@ namespace llvm {
       The buildNewLayouts(M) method is located
       at the bottom of the SDLayoutBuilder class and it is the main
       driver of this pass. 
-      The v tables area interleaved or order depending on the imposed conditions 
+      The v tables area interleaved or ordered depending 
+      on the used interleaving flag. 
       */
       buildNewLayouts(M);
 
@@ -170,6 +171,12 @@ namespace llvm {
      * Interleave and pad the cloud given by the root element.
      */
     void interleaveCloud(vtbl_name_t& vtbl);
+
+    /**
+     * New Interleaving method 
+     */
+    void interleaveCloudNew(vtbl_name_t& vtbl);
+
 
     /**
      * Calculate the new layout indices for each vtable inside the given cloud

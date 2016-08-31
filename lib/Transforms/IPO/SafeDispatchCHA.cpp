@@ -198,7 +198,8 @@ void SDBuildCHA::buildClouds(Module &M) {
     //Paul: get all metadata of this module
     NamedMDNode* md = itr;
 
-    // only look at the modules we created and in which we added our class metadata. 
+    // only look at the modules we created and in 
+    // which we added our class metadata. 
     if(! md->getName().startswith(SD_MD_CLASSINFO))
       continue;
 
@@ -458,6 +459,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
         if (parentVtable) {
           ptName = parentVtable->getName();
         }
+        
         subInfo.parents.insert(vtbl_t(ptName, ptIdx));
       }
 

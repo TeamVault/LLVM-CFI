@@ -44,7 +44,7 @@ namespace {
                       end(_end), 
           addressPoint(_addrPt) {}
 
-    llvm::MDNode* getMDNode(llvm::Module& M, llvm::LLVMContext& C) {
+llvm::MDNode* getMDNode(llvm::Module& M, llvm::LLVMContext& C) {
       std::vector<llvm::Metadata*> tuple;
       std::vector<llvm::Metadata*> parentsTuple;
 
@@ -113,15 +113,18 @@ static const clang::CXXRecordDecl* sd_getDeclFromQual(const clang::QualType& qt)
 /**
  * Given a set of sub objects, figure out which one is the most derived one.
  *
- * Since we expect that given set of subobjects follow a inheritence chain,
+ * Since we expect that given set of subobjects follow an inheritence chain,
  * we can "safely" return that is derived from all of them.
  */
 static const clang::BaseSubobject*sd_findMostDerived(std::set<const clang::BaseSubobject*>& objs) {
   auto itr = objs.begin();
   const clang::BaseSubobject* mostDerived = *itr;
+  //iterate forward
   itr++;
+  //get the base class of the second object 
   const clang::CXXRecordDecl* mostDerivedDecl = mostDerived->getBase();
 
+  //iterate through all objects 
   while(itr != objs.end()) {
     const clang::BaseSubobject* obj = *itr;
     itr++;
@@ -267,7 +270,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
                                   const clang::CXXRecordDecl *RD,
                          const clang::BaseSubobject* Base = NULL) {
 
-  std::cerr << "CGM " CGM << "VTLayout," << VTLayout << "RD," << RD << "RD->getQualifiedNameAsString()," << RD->getQualifiedNameAsString() <<"\n";
+  std::cerr << " CGM " << CGM << " VTLayout " << VTLayout << " RD " << RD << " RD->getQualifiedNameAsString() " << RD->getQualifiedNameAsString() <<"\n";
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI* ABI = & CGM->getCXXABI();
@@ -285,8 +288,8 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
     return;
   }
 
-  llvm::NamedMDNode* classInfo =
-      CGM->getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO + className);
+  //this node will be inserted into the 
+  llvm::NamedMDNode* classInfo = CGM->getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO + className);
 
   // don't produce any duplicate md
   if (classInfo->getNumOperands() > 0) {
@@ -294,6 +297,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
     for (auto &&AP : VTLayout->getAddressPoints()) {
       aps.insert(AP.second);
     }
+    
     // last 1 is for class vtable
     assert(classInfo->getNumOperands() == (2 + aps.size() + 1));
     return;

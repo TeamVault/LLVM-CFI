@@ -550,18 +550,20 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
     unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
     unsigned NumVTableThunks, llvm::Constant *RTTI) {
 
-  /*
+  //comment me if not using
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
-  sd_print("Vtable: %s\n", Name.c_str());
-  PrintVTableInitializer(
-      RD, Components,
-      NumComponents, VTableThunks,
-      NumVTableThunks, RTTI);
+  sd_print("CGVTables.cpp: Vtable name: %s \n", Name.c_str());
+  PrintVTableInitializer(RD, 
+                         Components,
+                         NumComponents, 
+                         VTableThunks,
+                         NumVTableThunks, 
+                         RTTI);
 
   for (auto base = RD->bases_begin(); base != RD->bases_end(); base++) {
     sd_print("C++ Base :\n"); base->getType()->getAsCXXRecordDecl()->dump();
   }
-  */
+  
 
   SmallVector<llvm::Constant *, 64> Inits;
 
@@ -806,16 +808,17 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
                                  VTLayout->vtable_thunk_begin(),
                                  VTLayout->getNumVTableThunks(), 
                                                           RTTI);
-
   VTable->setInitializer(Init);
 
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
 
+  //Paul: added by us
   std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
 
-  //Paul: this function is calling into our SD_VtableMD class 
-  //the goal is to make sure that the v table metadata is written
-  //into the class such that it gets accesible 
+  //Paul added by us: this function is calling into our SD_VtableMD class. 
+  //The goal is to make sure that the v table metadata is written
+  //into a new class metadata node such that it becomes accesible 
+  // afterwards when we build the cloud and call extractMetadata() 
   sd_insertVtableMD(&CGM, VTable, VTLayout.get(), RD, &Base);
 
   return VTable;

@@ -47,7 +47,7 @@ namespace llvm {
 
     // variable definitions
     typedef std::string                                     vtbl_name_t;    //Paul: v table name as string
-    typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;         //Paul: pair string and index 
+    typedef std::pair<vtbl_name_t, uint64_t>                vtbl_t;         //Paul: pair string name and vtable as hex value 
     typedef std::set<vtbl_t>                                vtbl_set_t;     //Paul: v table set
     typedef std::map<vtbl_t, vtbl_set_t>                    cloud_map_t;    //Paul: this is heavily used inside the CHA pass
     typedef std::set<vtbl_name_t>                           roots_t;        //Paul: set of the v table roots as string
@@ -99,6 +99,7 @@ private:
       std::vector<nmd_sub_t> subVTables; // Paul: see the struct from above
     };
 
+//  SW node elements 
 //  vec<tree> vtbl_map_uniqueparents;   /* List of unique parents (type)      */
 //  vec<tree> vtbl_map_uniquebinfos;    /* List of unique parents (binfo)     */
 //  vec<tree> vtbl_map_parents;         /* List of vtables (type)             */

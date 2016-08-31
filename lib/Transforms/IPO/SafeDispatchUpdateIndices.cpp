@@ -70,13 +70,13 @@ namespace {
 
       sd_print("P4. Started running the 4th pass (Update indices) ...\n");
 
-      handleSDGetVtblIndex(&M);          //Paul: substitute the old v table index witht the new one
-      handleSDCheckVtbl(&M);             //Paul: adds the range check (casted_vptr, start, width, alingment)
-      handleSDGetCheckedVtbl(&M);        //Paul: add the range checks, success, failed path, the trap and replace the terminator 
-      handleRemainingSDGetVcallIndex(&M);//Paul: this are for the additional v pointer which are not checked based on ranges 
+      handleSDGetVtblIndex(&M);              //Paul: substitute the old v table index witht the new one
+      handleSDCheckVtbl(&M);                 //Paul: adds the range check (casted_vptr, start, width, alingment)
+      handleSDGetCheckedVtbl(&M);            //Paul: add the range checks, success, failed path, the trap and replace the terminator 
+      handleRemainingSDGetVcallIndex(&M);    //Paul: this are for the additional v pointer which are not checked based on ranges 
 
-      layoutBuilder->removeOldLayouts(M);
-      layoutBuilder->clearAnalysisResults();
+      layoutBuilder->removeOldLayouts(M);    //Paul: remove old layouts
+      layoutBuilder->clearAnalysisResults(); //Paul: clear all data structures holding analysis data
 
       sd_print("P4. Finished removing thunks from (Update indices) pass...\n");
       return true;
@@ -133,7 +133,8 @@ namespace {
       //Paul: count the number of constant pointers
       int64_t constPtr = 0;
 
-      //Paul: cum up the width of a range 
+      //Paul: cum up the width of a range such that
+      // we can compute an average value for each inserted check
       uint64_t sumWidth = 0.0;
 
       //Paul: substitute the v table index
@@ -150,7 +151,9 @@ namespace {
       // be called based on this pointer
       if (sd_subst_indexF) {
         for (const Use &U : sd_subst_indexF->uses()) {
-          // get the call inst
+          // get the call inst,
+          //Returns the User that contains this Use.
+          //For an instruction operand, for example, this will return the instruction.
           llvm::CallInst* CI = cast<CallInst>(U.getUser());//Paul: read this value back from code 
 
           // Paul: get the first arguments, this is the v pointer
@@ -169,6 +172,7 @@ namespace {
         LLVMContext& C = M.getContext();
         Type *IntPtrTy = DL.getIntPtrType(C, 0);
       
+        int widthCounter = 0;
         //Paul: for all the places where the range check has to be added
         for (const Use &U : sd_subst_rangeF->uses()) {
           
@@ -181,6 +185,8 @@ namespace {
           llvm::Constant* start = dyn_cast<Constant>(CI->getArgOperand(1));
           llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
           llvm::ConstantInt* alignment = dyn_cast<ConstantInt>(CI->getArgOperand(3));
+
+          //all three values > 0
           assert(vptr && start && width);
 
           int64_t widthInt = width->getSExtValue();
@@ -195,7 +201,10 @@ namespace {
           //Paul: sum up all the ranges widths which will be substituted 
           sumWidth = sumWidth + widthInt;
 
+          //check if vptr is constant
           if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
+            
+            //?
             CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
             CI->eraseFromParent();
             //Paul: sum up how many times we had constant pointers 
@@ -204,25 +213,42 @@ namespace {
 
           //Paul: if the range is grether than 1 do the rotation checks 
           if (widthInt > 1) {
-            // Rotate right by 3 to push the lowest order bits into the higher order bits
+            // create pointer to int
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
+            
+            //substract pointer fram start address
             llvm::Value *diff = builder.CreateSub(vptrInt, start);
+            
+            //shift right diff with the number of alignmentBits
             llvm::Value *diffShr = builder.CreateLShr(diff, alignmentBits);
+
+            //shift left diff with the number of DL.getPointerSizeInBits(0) - alignmentBits
             llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - alignmentBits);
+
+            //create diff rotation 
             llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
-
+            
+            //create comparison, diffRor <= width 
             llvm::Value *inRange = builder.CreateICmpULE(diffRor, width); //Paul: create a comparison expr.
-              
+            
+            //replace the in range check 
             CI->replaceAllUsesWith(inRange);
-            CI->eraseFromParent();
 
+            //CI remove from parent 
+            CI->eraseFromParent();
+            
+            //count the number of range substitutions
             rangeSubst += 1;
 
-            //Paul: insert direct checks 
+            sd_print("Range: %d has width: % d start: %d vptrInt: %d \n", widthCounter, widthInt, start, vptrInt);
+
+            widthCounter++;
+
+            //Paul: range = 1 or 0
           } else {
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
-            //Paul: the pointer is compared against the start of the range 
-            //since the range gas width 0 we need to add a comparison check 
+
+            //create comparison, v pointer == start  
             llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, start);
 
             CI->replaceAllUsesWith(inRange);
@@ -233,8 +259,10 @@ namespace {
       }
 
       sd_print("P5. Finished running SDSubstModule pass...\n");
-      sd_print("SDSubst: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range: %lf\n", 
+      sd_print(" SDSubst Statistics: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range width: %lf\n", 
       indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
+      
+      //one of these values has do greather than 0 
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
     }
 
