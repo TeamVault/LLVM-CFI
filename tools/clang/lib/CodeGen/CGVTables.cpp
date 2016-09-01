@@ -818,7 +818,7 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
   //Paul added by us: this function is calling into our SD_VtableMD class. 
   //The goal is to make sure that the v table metadata is written
   //into a new class metadata node such that it becomes accesible 
-  // afterwards when we build the cloud and call extractMetadata() 
+  //afterwards when we build the cloud and call extractMetadata() 
   sd_insertVtableMD(&CGM, VTable, VTLayout.get(), RD, &Base);
 
   return VTable;

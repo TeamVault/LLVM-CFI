@@ -73,9 +73,9 @@ llvm::Value* sd_getNewIndFromOld(CodeGenModule& CGM,
 
   llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
   llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
-
-  return builder.CreateCall2(
-              CGM.getIntrinsic(llvm::Intrinsic::sd_get_vtbl_index), //Paul: see Intrinsics.td file
+  
+  //used to return the v table index 
+  return builder.CreateCall2(CGM.getIntrinsic(llvm::Intrinsic::sd_get_vtbl_index), //Paul: see Intrinsics.td file
               llvm::ConstantInt::get(llvm::IntegerType::getInt64Ty(C), oldIndex),
               mdValue);
 }
@@ -83,31 +83,34 @@ llvm::Value* sd_getNewIndFromOld(CodeGenModule& CGM,
 //Paul: check if v pointer is in range, this method adds the corresponding def contained
 // in the Intrinsic.td into the generated code during code genneration 
 // this function is used during pass 5, P5
-llvm::Value* sd_IsVPtrInRange(CodeGenModule& CGM, CGBuilderTy& builder,
-                            llvm::GlobalVariable* VTableGV, const std::string& className,
-                            llvm::Value *oldPtr,
-                            const std::string& perciseClassName) {
+llvm::Value* sd_IsVPtrInRange(CodeGenModule& CGM, 
+                            CGBuilderTy& builder,
+                  llvm::GlobalVariable* VTableGV, 
+                    const std::string& className,
+                             llvm::Value *oldPtr,
+            const std::string& preciseClassName) {
+
   llvm::Module& M = CGM.getModule();
   llvm::LLVMContext& C = M.getContext();
-  llvm::MDNode* perciseMD;
+  llvm::MDNode* preciseMD;
 
   llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
 
-  if (className == perciseClassName) {
-    perciseMD = md;
+  if (className == preciseClassName) {
+    preciseMD = md;
   } else {
-    perciseMD = sd_getClassNameMetadata(perciseClassName, M, NULL);
+    preciseMD = sd_getClassNameMetadata(preciseClassName, M, NULL);
   }
 
   llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
   llvm::Value* castPointer = builder.CreatePointerCast(oldPtr, CGM.Int8PtrTy);
 
-  llvm::Value* perMDValue = llvm::MetadataAsValue::get(C, perciseMD);
+  llvm::Value* perMDValue = llvm::MetadataAsValue::get(C, preciseMD);
 
   return builder.CreateCall3(
               CGM.getIntrinsic(llvm::Intrinsic::sd_check_vtbl), //Paul: see Intrinsics.td file
-              castPointer,
-              mdValue,
+              castPointer, //the casted old pointer
+              mdValue,     //value 
               perMDValue); //Paul: builder.CreateCall3 means create a call with 4 (3 + 1) parameters 
 }
 
@@ -124,10 +127,9 @@ llvm::Value* sd_getRangeStart(CodeGenModule& CGM,
 
   llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV); //params: className, Module and v table global variable
   llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
-  llvm::Value* Args[] = { mdValue };
+  llvm::Value* Args[] = { mdValue }; //the arguments passed to the function underneath 
 
-  return builder.CreateCall(
-                            CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_start), //Paul: see Intrinsics.td file
+  return builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_start), //Paul: see Intrinsics.td file
                             Args);
 }
 
@@ -144,11 +146,10 @@ llvm::Value* sd_getRangeEnd(CodeGenModule& CGM,
 
   llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
   llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
-  llvm::Value* Args[] = { mdValue };
+  llvm::Value* Args[] = { mdValue }; //the arguments passed to the function underneath 
 
-  return builder.CreateCall(
-              CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_end), //Paul: see Intrinsics.td file
-              Args); //this Args are the parameters of the above sd_vtbl_range_end 
+  return builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_end), //Paul: see Intrinsics.td file
+                            Args); //this Args are the parameters of the above sd_vtbl_range_end 
 }
 }
 
@@ -1313,6 +1314,8 @@ llvm::Value *ItaniumCXXABI::EmitDynamicCastCall(
 
     // call the new dynamic cast function
     Value = CGF.EmitNounwindRuntimeCall(dyncastFun, arguments);
+  
+  //if no interleaving should be performed 
   } else {
     Value = CGF.EmitNounwindRuntimeCall(getItaniumDynamicCastFn(CGF), args);
   }
@@ -1575,7 +1578,9 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
   CGM.EmitVTableBitSetEntries(VTable, VTLayout);
   std::cerr << "emitVTableDefinitions for " << RD->getQualifiedNameAsString() << "\n";
 
-  //Paul: insert the v table module 
+  //Paul: insert the v table module, calls into SafeDispatchVtblMD.h
+  //this create a new module node with the v table definition attached to the each 
+  //class definition
   sd_insertVtableMD(&CGM, VTable, &VTLayout, RD, NULL);
 }
 
@@ -1728,8 +1733,8 @@ static llvm::Value* sd_getCheckedVTable(CodeGenModule &CGM,
   llvm::Value* slowPathSuccess = CGF.Builder.CreateCall2(
               vptr_safeF,
               CGF.Builder.CreateBitCast(VTableAP, i8ptr),
-              CGF.Builder.CreateGlobalStringPtr(Name)
-              );
+              CGF.Builder.CreateGlobalStringPtr(Name));
+
   CGF.Builder.CreateCondBr(slowPathSuccess, checkDone, checkFailed);
 
   CGF.EmitBlock(checkFailed);
@@ -1738,6 +1743,7 @@ static llvm::Value* sd_getCheckedVTable(CodeGenModule &CGM,
 
   // Continue function emittance in the vtblCheck.success bb
   CGF.EmitBlock(checkSuccess);
+  
   /*
   CGF.Builder.CreateAtomicRMW(llvm::AtomicRMWInst::Add,
     M.getOrInsertGlobal("_sd_checks_succeeded", ctrT),
@@ -1745,6 +1751,7 @@ static llvm::Value* sd_getCheckedVTable(CodeGenModule &CGM,
     llvm::SequentiallyConsistent,
     llvm::CrossThread);
   */
+  
   CGF.Builder.CreateBr(checkDone);
 
   CGF.EmitBlock(checkDone);
@@ -1901,8 +1908,7 @@ static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
     llvm::Value* newAdjustment;
 
     //Paul: in case interleaved v tables should be emitted compute a new adjustment 
-    if (CGF.CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(Name) &&
-        RD->isDynamicClass()) {
+    if (CGF.CGM.getCodeGenOpts().EmitIVTBL && sd_isVtableName(Name) && RD->isDynamicClass()) {
       
       //Paul: v call index is computed and the call is added here
       newAdjustment = CGF.Builder.CreateCall(

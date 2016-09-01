@@ -44,6 +44,7 @@ namespace {
                       end(_end), 
           addressPoint(_addrPt) {}
 
+//returns the MDNode 
 llvm::MDNode* getMDNode(llvm::Module& M, llvm::LLVMContext& C) {
       std::vector<llvm::Metadata*> tuple;
       std::vector<llvm::Metadata*> parentsTuple;
@@ -141,7 +142,9 @@ static const clang::BaseSubobject*sd_findMostDerived(std::set<const clang::BaseS
 }
 
 /**
- * Calculate the sub-vtable regions, their parent classes and their address points
+ * Calculate the sub-vtable regions, their parent classes and their address points.
+ * It adds all the v tables and their ranges of the parent classes (most derived ones)
+ * to the list of subVtables.
  */
 static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGenModule* CGM,
                                                               clang::CodeGen::CGCXXABI* ABI, 
@@ -156,28 +159,43 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
   unsigned order = 0; // order of the sub-vtable
 
   std::cerr << "Emitting subvtable info for " << RD->getQualifiedNameAsString() << "\n";
-
+  
+  //print inheritance map and add the parent vtables to the addrPtMap 
   for (auto it : VTLayout->getInheritanceMap()) {
     uint64_t addrPt = VTLayout->getAddressPoint(it.second);
     clang::VTableLayout::inheritance_path_t ParentInheritancePath(it.first);
-
+    
+    //get most derived class from this vtable layout 
     if (VTLayout->isConstructionLayout()) {
       ParentInheritancePath.insert(ParentInheritancePath.begin(), VTLayout->getMostDerivedClass());
     }
 
-    std::cerr << addrPt << "->";
+    //start printing the parent inherintance path for one v table layout 
+    std::cerr << "addrPt: " << addrPt << "->";
     for (auto it1 : ParentInheritancePath) 
-      std::cerr << it1->getQualifiedNameAsString() << ",";
-    std::cerr << "(order " << it.second << ")\n";
+      std::cerr << "parent inh map element: " << it1->getQualifiedNameAsString() << ",";
+      
+    std::cerr << "(order in Inheritance Map " << it.second << ")\n";
+
+    //declare an empty v table 
     vtbl_t parentVtbl("",0);
-
-
+    
+    //if there is a parent 
     if (ParentInheritancePath.size() > 0) {
-      const clang::CXXRecordDecl *DirectParent = ParentInheritancePath.front();
-      ParentInheritancePath.erase(ParentInheritancePath.begin()); 
 
+      //from all the parenst pick the one from the front of the path
+      const clang::CXXRecordDecl *DirectParent = ParentInheritancePath.front();
+
+      //erase this element from the path 
+      ParentInheritancePath.erase(ParentInheritancePath.begin()); 
+      
+      //if still there are more direct parents 
       if (ParentInheritancePath.size() > 0) {
+        
+        //get the layout of the direct parent 
         const clang::VTableLayout &ParentLayout = ctx.getVTableLayout(DirectParent);
+
+        //set the parent v table to be of the direct parent and the layout of this direct parent 
         parentVtbl = vtbl_t(ABI->GetClassMangledName(DirectParent),
                             ParentLayout.getOrder(ParentInheritancePath));
       } else {
@@ -186,7 +204,8 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     }
 
     std::cerr << addrPt << " direct parent = " << parentVtbl.first << "," << parentVtbl.second << "\n";
-
+    
+    //else add the v table with order number 0 declare above
     addrPtMap[addrPt].insert(parentVtbl);
   }
 
@@ -210,7 +229,8 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     addrPtMap[addrPt] = s;
   }
   */
-
+  
+  //start computing the ranges of the v table 
   order = 0;
   uint64_t start   = 0; // start of the current vtable
   uint64_t end     = 0; // end of the current vtable
@@ -229,7 +249,8 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     end = addrPt;
     assert(end < numComponents);
     clang::VTableComponent::Kind kind = VTLayout->vtable_component_begin()[end].getKind();
-
+    
+    //count the number of components in the v table 
     while (end + 1 < numComponents) {
       kind = VTLayout->vtable_component_begin()[end+1].getKind();
       if (kind == clang::VTableComponent::CK_FunctionPointer ||
@@ -245,13 +266,15 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     for (auto it : addrPtMap[addrPt]) {
       assert (it.first != className);
     }
-
+    
+    //create a new SD_VtableMD object and add it to the subVtables 
     subVtables.push_back(SD_VtableMD(order, addrPtMap[addrPt], start, end, addrPt));
-    order++;
-    start = end + 1;
-    prevVal = addrPt;
+    order++;         //inc. order
+    start = end + 1; //inc start
+    prevVal = addrPt;//set preVal
   }
 
+  //after finishing witht the subVtables check that start != v table layout number of components 
   if (start != VTLayout->getNumVTableComponents()) {
     sd_print("class:%s, start:%ld, total:%ld\n", className.c_str(), start, VTLayout->getNumVTableComponents());
     assert(false);
@@ -263,6 +286,10 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
 /**
  * Given a vtable layout, insert a NamedMDNode that contains the information about the
  * vtable that is required for interleaving. This function is called from CGVTables.cpp
+ * for each v table that will be generated. Each v table and its parents are added in the 
+ * new node and added to the name metadata node SD_MD_CLASSINFO. 
+ *
+ * This function is called during code generation. Before any of our passes starts.
  */
 static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM, 
                                     llvm::GlobalVariable* VTable,
@@ -274,13 +301,17 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI* ABI = & CGM->getCXXABI();
-  std::string className = sd_getClassName(ABI,RD,Base);
+  
+  //this is the class name in which we insert the new named meta data 
+  std::string className = sd_getClassName(ABI, RD, Base);
 
   // don't mess with C++ library classes, etc.
   if (!sd_isVtableName(className)) {
     return;
   }
-
+  
+  //this generates the sub vtable info from the base and returns a vector of SD_VtableMD objects 
+  //all the v tables of the most derived parent classes of this class are added to the subVtables
   std::vector<SD_VtableMD> subVtables = sd_generateSubvtableInfo(CGM, ABI, VTLayout, RD, Base);
 
   // if we didn't produce anything, return ?
@@ -288,7 +319,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
     return;
   }
 
-  //this node will be inserted into the 
+  //our named metadata SD_MD_CLASSINFO will be inserted as a new NamedMDNode 
   llvm::NamedMDNode* classInfo = CGM->getModule().getOrInsertNamedMetadata(SD_MD_CLASSINFO + className);
 
   // don't produce any duplicate md
@@ -297,7 +328,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
     for (auto &&AP : VTLayout->getAddressPoints()) {
       aps.insert(AP.second);
     }
-    
+
     // last 1 is for class vtable
     assert(classInfo->getNumOperands() == (2 + aps.size() + 1));
     return;
@@ -310,7 +341,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
   // first put the class name
   classInfo->addOperand(llvm::MDNode::get(C, sd_getMDString(C, className)));
 
-  // second put the vtable global variable
+  // second put the vtable global variable as a new MDNode into classInfo
   classInfo->addOperand(sd_getClassVtblGVMD(className,M,VTable));
 
   // third put the size of the tuple
@@ -325,7 +356,8 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule* CGM,
   for (auto &&AP : VTLayout->getAddressPoints()) {
     const clang::BaseSubobject* subObj = &(AP.first);
     const clang::CXXRecordDecl* subRD = subObj->getBase();
-
+    
+    //do recursive call if subRD != RD
     if (subRD != RD) {
       std::cerr << "Recursively calling sd_insertVtableMD for " << subRD->getQualifiedNameAsString() << "\n";
       sd_insertVtableMD(CGM, 

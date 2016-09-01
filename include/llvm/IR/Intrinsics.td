@@ -610,11 +610,16 @@ def int_masked_scatter: Intrinsic<[],
                                    LLVMVectorSameWidth<0, llvm_i1_ty>],
                                   [IntrReadWriteArgMem]>;
 
+//===---------------------------------SD-------------------------------------===//
 // Intrinsics to support bit sets. Paul: add new intrinsic functions
 // Paul functions (next 9) are used to check the ranges of the v tables and are 
-// inserted before the v table dispatches
+// inserted before the v table dispatches.
 // These definitions have counterparts in the file ItaniumCXXABI.cpp.
-// Check thse in ItaniumCXXABI.cpp in order to understand what thesea are doing 
+// Check these in ItaniumCXXABI.cpp in order to understand what these are doing.
+// So basically with the help of these functions all the needed values and checks 
+// can be performed from the ItaniumCXXABI which generated code that can access all the
+// needed stuff inside the generated program. 
+//===----------------------------------------------------------------------===//
 
 def int_bitset_test : Intrinsic<[llvm_i1_ty], 
              [llvm_ptr_ty, llvm_metadata_ty],
