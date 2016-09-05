@@ -102,232 +102,6 @@ namespace {
   };
 }
 
-  /**
-   * Module pass for substittuing the final subst_ intrinsics
-   */
-  class SDSubstModule : public ModulePass {
-  public:
-    static char ID; // Pass identification, replacement for typeid
-
-    SDSubstModule() : ModulePass(ID) {
-      sd_print("initializing SDSubstModule pass\n");
-      initializeSDSubstModulePass(*PassRegistry::getPassRegistry());
-    }
-
-    virtual ~SDSubstModule() {
-      sd_print("deleting SDSubstModule pass\n");
-    }
-
-    bool runOnModule(Module &M) {
-      sd_print("P5. Started running SDSubstModule pass...\n");
-      
-      //Paul: count the number of indexes substituted
-      int64_t indexSubst = 0;
-
-      //Paul: count number of range substituted
-      int64_t rangeSubst = 0;
-
-      //Paul: count number of equalities substituted
-      int64_t eqSubst = 0; 
-
-      //Paul: count the number of constant pointers
-      int64_t constPtr = 0;
-
-      //Paul: cum up the width of a range such that
-      // we can compute an average value for each inserted check
-      uint64_t sumWidth = 0.0;
-
-      //Paul: substitute the v table index
-      //this function is used to extract the v pinter
-      Function *sd_subst_indexF =
-          M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
-
-       //Paul: substitute the v table range  
-       //this function is used to substitute the range  
-       Function *sd_subst_rangeF =
-          M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
-      
-      // Paul: write the v pointer value back from all the functions which will
-      // be called based on this pointer
-      if (sd_subst_indexF) {
-        for (const Use &U : sd_subst_indexF->uses()) {
-          // get the call inst,
-          //Returns the User that contains this Use.
-          //For an instruction operand, for example, this will return the instruction.
-          llvm::CallInst* CI = cast<CallInst>(U.getUser());//Paul: read this value back from code 
-
-          // Paul: get the first arguments, this is the v pointer
-          llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
-          assert(arg1);
-          CI->replaceAllUsesWith(arg1);//Paul: write the v pointer back 
-          CI->eraseFromParent();
-          indexSubst += 1;
-        }
-      }
-      
-      //Paul: add the final range checks 
-      //Notice: that we have ranges with: width > 1 or < 1
-      if (sd_subst_rangeF) {
-        const DataLayout &DL = M.getDataLayout();
-        LLVMContext& C = M.getContext();
-        Type *IntPtrTy = DL.getIntPtrType(C, 0);
-      
-        int widthCounter = 0;
-        //Paul: for all the places where the range check has to be added
-        for (const Use &U : sd_subst_rangeF->uses()) {
-          
-          // get the call inst
-          llvm::CallInst* CI = cast<CallInst>(U.getUser());
-          IRBuilder<> builder(CI);
-
-          // get the arguments
-          llvm::Value* vptr = CI->getArgOperand(0);
-          llvm::Constant* start = dyn_cast<Constant>(CI->getArgOperand(1));
-          llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
-          llvm::ConstantInt* alignment = dyn_cast<ConstantInt>(CI->getArgOperand(3));
-
-          //all three values > 0
-          assert(vptr && start && width);
-
-          int64_t widthInt = width->getSExtValue();
-          int64_t alignmentInt = alignment->getSExtValue();
-          int alignmentBits = floor(log(alignmentInt + 0.5)/log(2.0));
-
-          llvm::Constant* rootVtblInt = dyn_cast<llvm::Constant>(start->getOperand(0));
-          llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(
-            rootVtblInt->getOperand(0));
-          llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
- 
-          //Paul: sum up all the ranges widths which will be substituted 
-          sumWidth = sumWidth + widthInt;
-
-          //check if vptr is constant
-          if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
-            
-            //?
-            CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
-            CI->eraseFromParent();
-            //Paul: sum up how many times we had constant pointers 
-            constPtr++;
-          } else
-
-          //Paul: if the range is grether than 1 do the rotation checks 
-          if (widthInt > 1) {
-            // create pointer to int
-            llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
-            
-            //substract pointer fram start address
-            llvm::Value *diff = builder.CreateSub(vptrInt, start);
-            
-            //shift right diff with the number of alignmentBits
-            llvm::Value *diffShr = builder.CreateLShr(diff, alignmentBits);
-
-            //shift left diff with the number of DL.getPointerSizeInBits(0) - alignmentBits
-            llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - alignmentBits);
-
-            //create diff rotation 
-            llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
-            
-            //create comparison, diffRor <= width 
-            llvm::Value *inRange = builder.CreateICmpULE(diffRor, width); //Paul: create a comparison expr.
-            
-            //replace the in range check 
-            CI->replaceAllUsesWith(inRange);
-
-            //CI remove from parent 
-            CI->eraseFromParent();
-            
-            //count the number of range substitutions
-            rangeSubst += 1;
-
-            sd_print("Range: %d has width: % d start: %d vptrInt: %d \n", widthCounter, widthInt, start, vptrInt);
-
-            widthCounter++;
-
-            //Paul: range = 1 or 0
-          } else {
-            llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
-
-            //create comparison, v pointer == start  
-            llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, start);
-
-            CI->replaceAllUsesWith(inRange);
-            CI->eraseFromParent();
-            eqSubst += 1;
-          }        
-        }
-      }
-
-      sd_print("P5. Finished running SDSubstModule pass...\n");
-      sd_print(" SDSubst Statistics: indices: %d ranges: %d eq_checks: %d const_ptr: %d average range width: %lf\n", 
-      indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
-      
-      //one of these values has do greather than 0 
-      return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
-    }
-
-//Paul: this validates a constant pointer 
-//it is only true if start <= off=0 && off < (start + width * 8)
- bool validConstVptr(GlobalVariable *rootVtbl, 
-                                int64_t start, 
-                                int64_t width,
-                         const DataLayout &DL, 
-                                     Value *V, 
-                              uint64_t off) { //initial value is 0 
-
-      if (auto GV = dyn_cast<GlobalVariable>(V)) {
-        if (GV != rootVtbl)
-          return false;
-
-        if (off % 8 != 0)
-          return false;
-        
-        //Paul: this is the only place that the check can get true in this method 
-        return start <= off && off < (start + width * 8);
-      }
-
-      if (auto GEP = dyn_cast<GEPOperator>(V)) {
-        APInt APOffset(DL.getPointerSizeInBits(0), 0);
-        bool Result = GEP->accumulateConstantOffset(DL, APOffset);
-        if (!Result)
-          return false;
-
-        off += APOffset.getZExtValue();
-        return validConstVptr(rootVtbl, start, width, DL, GEP->getPointerOperand(), off); //recursive call 
-      }
-      
-      //check the operant type 
-      if (auto Op = dyn_cast<Operator>(V)) {
-        if (Op->getOpcode() == Instruction::BitCast)//bitcast operation
-          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(0), off);//recursive call
-
-        if (Op->getOpcode() == Instruction::Select)//select operation
-          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(1), off) &&
-                 validConstVptr(rootVtbl, start, width, DL, Op->getOperand(2), off); //two recursive calls 
-      }
-
-      return false;
-    }
-  };
-
-char SDUpdateIndices::ID = 0;
-char SDSubstModule::ID = 0;
-
-INITIALIZE_PASS(SDSubstModule, "sdsdmp", "Module pass for substituting the constant-holding intrinsics generated by sdmp.", false, false)
-INITIALIZE_PASS_BEGIN(SDUpdateIndices, "cc", "Change Constant", false, false)
-INITIALIZE_PASS_DEPENDENCY(SDLayoutBuilder)
-INITIALIZE_PASS_DEPENDENCY(SDBuildCHA)
-INITIALIZE_PASS_END(SDUpdateIndices, "cc", "Change Constant", false, false)
-
-
-ModulePass* llvm::createSDUpdateIndicesPass() {
-  return new SDUpdateIndices();
-}
-
-ModulePass* llvm::createSDSubstModulePass() {
-  return new SDSubstModule();
-}
-
 /// ----------------------------------------------------------------------------
 /// SDUpdateIndices implementation, this are executed inside P4. Next, P5 is executed.
 /// ----------------------------------------------------------------------------
@@ -503,9 +277,12 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
       start = cha->isUndefined(vtbl) ?
         layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) : //Paul: first child or first v table
         layoutBuilder->getVTableRangeStart(vtbl);
-
-      rangeWidth = cha->getCloudSize(vtbl.first);//Paul: cloud size represents the range width
-      sd_print(" [rangeWidth=%d start = %p]  \n", rangeWidth, start);
+      
+      //Paul: cloud size represents the range width
+      //it basically counts the number of children in that cloud 
+      // the children have to belong to the inheritance an path 
+      rangeWidth = cha->getCloudSize(vtbl.first);
+      sd_print(" [rangeWidth= %d start = %p]  \n", rangeWidth, start);
     } else {
       // This is a class we have no metadata about (i.e. doesn't have any
       // non-virtuall subclasses). In a fully statically linked binary we
@@ -513,7 +290,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
       start = NULL;
       rangeWidth = 0;
       //std::cerr << "Emitting empty range for " << vtbl.first << "," << vtbl.second << "\n";
-      sd_print(" [ no metadata ] \n");
+      sd_print(" [ no metadata available ] \n");
     }
 
     LLVMContext& C = CI->getContext();
@@ -684,9 +461,10 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       for (auto rangeIt : ranges) {
         sum += rangeIt.second; //Paul: compute the width of the range 
       }
-
-      sd_print("For v table {",vtbl.first.c_str(), ",", vtbl.second, "} Emitting ", ranges.size(), 
-      " range check(s) with total width ", sum, "\n");
+      
+      //printing some statistics 
+      sd_print("For VTable: {%s , %d } Emitting: %d range check(s) with total width sum %d \n", 
+      vtbl.first.c_str(), vtbl.second, ranges.size(), sum);
   
       //Paul: iterate throught the ranges 
       for (auto rangeIt : ranges) {
@@ -696,8 +474,8 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
    
         //Paul: create the fast path success 
         llvm::Value* fastPathSuccess = builder.CreateCall(Intrinsic::getDeclaration(M,
-              Intrinsic::sd_subst_check_range),
-              Args);
+                                                     Intrinsic::sd_subst_check_range),
+                                                                                Args);
 
         char blockName[256];
         snprintf(blockName, sizeof(blockName), "sd.fastcheck.fail.%d", i);
@@ -774,3 +552,234 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
     CI->replaceAllUsesWith(arg1);
   }
 }
+
+
+  /**
+   * P5 Module pass for substittuing the final subst_ intrinsics
+   */
+  class SDSubstModule : public ModulePass {
+  public:
+    static char ID; // Pass identification, replacement for typeid
+
+    SDSubstModule() : ModulePass(ID) {
+      sd_print("initializing SDSubstModule pass\n");
+      initializeSDSubstModulePass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual ~SDSubstModule() {
+      sd_print("deleting SDSubstModule pass\n");
+    }
+
+    bool runOnModule(Module &M) {
+      sd_print("P5. Started running SDSubstModule pass...\n");
+      
+      //Paul: count the number of indexes substituted
+      int64_t indexSubst = 0;
+
+      //Paul: count number of range substituted
+      int64_t rangeSubst = 0;
+
+      //Paul: count number of equalities substituted
+      int64_t eqSubst = 0; 
+
+      //Paul: count the number of constant pointers
+      int64_t constPtr = 0;
+
+      //Paul: cum up the width of a range such that
+      // we can compute an average value for each inserted check
+      uint64_t sumWidth = 0.0;
+
+      //Paul: substitute the v table index
+      //this function is used to extract the v pinter
+      Function *sd_subst_indexF =
+          M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_vtbl_index));
+
+       //Paul: substitute the v table range  
+       //this function is used to substitute the range  
+       Function *sd_subst_rangeF =
+          M.getFunction(Intrinsic::getName(Intrinsic::sd_subst_check_range));
+      
+      // Paul: write the v pointer value back from all the functions which will
+      // be called based on this pointer
+      if (sd_subst_indexF) {
+        for (const Use &U : sd_subst_indexF->uses()) {
+          // get the call inst,
+          //Returns the User that contains this Use.
+          //For an instruction operand, for example, this will return the instruction.
+          llvm::CallInst* CI = cast<CallInst>(U.getUser());//Paul: read this value back from code 
+
+          // Paul: get the first arguments, this is the v pointer
+          llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+          assert(arg1);
+          CI->replaceAllUsesWith(arg1);//Paul: write the v pointer back 
+          CI->eraseFromParent();
+          indexSubst += 1;
+        }
+      }
+      
+      //Paul: add the final range checks 
+      //Notice: that we have ranges with: width > 1 or < 1
+      if (sd_subst_rangeF) {
+        const DataLayout &DL = M.getDataLayout();
+        LLVMContext& C = M.getContext();        //module context 
+        Type *IntPtrTy = DL.getIntPtrType(C, 0);//return the context as an pointer type 
+        
+        //coun number of ranges added
+        int rangeCounter = 0;
+
+        //count number of constant checks added
+        int constantCounter = 0;
+
+        //Paul: for all the places where the range check has to be added
+        for (const Use &U : sd_subst_rangeF->uses()) {
+          
+          // get the call inst
+          llvm::CallInst* CI = cast<CallInst>(U.getUser());
+          IRBuilder<> builder(CI);
+
+          // get the arguments
+          llvm::Value* vptr = CI->getArgOperand(0);
+          llvm::Constant* start = dyn_cast<Constant>(CI->getArgOperand(1));
+          llvm::ConstantInt* width = dyn_cast<ConstantInt>(CI->getArgOperand(2));
+          llvm::ConstantInt* alignment = dyn_cast<ConstantInt>(CI->getArgOperand(3));
+
+          //all three values > 0
+          assert(vptr && start && width);
+
+          int64_t widthInt = width->getSExtValue();
+          int64_t alignmentInt = alignment->getSExtValue();
+          int alignmentBits = floor(log(alignmentInt + 0.5)/log(2.0));
+
+          llvm::Constant* rootVtblInt = dyn_cast<llvm::Constant>(start->getOperand(0));
+          llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(
+            rootVtblInt->getOperand(0));
+          llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
+ 
+          //Paul: sum up all the ranges widths which will be substituted 
+          sumWidth = sumWidth + widthInt;
+
+          //check if vptr is constant
+          if (validConstVptr(rootVtbl, startOff->getSExtValue(), widthInt, DL, vptr, 0)) {
+            
+            //replace call instruction with an constant int 
+            CI->replaceAllUsesWith(llvm::ConstantInt::getTrue(C));
+            CI->eraseFromParent();
+            //Paul: sum up how many times we had constant pointers 
+            constPtr++;
+          } else
+
+          //Paul: if the range is grether than 1 do the rotation checks 
+          if (widthInt > 1) {
+            // create pointer to int
+            llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
+            
+            //substract pointer fram start address
+            llvm::Value *diff = builder.CreateSub(vptrInt, start);
+            
+            //shift right diff with the number of alignmentBits
+            llvm::Value *diffShr = builder.CreateLShr(diff, alignmentBits);
+
+            //shift left diff with the number of DL.getPointerSizeInBits(0) - alignmentBits
+            llvm::Value *diffShl = builder.CreateShl(diff, DL.getPointerSizeInBits(0) - alignmentBits);
+
+            //create diff rotation 
+            llvm::Value *diffRor = builder.CreateOr(diffShr, diffShl);
+            
+            //create comparison, diffRor <= width 
+            llvm::Value *inRange = builder.CreateICmpULE(diffRor, width); //Paul: create a comparison expr.
+            
+            //replace the in range check 
+            CI->replaceAllUsesWith(inRange);
+
+            //CI remove from parent 
+            CI->eraseFromParent();
+            
+            //count the number of range substitutions added
+            rangeSubst += 1;
+
+            sd_print("Range: %d has width: % d start: %d vptrInt: %d \n", rangeSubst, widthInt, start, vptrInt);
+
+            //Paul: range = 1 or 0
+          } else {
+            llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
+
+            //create comparison, v pointer == start  
+            llvm::Value *inRange = builder.CreateICmpEQ(vptrInt, start);
+
+            CI->replaceAllUsesWith(inRange);
+            CI->eraseFromParent();
+            eqSubst += 1; //count number of equalities substitutions added
+          }        
+        }
+      }
+
+      sd_print("P5. Finished running SDSubstModule pass...\n");
+      sd_print(" SDSubst Statistics: indices: %d range checks added: %d eq_checks added: %d const_ptr: %d average range width: %lf\n", 
+      indexSubst, rangeSubst, eqSubst, constPtr, sumWidth * 1.0/(rangeSubst + eqSubst + constPtr));
+      
+      //one of these values has do greather than 0 
+      return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
+    }
+
+//Paul: this validates a constant pointer 
+//it is only true if start <= off=0 && off < (start + width * 8)
+ bool validConstVptr(GlobalVariable *rootVtbl, 
+                                int64_t start, 
+                                int64_t width,
+                         const DataLayout &DL, 
+                                     Value *V, 
+                              uint64_t off) { //initial value is 0 
+
+      if (auto GV = dyn_cast<GlobalVariable>(V)) {
+        if (GV != rootVtbl)
+          return false;
+
+        if (off % 8 != 0)
+          return false;
+        
+        //Paul: this is the only place that the check can get true in this method 
+        return start <= off && off < (start + width * 8);
+      }
+
+      if (auto GEP = dyn_cast<GEPOperator>(V)) {
+        APInt APOffset(DL.getPointerSizeInBits(0), 0);
+        bool Result = GEP->accumulateConstantOffset(DL, APOffset);
+        if (!Result)
+          return false;
+
+        off += APOffset.getZExtValue();
+        return validConstVptr(rootVtbl, start, width, DL, GEP->getPointerOperand(), off); //recursive call 
+      }
+      
+      //check the operand type 
+      if (auto Op = dyn_cast<Operator>(V)) {
+        if (Op->getOpcode() == Instruction::BitCast)//bitcast operation
+          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(0), off);//recursive call
+
+        if (Op->getOpcode() == Instruction::Select)//select operation
+          return validConstVptr(rootVtbl, start, width, DL, Op->getOperand(1), off) &&
+                 validConstVptr(rootVtbl, start, width, DL, Op->getOperand(2), off); //two recursive calls 
+      }
+
+      return false;
+    }
+  };
+
+char SDUpdateIndices::ID = 0;
+char SDSubstModule::ID = 0;
+
+INITIALIZE_PASS(SDSubstModule, "sdsdmp", "Module pass for substituting the constant-holding intrinsics generated by sdmp.", false, false)
+INITIALIZE_PASS_BEGIN(SDUpdateIndices, "cc", "Change Constant", false, false)
+INITIALIZE_PASS_DEPENDENCY(SDLayoutBuilder)
+INITIALIZE_PASS_DEPENDENCY(SDBuildCHA)
+INITIALIZE_PASS_END(SDUpdateIndices, "cc", "Change Constant", false, false)
+
+
+ModulePass* llvm::createSDUpdateIndicesPass() {
+  return new SDUpdateIndices();
+}
+
+ModulePass* llvm::createSDSubstModulePass() {
+  return new SDSubstModule();
+}
+

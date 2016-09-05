@@ -553,7 +553,8 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
   //comment me if not using
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
   sd_print("CGVTables.cpp: Vtable name: %s \n", Name.c_str());
-  PrintVTableInitializer(RD, 
+  //Paul: printing the component types of the v table 
+  printVTableInitializer(RD, 
                          Components,
                          NumComponents, 
                          VTableThunks,
@@ -561,7 +562,10 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
                          RTTI);
 
   for (auto base = RD->bases_begin(); base != RD->bases_end(); base++) {
-    sd_print("C++ Base :\n"); base->getType()->getAsCXXRecordDecl()->dump();
+    //Paul: this calls into the SDVTblMD.h the dump method, the result is the 
+    // nice color printings
+    //sd_print("Color printing C++ Base :\n"); 
+    //base->getType()->getAsCXXRecordDecl()->dump();
   }
   
 
@@ -675,9 +679,9 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
   return llvm::ConstantArray::get(ArrayType, Inits);
 }
 
-//Paul: this is used just for printing, currently not used
+//Paul: this is used just for printing the vtable component type 
 // see line 556 in this file
-void CodeGenVTables::PrintVTableInitializer(const CXXRecordDecl *RD, 
+void CodeGenVTables::printVTableInitializer(const CXXRecordDecl *RD, 
                                   const VTableComponent *Components,
                                              unsigned NumComponents, 
                     const VTableLayout::VTableThunkTy *VTableThunks,
@@ -815,7 +819,7 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
   //Paul: added by us
   std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
 
-  //Paul added by us: this function is calling into our SD_VtableMD class. 
+  //Paul added by us: this function is calling into our SD_VtableMD.h. 
   //The goal is to make sure that the v table metadata is written
   //into a new class metadata node such that it becomes accesible 
   //afterwards when we build the cloud and call extractMetadata() 

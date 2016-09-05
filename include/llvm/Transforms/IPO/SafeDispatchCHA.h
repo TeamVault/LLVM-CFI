@@ -69,7 +69,7 @@ private:
     range_map_t rangeMap;                              // vtbl -> [(start,end)]
     ancestor_map_t ancestorMap;                        // (vtbl,ind) -> root vtbl
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
-    std::map<vtbl_t, uint32_t> cloudSizeMap;           // vtbl -> # vtables derived from (vtbl,0)
+    std::map<vtbl_t, uint32_t> cloudSizeMap;           // vtbl -> # vtables derived from (vtbl,0), holds the range width for each v table 
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
     
     /**
@@ -84,8 +84,8 @@ private:
       uint64_t    order;
       vtbl_name_t parentName; //string 
       uint64_t    parentOrder;
-      vtbl_set_t  parents; //std::set of pairs (<vtbl_name_t, uint64_t>)
-      uint64_t    start; // range boundaries are inclusive
+      vtbl_set_t  parents;    //std::set of pairs (<vtbl_name_t, uint64_t>)
+      uint64_t    start;      // range boundaries are inclusive
       uint64_t    end;
       uint64_t    addressPoint;
     };
@@ -179,11 +179,15 @@ public:
       //Paul: print the clouds in tmp/dot; can be viewed with graphviz
       printClouds("");
 
+      //for each root node it counts the number of children 
+      //this value is stored when calculating the range width 
       for (auto rootName : roots) {
         calculateChildrenCounts(vtbl_t(rootName, 0));
       }
       
       //Paul: do a verification of the clouds
+      //check that the cloud map is not empty
+      //for each of the root nodes 
       verifyClouds(M); 
 
       std::cerr << "Undefined vtables: \n";
@@ -241,7 +245,7 @@ public:
       return addrPtMap[vtbl].size();
     }
 
-    //Paul: the v table is checke if it is contained in the undefinedVTables set 
+    //Paul: the v table is checked if it is contained in the undefinedVTables set 
     bool isUndefined(const vtbl_name_t &vtbl) {
       return undefinedVTables.find(vtbl) != undefinedVTables.end();
     }

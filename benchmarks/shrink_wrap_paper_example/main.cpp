@@ -118,9 +118,9 @@ int main(int argc, char * argv[]){
    int get_c_value = ptr_c -> get_c();
    cout << "The value in C class is " << get_c_value << endl;
 
-   /*D * ptr_d = new D();
+   D * ptr_d = new D();
    ptr_d->set_d(50);
    int get_d_value = ptr_d -> get_c();
-   cout << "The value in D class is " << get_d_value << endl;*/
+   cout << "The value in D class is " << get_d_value << endl;
    
 }

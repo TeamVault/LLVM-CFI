@@ -115,6 +115,7 @@ static inline SDBuildCHA::vtbl_name_t sd_getStringFromMDTuple(const MDOperand& o
   return mds->getString().str();
 }
 
+//check that the cloud map is not empty for each of the root nodes 
 void SDBuildCHA::verifyClouds(Module &M) {
   //Paul: iterate throug all roots 
   for (auto rootName : roots) {
@@ -185,7 +186,6 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
 cloudMap
 rangeMap
 parentsMap
-rangeMap
 roots
 addrPtMap
 */
@@ -205,12 +205,15 @@ void SDBuildCHA::buildClouds(Module &M) {
 
     sd_print("GOT METADATA: %s\n", md->getName().data());
 
-    //Paul: extractMetadata() extracts the metadata from each module
-    // and puts it into this vector
+    // Paul: extractMetadata() extracts the metadata from each module
+    // and puts it into this vector, this metadata was previously added 
+    // inside SafeDispatchVtblMD.h, in: sd_insertVtableMD() function
+    // this function is called for each generated v table, during code generation  
     std::vector<nmd_t> infoVec = extractMetadata(md);
 
     //nmd_t is the main top root node type, now iterate through the info vector   
     for (const nmd_t& info : infoVec) {
+     
       // record the old vtable array
       /* Paul:
       this GlobalVariable holds the metadata for each module.
@@ -240,7 +243,7 @@ void SDBuildCHA::buildClouds(Module &M) {
         const nmd_sub_t* subInfo = & info.subVTables[ind];
         vtbl_t name(info.className, ind);
         
-        sd_print("SubVtable[%d] Order: %d Parents[%d]: ",
+        sd_print("SubVtable: %d Order: %d clossest Parents count: %d ",
           ind, 
           subInfo->order,
           subInfo->parents.size());
@@ -407,6 +410,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
 
   unsigned op = 0;
 
+  // Paul: iterate until all module operands have been visited
   do {
     SDBuildCHA::nmd_t info;
 
@@ -452,10 +456,15 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       
       //Paul: iterate through all the parents 
       for (int j = 0; j < numParents; j++) {
-        vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3)); //Paul: give the name of the v table
-        unsigned ptIdx = sd_getNumberFromMDTuple(parentsTup->getOperand(1+j*3+1)); // Paul: one more index position to the right, get pointer index
-        GlobalVariable* parentVtable = sd_mdnodeToGV(parentsTup->getOperand(1+j*3+2).get()); // Paul: one more index to the right, 
-                                                                                             // get the node and convert to global variable
+        //Paul: give the name of the v table
+        vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3)); 
+
+        // Paul: one more index position to the right, get pointer index
+        unsigned ptIdx = sd_getNumberFromMDTuple(parentsTup->getOperand(1+j*3+1)); 
+
+        // Paul: one more index to the right, get the node and convert to global variable
+        GlobalVariable* parentVtable = sd_mdnodeToGV(parentsTup->getOperand(1+j*3+2).get()); 
+        
         if (parentVtable) {
           ptName = parentVtable->getName();
         }
@@ -484,11 +493,13 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
   return infoVec;
 }
 
+//returns the number of children in that sub cloud 
 int64_t SDBuildCHA::getCloudSize(const SDBuildCHA::vtbl_name_t& vtbl) {
   vtbl_t v(vtbl, 0);
   return cloudSizeMap[v];//returns the cloud size for a certain v table 
 }
 
+//calculate number of children for a single root node 
 uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
   uint32_t count = isDefined(root) ? 1 : 0;
   if (cloudMap.find(root) != cloudMap.end()) { // Paul: check if cloud is not empty

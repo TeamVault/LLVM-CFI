@@ -525,7 +525,7 @@ void SDLayoutBuilder::interleaveCloudNew(SDLayoutBuilder::vtbl_name_t& vtbl) {
         prePadMap[*child] = (parentPreAddrPt > childPreAddrPt ?
                              parentPreAddrPt - childPreAddrPt : prePadMap[*child]);
     }
-    sd_print("Parent %d has %d children ...\n", numParent, numChildrenPerParent);
+    sd_print("Parent %d name: %s has %d children ...\n", numParent, parent.first.c_str(), numChildrenPerParent);
   }
 
   sd_print("Total number of parents %d...\n", numParent);
@@ -799,9 +799,14 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   //Paul: nodes in preorder for one each root node one by one
   order_t preorderV = cha->preorder(root); 
 
+  //print preorder nodes of one root node 
+  sd_print("calculateVPtrRanges: Preorder nodes of root %s are: \n", vtbl.c_str());
+  for (uint64_t i= 0; i < preorderV.size(); i++)
+  std::cerr << "first: " << preorderV[i].first << ", second:" << preorderV[i].second << "\n ";
+
   std::map<vtbl_t, uint64_t> indMap;
 
-  //init the indices map 
+  //set the indices in the indices map
   for (uint64_t i = 0; i < preorderV.size(); i++) 
       indMap[preorderV[i]] = i;
   
@@ -810,7 +815,7 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
  
   //Paul: iterate through all the nodes for this root 
   //and print the ranges 
-  std::cerr << "Printing and buid memRangeMap for each root node ... \n";
+  std::cerr << "Printing and buid memRangeMap for root node " << vtbl.c_str() << " \n";
   for (uint64_t i = 0; i < preorderV.size(); i++) {
     std::cerr << "For pre node first: " << preorderV[i].first << ", and pre node second:" << preorderV[i].second << " ";
 
@@ -823,12 +828,14 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
       //Notice, this number of times this has to be added in 
       //the memRangeMap at the end 
       for (int j = start; j < end; j++)
+        //if defined then count else skip
         if (cha->isDefined(preorderV[j])) 
-        def_count++;
+            def_count++;
 
       std::cerr << "(range " << start << "-" << end << " contains "
         << def_count << " defined,";
-
+      
+      //skip if not defined 
       if (def_count == 0)
         continue;
       

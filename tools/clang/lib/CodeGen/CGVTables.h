@@ -66,7 +66,7 @@ public:
       unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
       unsigned NumVTableThunks, llvm::Constant *RTTI);
 
-  void PrintVTableInitializer(
+  void printVTableInitializer(
       const CXXRecordDecl *RD, const VTableComponent *Components,
       unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
       unsigned NumVTableThunks, llvm::Constant *RTTI);
