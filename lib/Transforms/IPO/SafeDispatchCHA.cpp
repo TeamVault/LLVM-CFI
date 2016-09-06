@@ -172,7 +172,14 @@ SDBuildCHA::findLeastCommonAncestor(const SDBuildCHA::vtbl_set_t &vtbls, SDBuild
     }
 
     // If there is not a single common ancestor amongst the candidate's
-    // children conservatively terminate search
+    // children conservatively terminate search.
+
+    // Paul: the search can be continued if we know the base class of the method
+    // at the call site on which the object is calling. The base class for a method
+    // is a class where that method was first declared. So by knowing this information
+    // we filter out v tables when searching among the children of a node. We need to
+    // select only the v tables which are descendants (inherited) from this base class.
+    // this v tables have to be on an inheritance path 
     if (nChildrenCommonAncestors != 1)
       break;
 
@@ -651,11 +658,12 @@ bool SDBuildCHA::isAncestor(const vtbl_t &base, const vtbl_t &derived) {
 /*Paul:
 this function allready talks about upcasting. This can be used in the future
 to build a tool which detects not allowed casts*/
-int64_t 
-SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base) {
+int64_t SDBuildCHA::getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base) {
   
   int res = -1;
   for (int64_t ind = 0; ind < subObjNameMap[derived].size(); ind++) {
+
+    //check if base is an acestor of one of the derived classes 
     if (isAncestor(vtbl_t(base, 0), vtbl_t(derived, ind))) {
       if (res != -1) {
         std::cerr << "Ambiguity: not a unique path for upcast " << derived << " to " << base << "\n";

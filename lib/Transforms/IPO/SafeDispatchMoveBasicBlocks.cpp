@@ -56,14 +56,20 @@ namespace {
     }
 
     bool runOnModule(Module &M) override {
-      sd_print("P6. Started Removing thunks started (SDMoveBasicsBlocks pass) ...\n");
+      sd_print("P6. Started reshufling basic block (bb) thunks started (SDMoveBasicsBlocks pass) ...\n");
+      sd_print("P6. 1. if basic block (bb) name is sd.check.fail or sd.fastcheck.fail collect it ...\n");
+      sd_print("P6. 2. remove bb from the bbs list (Function::BasicBlockListType &bbs) and insert it at the end ...\n");
+      sd_print("P6. 3. so basically all bb blocks are reshufled at the end of the bbs list ...\n");
+      sd_print("P6. 4. this improves runtime overhead ...\n");
 
       for (auto fIt = M.begin(); fIt != M.end(); fIt++) {
-        std::vector<BasicBlock*> toMove; //Paul: collect the bb which will be removed
+        std::vector<BasicBlock*> toMove; 
         for (auto bbIt = fIt->begin(); bbIt != fIt->end(); bbIt ++) {
 
           std::string name = bbIt->getName().str();
           if (name == "sd.check.fail" || name.find("sd.fastcheck.fail") != std::string::npos) {
+
+            //Paul: collect the bb which will be removed
             toMove.push_back(bbIt);
           }
         }
@@ -73,8 +79,12 @@ namespace {
         for (auto bb : toMove) {
           std::cerr << "Moving " << bb->getName().str() << " to end in " << 
             fIt->getName().str() << "\n";
-          bbs.remove(bb); //Paul: remove the bb
-          bbs.insert(bbs.end(), bb); //Paul: add the bb at the end
+
+          //Paul: remove the bb from the bbs list 
+          bbs.remove(bb); 
+
+          //reinsert the bb at the end of the bbs list 
+          bbs.insert(bbs.end(), bb); //Paul: add the bb at the end of the bbs list 
         }
       }
       

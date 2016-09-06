@@ -185,8 +185,8 @@ public:
         calculateChildrenCounts(vtbl_t(rootName, 0));
       }
       
-      //Paul: do a verification of the clouds
-      //check that the cloud map is not empty
+      //Paul: do a verification of the clouds.
+      //Check that the cloud map is not empty
       //for each of the root nodes 
       verifyClouds(M); 
 

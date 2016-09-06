@@ -162,8 +162,13 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
   std::cerr << "Emitting subvtable info for " << RD->getQualifiedNameAsString() << "\n";
   
   //print inheritance map and add the parent vtables to the addrPtMap 
+  //std::map<inheritance_path_t, uint64_t> = VTLayout->getInheritanceMap()
   for (auto it : VTLayout->getInheritanceMap()) {
+
+    //this is the address point for the given base class 
     uint64_t addrPt = VTLayout->getAddressPoint(it.second);
+
+    //declare an parent inheritance path and put first element 
     clang::VTableLayout::inheritance_path_t parentInheritancePath(it.first);
     
     //get most derived class from this vtable layout and insert it to the inheritance path 
@@ -207,7 +212,7 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
 
     std::cerr << addrPt << " direct parent = " << parentVtbl.first << "," << parentVtbl.second << "\n";
     
-    //else add the v table with order number 0 declare above
+    //else add the v table with order number 0 declared above
     addrPtMap[addrPt].insert(parentVtbl);
   }
 
@@ -273,13 +278,13 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     //create a new SD_VtableMD object and add it to the subVtables 
     subVtables.push_back(SD_VtableMD(order, addrPtMap[addrPt], start, end, addrPt));
     order++;         //inc. order
-    start = end + 1; //inc start
+    start = end + 1; //inc. start
     prevVal = addrPt;//set preVal
   }
 
   //after finishing witht the subVtables check that start != v table layout number of components 
   if (start != VTLayout->getNumVTableComponents()) {
-    sd_print("class:%s, start:%ld, total:%ld\n", className.c_str(), start, VTLayout->getNumVTableComponents());
+    sd_print("class:%s, start:%ld, total:%ld \n", className.c_str(), start, VTLayout->getNumVTableComponents());
     assert(false);
   }
 

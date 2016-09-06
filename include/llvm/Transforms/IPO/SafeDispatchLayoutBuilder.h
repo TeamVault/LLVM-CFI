@@ -70,7 +70,7 @@ namespace llvm {
     vtbl_start_map_t newVTableStartAddrMap;                 // Starting addresses of all new vtables
     cloud_start_map_t cloudStartMap;                        // Mapping from new vtable names to their corresponding cloud starts
     std::map<vtbl_name_t, unsigned> alignmentMap;
-    vtbl_t dummyVtable;                                     // Paul: this v tavle is used for the interleaving
+    vtbl_t dummyVtable;                                     // Paul: this v table is used for the interleaving
     range_map_t rangeMap;                                   // Map of ranges for vptrs in terms of preorder indices
     mem_range_map_t memRangeMap;                            // this is the memory range map for each of the nodes in a cloud
     pad_map_t prePadMap;
@@ -79,7 +79,7 @@ namespace llvm {
     SDLayoutBuilder(bool interl = false) : ModulePass(ID), interleave(interl) {
       std::cerr << "SDLayoutBuilder(" << interl << ")\n";
       initializeSDLayoutBuilderPass(*PassRegistry::getPassRegistry());
-      dummyVtable = vtbl_t("DUMMY_VTBL", 0);
+      dummyVtable = vtbl_t("DUMMY_VTBL", 0); //this v tables are used during padding 
     }
 
     virtual ~SDLayoutBuilder() { }

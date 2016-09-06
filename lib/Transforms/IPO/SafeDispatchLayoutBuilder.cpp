@@ -72,6 +72,7 @@ check that the v table layouts are ok (match with the old ones)
 This function is called from runonModule() located in SDLayoutBuilder.h
 */
 bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
+  
   new_layout_inds_map_t indMap;
 
   //iterate through all the roots 
@@ -89,19 +90,20 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
     // Build a map (vtbl_t -> (uint64_t -> uint64_t)) with the old-to-new index mapping encoded in the
     // interleaving
     for (auto elem : interleaving) {
-      vtbl_t &v = elem.first;
-      uint64_t oldPos = elem.second;
+      vtbl_t &vname = elem.first;        //string
+      uint64_t oldPos = elem.second; //uint64_t
       
       //skyp dummy v tables 
-      if (v == dummyVtable)
+      //dummyVtable = vtbl_t("DUMMY_VTBL", 0);
+      if (vname == dummyVtable) 
         continue;
 
-      if (indMap.find(v) == indMap.end()) {
-        indMap[v] = std::map<uint64_t, uint64_t>();
+      if (indMap.find(vname) == indMap.end()) {
+        indMap[vname] = std::map<uint64_t, uint64_t>();
       } else {
-        if (indMap[v].count(oldPos) != 0) {
-          std::cerr << "In ivtbl " << vtbl << " entry " << v.first << "," << v.second << "[" << oldPos << "]"
-            << " appears twice - at " << indMap[v][oldPos] << " and " << i << std::endl;
+        if (indMap[vname].count(oldPos) != 0) {
+          std::cerr << "In ivtbl " << vtbl << " entry " << vname.first << "," << vname.second << "[" << oldPos << "]"
+            << " appears twice - at " << indMap[vname][oldPos] << " and " << i << std::endl;
          
           //Paul: dump layout in case of mismatch
           dumpNewLayout(interleaving);
@@ -109,7 +111,7 @@ bool SDLayoutBuilder::verifyNewLayouts(Module &M) {
         }
       }
 
-      indMap[v][oldPos] = i;
+      indMap[vname][oldPos] = i;
       i++;
     }
 
@@ -262,13 +264,21 @@ Function* SDLayoutBuilder::getVthunkFunction(Constant* vtblElement) {
   ConstantExpr* bcExpr = NULL;
 
   // if this a constant bitcast expression, this might be a vthunk
+  // cast and assign the vtbl element as a constant expresion 
+  // check if it is a bit cast expresion, BITCAST_OPCODE == 28 
   if ((bcExpr = dyn_cast<ConstantExpr>(vtblElement)) && bcExpr->getOpcode() == BITCAST_OPCODE) {
+   
+   //get first operant 
     Constant* operand = bcExpr->getOperand(0);
 
-    // this is a vthunk
+    // vthunk contains _ZTcv or _ZTc in the name of the first operand  
     if (sd_isVthunk(operand->getName())) {
+
+      //dynamically cast operand to a Function 
       Function* thunkF = dyn_cast<Function>(operand);
       assert(thunkF);
+
+      //return the new function 
       return thunkF;
     }
   }
@@ -284,27 +294,34 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
   vtbl_t root(rootName,0);
 
   //Paul: preorder traversal of the whole cloud tree 
-  order_t vtbls = cha->preorder(root);
+  order_t vtbls_preorder = cha->preorder(root);
 
   LLVMContext& C = M.getContext();
 
-  //Paul: get the v call index using the Intrinsic::sd_get_vcall_index 
-  Function *sd_vcall_indexF =
-      M.getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
-
-  for (unsigned i=0; i < vtbls.size(); i++) {
-    const vtbl_name_t& vtbl = vtbls[i].first;
+  //Paul: get the v call index function using the Intrinsic::sd_get_vcall_index 
+  Function *sd_vcall_indexF = M.getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
+ 
+  //iterate through all vtables in preorder 
+  //skip the v tables which are not known by the old CHA 
+  for (unsigned i=0; i < vtbls_preorder.size(); i++) {
+    const vtbl_name_t& vtbl = vtbls_preorder[i].first;
+    
     if (!cha->hasOldVTable(vtbl)) {
       assert(cha->isUndefined(vtbl));
-      continue;
+      continue; //skip
     }
-
+    
+    //get the old v table as an constant array 
     ConstantArray* vtableArr = cha->getOldVTable(vtbl);
 
-    // iterate over the vtable elements
+    // iterate over the vtable operands 
     for (unsigned vtblInd = 0; vtblInd < vtableArr->getNumOperands(); ++vtblInd) {
       Constant* c = vtableArr->getOperand(vtblInd);
+
+      //get v thunk function for each constant c
       Function* thunkF = getVthunkFunction(c);
+
+      //skyp if thunkF is null 
       if (! thunkF)
         continue;
 
@@ -313,8 +330,13 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
 
       // this should have a parent
       const std::string& parentClass = cha->getLayoutClassName(vtbl, order);
-      std::string newThunkName(NEW_VTHUNK_NAME(thunkF, parentClass));
 
+      //create a new thunk name based on thunkF and parent Class 
+      //NEW_VTHUNK_NAME(fun,parent) ("_SVT" + parent + fun->getName().str())
+      //attack to the name of the thunk function the name of the parent class 
+      std::string newThunkName(NEW_VTHUNK_NAME(thunkF, parentClass));
+      
+      //if allready exists than skip 
       if (M.getFunction(newThunkName)) {
         // we already created such function, will use that later
         continue;
@@ -322,37 +344,59 @@ void SDLayoutBuilder::createThunkFunctions(Module& M, const vtbl_name_t& rootNam
 
       // duplicate the function and rename it
       ValueToValueMapTy VMap;
+
+      //duplicate the old thunk function 
       Function *newThunkF = llvm::CloneFunction(thunkF, VMap, false);
+
+      //set the previously computed name 
       newThunkF->setName(newThunkName);
+
+      //insert the new thunk function into the module function list 
       M.getFunctionList().push_back(newThunkF);
 
-      CallInst* CI = NULL;
-
+      //start replacing the old index in the instruction witht the new index 
+      CallInst* CI = NULL; //declare a new call instruction 
+      
+      //if the function is null than skip loop iteration 
       if(sd_vcall_indexF == NULL)
         continue;
 
       // go over its instructions and replace the one with the metadata
+      // go over each function 
       for(Function:: iterator bb_itr = newThunkF->begin(); bb_itr != newThunkF->end(); bb_itr++) {
+        
+        //go over each bb inside the function
         for(BasicBlock:: iterator i_itr = bb_itr->begin(); i_itr != bb_itr->end(); i_itr++) {
           Instruction* inst = i_itr;
-
+          
+          //cast to CallInstrunction and assign the instruction to CI 
+          //check that the called function by thic call instrunction equals  sd_vcall_indexF
+          //Function *sd_vcall_indexF = M.getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
+          //basically we filter for the instrunction which is calling our function which gets the v call index 
           if ((CI = dyn_cast<CallInst>(inst)) && CI->getCalledFunction() == sd_vcall_indexF) {
             
-            // get the arguments
+            // get the first argument, this is the v pointer 
             llvm::ConstantInt* oldVal = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+
+            //assert there is one 
             assert(oldVal);
 
             // extract the old index
             int64_t oldIndex = oldVal->getSExtValue() / WORD_WIDTH;
 
-            // calculate the new index 
-            //sd_print("Create thunk function %s\n", newThunkName.c_str());
+            // calculate the new index
+            sd_print("NEW_VTHUNK_NAME(fun,parent) (_SVT + parent + fun->getName().str()) \n");
+            sd_print("Create thunk function %s\n", newThunkName.c_str());
+
+            //compute new index based on the fact that it is relative or not
+            //in our case relative is always on  
             int64_t newIndex = translateVtblInd(vtbl_t(vtbl,order), oldIndex, true);
             
-            //multiply with word_width 
+            //multiply with word_width == 8
             Value* newValue = ConstantInt::get(IntegerType::getInt64Ty(C), newIndex * WORD_WIDTH);
             
-            //set the new index value 
+            //set the new index value in the call instrunction 
+            //set the new value of the v pointer 
             CI->replaceAllUsesWith(newValue);
 
           }
@@ -560,7 +604,7 @@ void SDLayoutBuilder::interleaveCloud(SDLayoutBuilder::vtbl_name_t& vtbl) {
   The CHA pass has previously generated a cloud. 
   Each subcloud of the cloud has a root.
   */
-  assert(cha->isRoot(vtbl));
+  assert(cha->isRoot(vtbl)); 
 
   // create a temporary list for the positive part
   interleaving_list_t positive_list_Part;
@@ -673,30 +717,38 @@ void SDLayoutBuilder::calculateNewLayoutInds(SDLayoutBuilder::vtbl_name_t& vtbl)
 
 /*Paul:
 this is a helper function for the v pointer range calculator 
+Here the v pointer ranges get coalesced 
 */
 void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& vtbl, std::map<vtbl_t, uint64_t> &indMap){
   // Already computed
   if (rangeMap.find(vtbl) != rangeMap.end())
     return;
-
+  
+  //iterate trough all children of this v table and do recursive call 
   for (auto childIt = cha->children_begin(vtbl); childIt != cha->children_end(vtbl); childIt++) {
     const vtbl_t &child = *childIt;
     calculateVPtrRangesHelper(child, indMap);
   }
-
+  
+  //declare a range vector 
   std::vector<range_t> ranges;
 
   ranges.push_back(range_t(indMap[vtbl], indMap[vtbl]+1));
-
+  
+  //iterate trough all children of this v table and append each range at the end in ranges 
   for (auto childIt = cha->children_begin(vtbl); childIt != cha->children_end(vtbl); childIt++) {
     const vtbl_t &child = *childIt;
     ranges.insert(ranges.end(), rangeMap[child].begin(), rangeMap[child].end());
   }
 
+  //sort the ranges 
   std::sort(ranges.begin(), ranges.end());
 
-  // Coalesce (combine, put together) ranges
+  // Coalesce (combine, put together) ranges, e.g., (0,1); (1,2) -> (0,2)
+  //declare a vector for the coalesced ranges 
   std::vector<range_t> coalesced_ranges;
+
+  //declare start and end variables 
   int64_t start = -1, end;
   for (auto it : ranges) {
     if (start == -1) {
@@ -716,13 +768,16 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
 
   if (start != -1)
     coalesced_ranges.push_back(range_t(start,end));
-
-  std::cerr << "{" << vtbl.first << "," << vtbl.second << "} From ranges [";
+  
+  //print the ranges 
+  std::cerr << "Range for: {" << vtbl.first << "," << vtbl.second << "} From ranges [";
   for (auto it : ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
+
   std::cerr << "] coalesced [";
   for (auto it : coalesced_ranges)
     std::cerr << "(" << it.first << "," << it.second << "),";
+    
   std::cerr << "]\n";
   
   rangeMap[vtbl] = coalesced_ranges;
@@ -766,11 +821,13 @@ void SDLayoutBuilder::verifyVPtrRanges(SDLayoutBuilder::vtbl_name_t& vtbl){
 
     // check that each descendent is in one of the ranges.
     for (auto descendantElement : descendantVector.second) {
-      uint64_t ind = indMap[descendantElement];
+      uint64_t index = indMap[descendantElement];
       bool found = false;
       for (auto range : rangeMap[descendantVector.first]) {
-        if (range.first <= ind && ind < range.second) {
+        //check that index is between range.first and range.second  
+        if (range.first <= index && index < range.second) {
           found = true;
+          //stop searching if found
           break;
         }
       }
@@ -868,95 +925,139 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
 
   // get the size
   uint64_t newSize = newVtbl.size();
+  
   //set the v table to pointer type
   PointerType* vtblElemType = PointerType::get(IntegerType::get(M.getContext(), WORD_WIDTH), 0);
+  
   //create and array of pointers of newSize 
   ArrayType* newArrType = ArrayType::get(vtblElemType, newSize);
 
-  LLVMContext& C = M.getContext();
+  LLVMContext& Context = M.getContext();
 
   // fill the interleaved vtable element list
   std::vector<Constant*> newVtableElems;
+
+  //iterate throught the interleaving list for the given v table 
   for (const interleaving_t& ivtbl : newVtbl) {
-    const range_t &r = cha->getRange(ivtbl.first);
-    if (cha->isUndefined(ivtbl.first.first) || ivtbl.first == dummyVtable || ivtbl.second < r.first) {
-      newVtableElems.push_back(Constant::getNullValue(IntegerType::getInt8PtrTy(C)));
+    const range_t &vrange = cha->getRange(ivtbl.first);
+
+    //if v table is undefined or is a dummy table or vtable second < vrange first 
+    if (cha->isUndefined(ivtbl.first.first) || ivtbl.first == dummyVtable || ivtbl.second < vrange.first) {
+
+      //add a new null value into new V table elements 
+      newVtableElems.push_back(Constant::getNullValue(IntegerType::getInt8PtrTy(Context)));
+
+      //else 
     } else {
+
+      //there is an old v table 
       assert(cha->hasOldVTable(ivtbl.first.first));
-
+      
+      //get the old v table 
       ConstantArray* vtable = cha->getOldVTable(ivtbl.first.first);
-      Constant* c = vtable->getOperand(ivtbl.second);
-      Function* thunk = getVthunkFunction(c);
 
+      //get the ivtbl.second operand of this v table 
+      Constant* constant = vtable->getOperand(ivtbl.second);
+
+      // get the v thunk function for constant c
+      Function* thunk = getVthunkFunction(constant);
+      
+      //if not null 
       if (thunk) {
+
+        //create a new thunk function with a new name based on thunk and the parent class name 
         Function* newThunk = M.getFunction(NEW_VTHUNK_NAME(thunk, cha->getLayoutClassName(ivtbl.first)));
         assert(newThunk);
+        
+        //create a new bit cast constant using the newthunk and the context Context
+        Constant* newC = ConstantExpr::getBitCast(newThunk, IntegerType::getInt8PtrTy(Context));
 
-        Constant* newC = ConstantExpr::getBitCast(newThunk, IntegerType::getInt8PtrTy(C));
+        //add the new constant to the new v table elements 
         newVtableElems.push_back(newC);
+
+        //insert the intermeadiate thunk for removal 
         vthunksToRemove.insert(thunk);
       } else {
-        newVtableElems.push_back(c);
+
+        //else just add the constant 
+        newVtableElems.push_back(constant);
       }
     }
   }
+  
+  /*
+  start creating the new global variables witht the new v table layouts inside  
+  */
 
   // create the constant initializer
   Constant* newVtableInit = ConstantArray::get(newArrType, newVtableElems);
 
-  // create the new v table which will be used to create the new constant 
-  GlobalVariable* newVtable = new GlobalVariable(M,
+  // create the new v global variable which will be used to replace the old one
+  GlobalVariable* newGlobalVariable = new GlobalVariable(M,
                                         newArrType, 
                                               true,
                    GlobalVariable::InternalLinkage,
-                    nullptr, NEW_VTABLE_NAME(vtbl));
+                    nullptr, NEW_VTABLE_NAME(vtbl)); // give new v table name, NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 
   assert(alignmentMap.count(vtbl));
 
   // compute the new v table alignment
   // this will be put inside the new v table 
   // The new v table will be added in the end in the new Constant
-  newVtable->setAlignment(alignmentMap[vtbl]);
+  newGlobalVariable->setAlignment(alignmentMap[vtbl]);
 
   //set initializer 
-  newVtable->setInitializer(newVtableInit);
+  newGlobalVariable->setInitializer(newVtableInit);
 
   //set unnamed address to true 
-  newVtable->setUnnamedAddr(true);
+  newGlobalVariable->setUnnamedAddr(true);
 
   //attach "_SD" in the name of the new v table 
-  cloudStartMap[NEW_VTABLE_NAME(vtbl)] = newVtable;
+  cloudStartMap[NEW_VTABLE_NAME(vtbl)] = newGlobalVariable;
 
   // to start changing the original uses of the vtables, 
   // first get all the classes in the cloud
   // these are all the nodes associated to a root node contained
-  // in the roots vector. Get the nodes in preorder traversal.
-  order_t cloudPreorder = cha->preorder(vtbl_t(vtbl, 0));
-
+  // in the roots vector. Get the nodes in preorder traversal
+  // for the root node vtbl 
+  order_t cloudPreorderNodes = cha->preorder(vtbl_t(vtbl, 0));
+  
+  //declare a new zero constant 
   Constant* zero = ConstantInt::get(M.getContext(), APInt(64, 0));
-  for (const vtbl_t& v : cloudPreorder) {
-    if (cha->isDefined(v)) {
-      assert(newVTableStartAddrMap.find(v) == newVTableStartAddrMap.end());
-      newVTableStartAddrMap[v] = newVtblAddressConst(M, v);
-    }
 
-    if (cha->isUndefined(v.first))
+  //iterate thorugh all nodes 
+  for (const vtbl_t& vnode : cloudPreorderNodes) {
+    
+    //check if node is defined
+    if (cha->isDefined(vnode)) {
+      assert(newVTableStartAddrMap.find(vnode) == newVTableStartAddrMap.end());
+      newVTableStartAddrMap[vnode] = newVtblAddressConst(M, vnode);
+    }
+    
+    //if node is undefined skip
+    if (cha->isUndefined(vnode.first))
       continue;
 
     // get the original global variable holding the v table
-    GlobalVariable* globalVar = M.getGlobalVariable(v.first, true);
+    GlobalVariable* globalVar = M.getGlobalVariable(vnode.first, true);
     assert(globalVar);
 
     // since we change the collection while we're iterating it,
-    // put the users into a separate set first
+    // put into users all the uses of the global variable 
     std::set<User*> users(globalVar->user_begin(), globalVar->user_end());
 
-    // replace the uses of the original vtables
+    // iterate though all the uses of the global variable 
     for (std::set<User*>::iterator userItr = users.begin(); userItr != users.end(); userItr++) {
+     
       // this should be a constant getelementptr
-      User* user = *userItr;
+      User* user = *userItr; //user iterator
       assert(user);
+
+      //cast user to const. expression
       ConstantExpr* userCE = dyn_cast<ConstantExpr>(user);
+
+      //check that user const. expression is == GEP_OPCODE == 29
+      //GEP = get element pointer 
       assert(userCE && userCE->getOpcode() == GEP_OPCODE);
 
       // get the address pointer from the instruction
@@ -965,26 +1066,33 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
       uint64_t oldAddrPt = oldConst->getSExtValue();
 
       // find which part of the vtable the constructor uses
-      assert(cha->hasAddrPt(v.first, oldAddrPt));
-      uint64_t order = cha->getAddrPtOrder(v.first, oldAddrPt);
+      assert(cha->hasAddrPt(vnode.first, oldAddrPt));
+      uint64_t order = cha->getAddrPtOrder(vnode.first, oldAddrPt);
 
       // if this is not referring to the current part, continue
-      if (order != v.second)
+      if (order != vnode.second)
         continue;
 
       // find the offset relative to the sub-vtable start
-      int addrInsideBlock = oldAddrPt - cha->getRange(v.first, order).first;
+      int addrInsideBlock = oldAddrPt - cha->getRange(vnode.first, order).first;
 
       // find the new offset corresponding to the relative offset
       // inside the interleaved vtable
-      int64_t newAddrPt = newLayoutInds[v][addrInsideBlock];
-
-      Constant* newOffsetCons  = ConstantInt::getSigned(Type::getInt64Ty(M.getContext()), newAddrPt);
-
-      std::vector<Constant*> indices;
-      indices.push_back(zero);
-      indices.push_back(newOffsetCons);
+      int64_t newAddrPt = newLayoutInds[vnode][addrInsideBlock];
       
+      //declare a new offset constant 
+      Constant* newOffsetConstant  = ConstantInt::getSigned(Type::getInt64Ty(M.getContext()), newAddrPt);
+      
+      //declare a new array of indices
+      std::vector<Constant*> indices;
+
+      //insert the zero constant 
+      indices.push_back(zero);
+
+      //insert the new offset constant 
+      indices.push_back(newOffsetConstant);
+      
+      //this is just an example of how to declare a Constant 
       /*Constant *ConstantExpr::getGetElementPtr(Type *Ty, 
                                               Constant *C,
                                    ArrayRef<Value *> Idxs, 
@@ -993,12 +1101,16 @@ void SDLayoutBuilder::createNewVTable(Module& M, SDLayoutBuilder::vtbl_name_t& v
       */
       
       //this is the new constant which will be inserted containing the new v tables 
-      Constant* newConst = ConstantExpr::getGetElementPtr(newArrType, newVtable, indices, true);
+      Constant* newConstExpr = ConstantExpr::getGetElementPtr(newArrType, //ArrayType 
+                                                       newGlobalVariable, //GlobalVariable
+                                                                 indices, //std::vector<Constant*>
+                                                                   true); //bool inBounds
       
-      // replace the constant expression with the one that uses the new vtable
-      userCE->replaceAllUsesWith(newConst);
+      // replace in the user constant expression 
+      // with the one that uses the new vtable, newConstExpr
+      userCE->replaceAllUsesWith(newConstExpr);
      
-      // and then remove it
+      // remove the user constant expression 
       userCE->destroyConstant();
     }
   }
@@ -1061,47 +1173,69 @@ void SDLayoutBuilder::fillVtablePart(SDLayoutBuilder::interleaving_list_t& vtblP
 }
 
 //Paul: compute the new translated v table index 
-int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t name, int64_t offset, bool isRelative = true) {
+int64_t SDLayoutBuilder::translateVtblInd(SDLayoutBuilder::vtbl_t vname, int64_t offset, bool isRelative = true) {
 
-  if (cha->isUndefined(name) && cha->hasFirstDefinedChild(name)) {
-    name = cha->getFirstDefinedChild(name);
+  if (cha->isUndefined(vname) && cha->hasFirstDefinedChild(vname)) {
+    vname = cha->getFirstDefinedChild(vname);
   }
 
-  if (!newLayoutInds.count(name)) {
+  if (!newLayoutInds.count(vname)) {
     sd_print("Vtbl %s %d, undefined: %d.\n",
-        name.first.c_str(), name.second, cha->isUndefined(name));
-    sd_print("has first child %d.\n", cha->hasFirstDefinedChild(name));
-    if (cha->knowsAbout(name) && cha->hasFirstDefinedChild(name)) {
-      sd_print("class: (%s, %lu) doesn't belong to newLayoutInds\n", name.first.c_str(), name.second);
-      sd_print("%s has %u address points\n", name.first.c_str(), cha->getNumAddrPts(name.first));
-      for (uint64_t i = 0; i < cha->getNumAddrPts(name.first); i++)
-        sd_print("  addrPt: %d\n", cha->addrPt(name.first, i));
+        vname.first.c_str(), vname.second, cha->isUndefined(vname));
+    sd_print("has first child %d.\n", cha->hasFirstDefinedChild(vname));
+    
+    if (cha->knowsAbout(vname) && cha->hasFirstDefinedChild(vname)) {
+      sd_print("class: (%s, %lu) doesn't belong to newLayoutInds\n", vname.first.c_str(), vname.second);
+      sd_print("%s has %u address points\n", vname.first.c_str(), cha->getNumAddrPts(vname.first));
+      
+      for (uint64_t i = 0; i < cha->getNumAddrPts(vname.first); i++)
+        sd_print("  addrPt: %d\n", cha->addrPt(vname.first, i));
       assert(false);
     }
-
+    
+    //return the old offset 
     return offset;
   }
+  
+  //there exists a range for the v table name 
+  assert(cha->hasRange(vname));
 
-  assert(cha->hasRange(name));
-  std::vector<uint64_t>& newInds = newLayoutInds[name];
-  const range_t& subVtableRange = cha->getRange(name);
+  //get new layouts indices for this new v table name 
+  std::vector<uint64_t>& newInds = newLayoutInds[vname];
 
+  //get the range for the v table v name 
+  const range_t& subVtableRange = cha->getRange(vname);
+  
+  //check if is relative call 
   if (isRelative) {
-    int64_t oldAddrPt = cha->addrPt(name) - subVtableRange.first;
-    int64_t fullIndex = oldAddrPt + offset;
 
+    //compute old address point 
+    int64_t oldAddrPt = cha->addrPt(vname) - subVtableRange.first;
+
+    //full index is oldad address point + offset 
+    int64_t fullIndex = oldAddrPt + offset;
+    
+    //if fullIndex is negative and less equal the difference between sub v table range second and sub v table range first 
+    // return an error in the translated v table index 
     if (! (fullIndex >= 0 && fullIndex <= (int64_t) (subVtableRange.second - subVtableRange.first))) {
-      sd_print("error in translateVtblInd: %s, addrPt:%ld, old:%ld\n", name.first.c_str(), oldAddrPt, offset);
+      sd_print("error in translateVtblInd: %s, addrPt:%ld, old:%ld\n", vname.first.c_str(), oldAddrPt, offset);
       assert(false);
     }
-
+    
+    //return the new index as the difference between the fullIndex and old address point 
     return ((int64_t) newInds.at(fullIndex)) - ((int64_t) newInds.at(oldAddrPt));
+
+    //if not relative 
   } else {
+    //offset >= 0 and offset <= new indices size()
     assert(0 <= offset && offset <= (int64_t)newInds.size());
+
+    //return the new index 
     return newInds[offset];
   }
 }
 
+//get the v table range start 
 llvm::Constant* SDLayoutBuilder::getVTableRangeStart(const SDLayoutBuilder::vtbl_t& vtbl) {
   return newVTableStartAddrMap[vtbl];
 }
@@ -1114,7 +1248,7 @@ void SDLayoutBuilder::clearAnalysisResults() {
   newLayoutInds.clear();
   interleavingMap.clear();
 
-  sd_print("Cleared SDLayoutBuilder analysis results\n");
+  sd_print("Cleared SDLayoutBuilder analysis results \n");
 }
 
 /// ----------------------------------------------------------------------------
@@ -1133,14 +1267,15 @@ void SDLayoutBuilder::removeOldLayouts(Module &M) {
   for (auto itr = cha->oldVTables_begin(); itr != cha->oldVTables_end(); itr ++) {
     GlobalVariable* var = M.getGlobalVariable(itr->first, true);
     assert(var && var->use_empty());
-    sd_print("deleted vtbl: %s\n", var->getName().data());
+    sd_print("Deleting vtbl: %s \n", var->getName().data());
     var->eraseFromParent();
   }
 
-  // remove all original thunks from the module
+  // remove all original v thunks from the module
   while (! vthunksToRemove.empty()) {
     Function* f = * vthunksToRemove.begin();
     vthunksToRemove.erase(f);
+    
     //erase the Function from the parent
     f->eraseFromParent();
   }
@@ -1148,6 +1283,8 @@ void SDLayoutBuilder::removeOldLayouts(Module &M) {
   //collect and than remove
   for (Module::FunctionListType::iterator itr = M.getFunctionList().begin();
        itr != M.getFunctionList().end(); itr++){
+
+    //sd_isVthunk checks that the name contains the substrings "_ZTcv" or "_ZTc""
     if (sd_isVthunk(itr->getName()) && (itr->user_begin() == itr->user_end())) {
       vthunksToRemove.insert(itr); //collect the v thunks 
     }
@@ -1267,7 +1404,8 @@ Constant* SDLayoutBuilder::newVtblAddressConst(Module& M, const vtbl_t& vtbl) {
 void SDLayoutBuilder::buildNewLayouts(Module &M) {
 
   sd_print("CHA cloud map has %d root nodes \n", cha->getNumberOfRoots());
-  //first, we iterate through all roots contained in the cloud, order or interleave them 
+  
+  //1: we iterate through all roots contained in the cloud, order or interleave them 
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
    
     vtbl_name_t vtbl = *itr;         // get the v table name as string
@@ -1292,25 +1430,30 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     // the new indices will be used when inserting the new v table layouts inside the metadata.
     // Inside this method the interleavedMap obtained in the interleaveCloud or 
     // orderCloud will be used to compute the new index of the v table. 
-    // This is just a simple counting and ssigning index numbers to the elements.
+    // This is just a simple counting and ssigning an index number to the new elements.
     calculateNewLayoutInds(vtbl);    // calculate the new indices from the interleaved vtable
   }
   
-  //second, we iterate through all roots contained in the cloud and replace 
+  //2: we iterate through all roots contained in the cloud and replace 
   //v thunks and emit global variables.
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
 
     // get the v table name as string
     vtbl_name_t vtbl = *itr;        
-
-    // replace the virtual thunks with the modified ones
+    
+    // create new thunk function and add it to M.getFunctionList().push_back(newThunkF);
+    // replace the old v pointer whith the new one using Intrinsics::sd_vcall_indexF
     createThunkFunctions(M, vtbl); 
 
-    // emit the new global variables with the new v tables inside  
+    // emit the new global variables with the new v tables inside.  
+    // Previously that mens that the v tables where extended with
+    // all v table children of a given root node. This means that to many v tables are attached 
+    // to a Global Variable. This is bad! (attack surface is increased).
+    // Note: the added range checks reflect the contents of this global variable 
     createNewVTable(M, vtbl);        
   }
 
-  // third, we iterate through all roots contained in the cloud and 
+  // 3: we iterate through all roots contained in the cloud and 
   // calculate v pointer ranges and than verify the v pointer ranges
   for (auto itr = cha->roots_begin(); itr != cha->roots_end(); itr++) {
     vtbl_name_t vtbl = *itr;  // get the v table name as string
@@ -1321,9 +1464,9 @@ void SDLayoutBuilder::buildNewLayouts(Module &M) {
     //and the base class of the function which the object is calling, see SW paper.
     calculateVPtrRanges(M, vtbl);  
 
-    //Check that the ranges of the descendants are disjoint. 
-    //This means they do not overlap at all.
-    //Check that each descendent is in one of the ranges. 
+    //Check that the ranges of the descendants are disjoint:
+    //1.This means they do not overlap at all.
+    //2.Check that each descendent is in one of the ranges. 
     verifyVPtrRanges(vtbl);         
   }
 }
