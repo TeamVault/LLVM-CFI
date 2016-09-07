@@ -1,0 +1,254 @@
+Vtable for 'A1' (4 entries).
+   0 | offset_to_top (0)
+   1 | A1 RTTI
+       -- (A1, 0) vtable address --
+   2 | void A1::set_a1(int)
+   3 | int A1::get_a1()
+
+VTable indices for 'A1' (2 entries).
+   0 | void A1::set_a1(int)
+   1 | int A1::get_a1()
+
+Vtable for 'A2' (4 entries).
+   0 | offset_to_top (0)
+   1 | A2 RTTI
+       -- (A2, 0) vtable address --
+   2 | void A2::set_a2(int)
+   3 | int A2::get_a2()
+
+VTable indices for 'A2' (2 entries).
+   0 | void A2::set_a2(int)
+   1 | int A2::get_a2()
+
+Vtable for 'A3' (4 entries).
+   0 | offset_to_top (0)
+   1 | A3 RTTI
+       -- (A3, 0) vtable address --
+   2 | void A3::set_a3(int)
+   3 | int A3::get_a3()
+
+VTable indices for 'A3' (2 entries).
+   0 | void A3::set_a3(int)
+   1 | int A3::get_a3()
+
+Vtable for 'B' (18 entries).
+   0 | vbase_offset (32)
+   1 | vbase_offset (16)
+   2 | offset_to_top (0)
+   3 | B RTTI
+       -- (B, 0) vtable address --
+   4 | void B::set_b(int)
+   5 | int B::get_b()
+   6 | vcall_offset (0)
+   7 | vcall_offset (0)
+   8 | offset_to_top (-16)
+   9 | B RTTI
+       -- (A2, 16) vtable address --
+  10 | void A2::set_a2(int)
+  11 | int A2::get_a2()
+  12 | vcall_offset (0)
+  13 | vcall_offset (0)
+  14 | offset_to_top (-32)
+  15 | B RTTI
+       -- (A3, 32) vtable address --
+  16 | void A3::set_a3(int)
+  17 | int A3::get_a3()
+
+Virtual base offset offsets for 'B' (2 entries).
+   A2 | -24
+   A3 | -32
+
+VTable indices for 'B' (2 entries).
+   0 | void B::set_b(int)
+   1 | int B::get_b()
+
+Vtable for 'C' (32 entries).
+   0 | vbase_offset (64)
+   1 | vbase_offset (48)
+   2 | vbase_offset (32)
+   3 | vbase_offset (16)
+   4 | offset_to_top (0)
+   5 | C RTTI
+       -- (C, 0) vtable address --
+   6 | vcall_offset (0)
+   7 | vcall_offset (0)
+   8 | offset_to_top (-16)
+   9 | C RTTI
+       -- (A1, 16) vtable address --
+  10 | void A1::set_a1(int)
+  11 | int A1::get_a1()
+  12 | vcall_offset (0)
+  13 | vcall_offset (0)
+  14 | vbase_offset (32)
+  15 | vbase_offset (16)
+  16 | offset_to_top (-32)
+  17 | C RTTI
+       -- (B, 32) vtable address --
+  18 | void B::set_b(int)
+  19 | int B::get_b()
+  20 | vcall_offset (0)
+  21 | vcall_offset (0)
+  22 | offset_to_top (-48)
+  23 | C RTTI
+       -- (A2, 48) vtable address --
+  24 | void A2::set_a2(int)
+  25 | int A2::get_a2()
+  26 | vcall_offset (0)
+  27 | vcall_offset (0)
+  28 | offset_to_top (-64)
+  29 | C RTTI
+       -- (A3, 64) vtable address --
+  30 | void A3::set_a3(int)
+  31 | int A3::get_a3()
+
+Virtual base offset offsets for 'C' (4 entries).
+   A1 | -24
+   A2 | -40
+   A3 | -48
+   B | -32
+
+
+Construction vtable for ('B', 32) in 'C' (20 entries).
+   0 | vcall_offset (0)
+   1 | vcall_offset (0)
+   2 | vbase_offset (32)
+   3 | vbase_offset (16)
+   4 | offset_to_top (0)
+   5 | B RTTI
+       -- (B, 32) vtable address --
+   6 | void B::set_b(int)
+   7 | int B::get_b()
+   8 | vcall_offset (0)
+   9 | vcall_offset (0)
+  10 | offset_to_top (-16)
+  11 | B RTTI
+       -- (A2, 48) vtable address --
+  12 | void A2::set_a2(int)
+  13 | int A2::get_a2()
+  14 | vcall_offset (0)
+  15 | vcall_offset (0)
+  16 | offset_to_top (-32)
+  17 | B RTTI
+       -- (A3, 64) vtable address --
+  18 | void A3::set_a3(int)
+  19 | int A3::get_a3()
+
+Vtable for 'D' (39 entries).
+   0 | vbase_offset (80)
+   1 | vbase_offset (64)
+   2 | vbase_offset (48)
+   3 | vbase_offset (32)
+   4 | vbase_offset (16)
+   5 | offset_to_top (0)
+   6 | D RTTI
+       -- (D, 0) vtable address --
+   7 | vbase_offset (64)
+   8 | vbase_offset (48)
+   9 | vbase_offset (32)
+  10 | vbase_offset (16)
+  11 | offset_to_top (-16)
+  12 | D RTTI
+       -- (C, 16) vtable address --
+  13 | vcall_offset (0)
+  14 | vcall_offset (0)
+  15 | offset_to_top (-32)
+  16 | D RTTI
+       -- (A1, 32) vtable address --
+  17 | void A1::set_a1(int)
+  18 | int A1::get_a1()
+  19 | vcall_offset (0)
+  20 | vcall_offset (0)
+  21 | vbase_offset (32)
+  22 | vbase_offset (16)
+  23 | offset_to_top (-48)
+  24 | D RTTI
+       -- (B, 48) vtable address --
+  25 | void B::set_b(int)
+  26 | int B::get_b()
+  27 | vcall_offset (0)
+  28 | vcall_offset (0)
+  29 | offset_to_top (-64)
+  30 | D RTTI
+       -- (A2, 64) vtable address --
+  31 | void A2::set_a2(int)
+  32 | int A2::get_a2()
+  33 | vcall_offset (0)
+  34 | vcall_offset (0)
+  35 | offset_to_top (-80)
+  36 | D RTTI
+       -- (A3, 80) vtable address --
+  37 | void A3::set_a3(int)
+  38 | int A3::get_a3()
+
+Virtual base offset offsets for 'D' (5 entries).
+   A1 | -32
+   A2 | -48
+   A3 | -56
+   B | -40
+   C | -24
+
+
+Construction vtable for ('C', 16) in 'D' (32 entries).
+   0 | vbase_offset (64)
+   1 | vbase_offset (48)
+   2 | vbase_offset (32)
+   3 | vbase_offset (16)
+   4 | offset_to_top (0)
+   5 | C RTTI
+       -- (C, 16) vtable address --
+   6 | vcall_offset (0)
+   7 | vcall_offset (0)
+   8 | offset_to_top (-16)
+   9 | C RTTI
+       -- (A1, 32) vtable address --
+  10 | void A1::set_a1(int)
+  11 | int A1::get_a1()
+  12 | vcall_offset (0)
+  13 | vcall_offset (0)
+  14 | vbase_offset (32)
+  15 | vbase_offset (16)
+  16 | offset_to_top (-32)
+  17 | C RTTI
+       -- (B, 48) vtable address --
+  18 | void B::set_b(int)
+  19 | int B::get_b()
+  20 | vcall_offset (0)
+  21 | vcall_offset (0)
+  22 | offset_to_top (-48)
+  23 | C RTTI
+       -- (A2, 64) vtable address --
+  24 | void A2::set_a2(int)
+  25 | int A2::get_a2()
+  26 | vcall_offset (0)
+  27 | vcall_offset (0)
+  28 | offset_to_top (-64)
+  29 | C RTTI
+       -- (A3, 80) vtable address --
+  30 | void A3::set_a3(int)
+  31 | int A3::get_a3()
+
+Construction vtable for ('B', 48) in 'D' (20 entries).
+   0 | vcall_offset (0)
+   1 | vcall_offset (0)
+   2 | vbase_offset (32)
+   3 | vbase_offset (16)
+   4 | offset_to_top (0)
+   5 | B RTTI
+       -- (B, 48) vtable address --
+   6 | void B::set_b(int)
+   7 | int B::get_b()
+   8 | vcall_offset (0)
+   9 | vcall_offset (0)
+  10 | offset_to_top (-16)
+  11 | B RTTI
+       -- (A2, 64) vtable address --
+  12 | void A2::set_a2(int)
+  13 | int A2::get_a2()
+  14 | vcall_offset (0)
+  15 | vcall_offset (0)
+  16 | offset_to_top (-32)
+  17 | B RTTI
+       -- (A3, 80) vtable address --
+  18 | void A3::set_a3(int)
+  19 | int A3::get_a3()
+

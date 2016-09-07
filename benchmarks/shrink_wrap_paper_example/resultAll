@@ -1,0 +1,172 @@
+Building parent information for A1
+Addr Pt: 2 base A1
+
+Parents:((A1;0),0:[]),
+Building parent information for A2
+Addr Pt: 2 base A2
+
+Parents:((A2;0),0:[]),
+Building parent information for A3
+Addr Pt: 2 base A3
+
+Parents:((A3;0),0:[]),
+getAddrOfVTable: A1
+layout : 0x551adc0
+emitVTableDefinitions for A1
+0x4eec7a0,0x551adc0,0x54e95e8,A1
+Emitting subvtable info for A1
+getAddrOfVTable: A2
+layout : 0x4eee0e0
+emitVTableDefinitions for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+getAddrOfVTable: A3
+layout : 0x55313b0
+emitVTableDefinitions for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+getAddrOfVTable: B
+Building parent information for B
+BaseDecl: 0x54e9ec0A2
+BaseDecl: 0x54ea790A3
+Addr Pt: 16 base A3
+Addr Pt: 4 base B
+Addr Pt: 10 base A2
+
+Parents:((B;0),0:[]),((A2;0),1:[(A2,0),]),((A3;0),1:[(A3,0),]),
+layout : 0x5576d70
+emitVTableDefinitions for B
+0x4eec7a0,0x5576d70,0x54eb060,B
+Emitting subvtable info for B
+Recursively calling sd_insertVtableMD for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+Recursively calling sd_insertVtableMD for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+getAddrOfVTable: C
+Building parent information for C
+BaseDecl: 0x54e95e8A1
+BaseDecl: 0x54eb060B
+Addr Pt: 18 base B
+Addr Pt: 10 base A1
+Addr Pt: 30 base A3
+Addr Pt: 6 base C
+Addr Pt: 24 base A2
+
+Parents:((C;0),0:[]),((A1;0),1:[(A1,0),]),((B;0),1:[(B,0),]),((A2;0),1:[(B,1),]),((A3;0),1:[(B,2),]),
+layout : 0x55860a0
+Building parent information for B
+BaseDecl: 0x54e9ec0A2
+BaseDecl: 0x54ea790A3
+Addr Pt: 6 base B
+Addr Pt: 18 base A3
+Addr Pt: 12 base A2
+
+Parents:((B;0),0:[]),((A2;0),1:[(A2,0),]),((A3;0),1:[(A3,0),]),
+Creating construction vtable for C
+0x4eec7a0,0x50b8870,0x54eb9e0,C
+Emitting subvtable info for C
+Recursively calling sd_insertVtableMD for B
+0x4eec7a0,0x5576d70,0x54eb060,B
+Emitting subvtable info for B
+Recursively calling sd_insertVtableMD for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+Recursively calling sd_insertVtableMD for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+emitVTableDefinitions for C
+0x4eec7a0,0x55860a0,0x54eb9e0,C
+Emitting subvtable info for C
+Recursively calling sd_insertVtableMD for B
+0x4eec7a0,0x5576d70,0x54eb060,B
+Emitting subvtable info for B
+Recursively calling sd_insertVtableMD for A1
+0x4eec7a0,0x551adc0,0x54e95e8,A1
+Emitting subvtable info for A1
+Recursively calling sd_insertVtableMD for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+Recursively calling sd_insertVtableMD for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+getAddrOfVTable: D
+Building parent information for D
+BaseDecl: 0x54eb9e0C
+Addr Pt: 13 base C
+Addr Pt: 25 base B
+Addr Pt: 7 base D
+Addr Pt: 17 base A1
+Addr Pt: 31 base A2
+Addr Pt: 37 base A3
+
+Parents:((D;0),0:[]),((C;0),1:[(C,0),]),((A1;0),1:[(C,1),]),((B;0),1:[(C,2),]),((A2;0),1:[(C,3),]),((A3;0),1:[(C,4),]),
+layout : 0x5599a80
+Building parent information for C
+BaseDecl: 0x54e95e8A1
+BaseDecl: 0x54eb060B
+Addr Pt: 6 base C
+Addr Pt: 18 base B
+Addr Pt: 10 base A1
+Addr Pt: 24 base A2
+Addr Pt: 30 base A3
+
+Parents:((C;0),0:[]),((A1;0),1:[(A1,0),]),((B;0),1:[(B,0),]),((A2;0),1:[(B,1),]),((A3;0),1:[(B,2),]),
+Creating construction vtable for D
+0x4eec7a0,0x5598680,0x54ec3d8,D
+Emitting subvtable info for D
+Recursively calling sd_insertVtableMD for C
+0x4eec7a0,0x55860a0,0x54eb9e0,C
+Emitting subvtable info for C
+Recursively calling sd_insertVtableMD for B
+0x4eec7a0,0x5576d70,0x54eb060,B
+Emitting subvtable info for B
+Recursively calling sd_insertVtableMD for A1
+0x4eec7a0,0x551adc0,0x54e95e8,A1
+Emitting subvtable info for A1
+Recursively calling sd_insertVtableMD for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+Recursively calling sd_insertVtableMD for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+Building parent information for B
+BaseDecl: 0x54e9ec0A2
+BaseDecl: 0x54ea790A3
+Addr Pt: 6 base B
+Addr Pt: 12 base A2
+Addr Pt: 18 base A3
+
+Parents:((B;0),0:[]),((A2;0),1:[(A2,0),]),((A3;0),1:[(A3,0),]),
+Creating construction vtable for D
+0x4eec7a0,0x559dee0,0x54ec3d8,D
+Emitting subvtable info for D
+Recursively calling sd_insertVtableMD for B
+0x4eec7a0,0x5576d70,0x54eb060,B
+Emitting subvtable info for B
+Recursively calling sd_insertVtableMD for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+Recursively calling sd_insertVtableMD for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+emitVTableDefinitions for D
+0x4eec7a0,0x5599a80,0x54ec3d8,D
+Emitting subvtable info for D
+Recursively calling sd_insertVtableMD for C
+0x4eec7a0,0x55860a0,0x54eb9e0,C
+Emitting subvtable info for C
+Recursively calling sd_insertVtableMD for B
+0x4eec7a0,0x5576d70,0x54eb060,B
+Emitting subvtable info for B
+Recursively calling sd_insertVtableMD for A1
+0x4eec7a0,0x551adc0,0x54e95e8,A1
+Emitting subvtable info for A1
+Recursively calling sd_insertVtableMD for A2
+0x4eec7a0,0x4eee0e0,0x54e9ec0,A2
+Emitting subvtable info for A2
+Recursively calling sd_insertVtableMD for A3
+0x4eec7a0,0x55313b0,0x54ea790,A3
+Emitting subvtable info for A3
+
