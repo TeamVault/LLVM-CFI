@@ -181,7 +181,10 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
+    sd_print("CI 1: %s \n", CI->getName());
+
     // get the old arguments
+    //this is the vPointer 
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
     assert(arg1);
 
@@ -196,7 +199,10 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
 
     // second one is the tuple that contains the class name and the corresponding global var.
     // note that the global variable isn't always emitted
-    std::string className = sd_getClassNameFromMD(mdNode,0);
+    // get the class name based on the mdNode of the second argument of the CI.
+    std::string className = sd_getClassNameFromMD(mdNode, 0);
+
+    //retrieve the corresponding v table bassed on the class name.
     SDLayoutBuilder::vtbl_t classVtbl(className, 0);
 
     // calculate the new index
@@ -207,10 +213,9 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
 
     // since the result of the call instruction is i64, replace all of its occurence with this one
     IRBuilder<> B(CI);
-    llvm::Value *Args[] = {newConsIntInd};
-    llvm::Value* newIntr = B.CreateCall(Intrinsic::getDeclaration(M,
-          Intrinsic::sd_subst_vtbl_index),
-          Args);
+    llvm::Value *Args[] = {newConsIntInd}; //this is the new constant index for the class v table.
+    llvm::Value* newIntr = B.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::sd_subst_vtbl_index),
+                                        Args);
 
     CI->replaceAllUsesWith(newIntr); //Paul: replace the old v table index with the new one 
     CI->eraseFromParent();
@@ -244,7 +249,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     // get the call instruction from the uses 
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
-    //sd_print("CI: %s \n", CI->data());
+    sd_print("CI 2: %s \n", CI->getName());
 
     // get the arguments
     llvm::Value* vptr = CI->getArgOperand(0);
@@ -277,11 +282,12 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     llvm::Constant *start; //Paul: range start
     int64_t rangeWidth;    //Paul: range width
 
-    sd_print("Callsite for class %s cha->knowsAbout(%s, %d) = %d) ", className.c_str(),
+    sd_print("Callsite for class %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n", className.c_str(),
                                                               vtbl.first.c_str(), 
                                                                      vtbl.second, 
                                                            cha->knowsAbout(vtbl));
-
+ 
+    //in case there is a more precise class name 
     if (cha->knowsAbout(vtbl)) {
       if (preciseClassName != className) {
         sd_print("More precise class name = %s\n", preciseClassName.c_str());
@@ -401,6 +407,8 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
     
     // get each call instruction
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
+
+    //sd_print("CI 3: %s \n", cast<IntrinsicInst>(CI)->print(errs()));
 
     // get the v ptr
     llvm::Value* vptr = CI->getArgOperand(0);
@@ -583,6 +591,8 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
+    sd_print("CI 4: %s \n", CI->getName());
+
     // get the arguments, Paul: this argument is the v pointer.
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
     assert(arg1); 
@@ -693,11 +703,11 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
           int alignmentBits = floor(log(alignmentInt + 0.5)/log(2.0));
 
           llvm::Constant* rootVtblInt = dyn_cast<llvm::Constant>(start->getOperand(0));
-          llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(
-            rootVtblInt->getOperand(0));
+          llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(rootVtblInt->getOperand(0));
           llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
  
           //Paul: sum up all the ranges widths which will be substituted 
+          //this is just for statistics relevant
           sumWidth = sumWidth + widthInt;
 
           //check if vptr is constant
@@ -708,6 +718,7 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
             CI->eraseFromParent();
            
             //Paul: sum up how many times we had constant pointers 
+            //this is used just for statistics.
             constPtr++;
           } else
 
@@ -757,14 +768,17 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
         }
       }
       
-      //in the interleaving paper the average number of ranges per call site was close to 1 (1,005)
+      //finished adding all the range checks, now print some statistics.
+      //in the interleaving paper the average number of ranges per call site was close to 1 (1,005).
       sd_print("P5. Finished running SDSubstModule pass...\n");
-      sd_print(" ---SDSubst Statistics--- \n");
-      sd_print(" indices %d \n", indexSubst);
-      sd_print(" range checks added %d \n", rangeSubst);
-      sd_print(" eq_checks added %d \n", eqSubst);
-      sd_print(" const_ptr % d \n", constPtr);
-      sd_print(" average range width % lf \n", sumWidth * 1.0 / (rangeSubst + eqSubst + constPtr));
+
+      sd_print(" ---P5. SDSubst Statistics--- \n");
+
+      sd_print(" Total indicex substitutions %d \n", indexSubst);
+      sd_print(" Total range checks added %d \n", rangeSubst);
+      sd_print(" Total eq_checks added %d \n", eqSubst);
+      sd_print(" Total const_ptr % d \n", constPtr);
+      sd_print(" Average range width % lf \n", sumWidth * 1.0 / (rangeSubst + eqSubst + constPtr));
 
       //one of these values has to be > than 0 
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;

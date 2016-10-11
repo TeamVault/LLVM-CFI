@@ -60,7 +60,7 @@ namespace llvm {
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;  //Paul: map of v table name -> ConstantArray
     typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t;   //Paul: map of v table name -> vector of vt sets of names
 
-private:
+  private:
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>; pair -> set
     parent_map_t parentMap;                            // vtbl -> [(vtbl, ind)]; string -> vector of sets
     roots_t roots;                                     // set<vtbl> set
@@ -87,11 +87,12 @@ private:
       vtbl_set_t  parents;    //std::set of pairs (<vtbl_name_t, uint64_t>)
       uint64_t    start;      // range boundaries are inclusive
       uint64_t    end;
-      uint64_t    addressPoint;
+      uint64_t    addressPoint; //this is the address point of the v table in the v table layout 
+                                //e.g., uint64_t addrPt = VTLayout->getAddressPoint(it.second);
     };
     
     //Paul: this is the basic CHA node type, maybe based on the ShrinkWrap approach we need to 
-    // add additional elements. Basically the class hierarchy has to checked and v table inheritance
+    // add additional elements. Basically the class hierarchy has to be checked and v table inheritance
     // hierarchy. The v tables which are added during interleaving need to reside on an v table
     // inheritance path. For this we need to determine the v table inheritance paths.
     struct nmd_t {

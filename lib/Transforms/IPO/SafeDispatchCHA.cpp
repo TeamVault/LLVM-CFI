@@ -457,13 +457,13 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       subInfo.addressPoint      = sd_getNumberFromMDTuple(tup->getOperand(3)); //Paul: this gives the address point
       llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4)); //Paul: this returns the parents tuple
 
-      /*Paul: get the number of parents for the first parent
-      */
+      /*Paul: get the number of parents for the first parent*/
       unsigned numParents = sd_getNumberFromMDTuple(parentsTup->getOperand(0)); 
       
       //Paul: iterate through all the parents 
       for (int j = 0; j < numParents; j++) {
-        //Paul: give the name of the v table
+        
+        //Paul: regive the name of the v table
         vtbl_name_t ptName = sd_getStringFromMDTuple(parentsTup->getOperand(1+j*3)); 
 
         // Paul: one more index position to the right, get pointer index
@@ -488,6 +488,7 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       info.subVTables.push_back(subInfo); //Paul: subInfo struct is contained in the info struct
     }
     
+    //count the number of operands, in order to know when to stop 
     op += numOperands;
 
     if (classes.count(info.className) == 0) {

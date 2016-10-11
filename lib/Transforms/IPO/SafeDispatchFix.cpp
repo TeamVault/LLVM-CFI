@@ -39,8 +39,7 @@ using namespace llvm;
 
 #define NEW_VTABLE_NAME(vtbl) ("_SD" + vtbl)
 
-static Constant*
-sd_isRTTI(Constant* vtblElement) {
+static Constant* sd_isRTTI(Constant* vtblElement) {
   ConstantExpr* bcExpr = NULL;
 
   // if this a constant bitcast expression, this might be a vthunk
@@ -57,8 +56,7 @@ sd_isRTTI(Constant* vtblElement) {
   return NULL;
 }
 
-static bool
-sd_isDestructorName(StringRef name) {
+static bool sd_isDestructorName(StringRef name) {
   if (name.size() > 4) {
     unsigned s = name.size();
     return name[s-4] == 'D' &&
@@ -69,8 +67,7 @@ sd_isDestructorName(StringRef name) {
   return false;
 }
 
-static Constant*
-sd_getDestructorFunction(Constant* vtblElement) {
+static Constant* sd_getDestructorFunction(Constant* vtblElement) {
   ConstantExpr* bcExpr = NULL;
 
   // if this a constant bitcast expression, this might be a vthunk

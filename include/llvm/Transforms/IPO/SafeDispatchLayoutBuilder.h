@@ -88,7 +88,7 @@ namespace llvm {
       sd_print("P3. Started building layout ...\n");
 
       /**Paul:
-      first pass the results from the CHA pass
+      first, pass the results from the CHA pass
        to the SD Layout Builder pass inside the new cha variable*/
       cha = &getAnalysis<SDBuildCHA>();
       
