@@ -872,7 +872,7 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
  
   //Paul: iterate through all the nodes for this root 
   //and print the ranges 
-  std::cerr << "Printing and buid memRangeMap for root node " << vtbl.c_str() << " \n";
+  std::cerr << "\n Printing and buid memRangeMap for root node " << vtbl.c_str() << " \n";
   for (uint64_t i = 0; i < preorderV.size(); i++) {
     std::cerr << "For pre node first: " << preorderV[i].first << ", and pre node second:" << preorderV[i].second << " ";
 

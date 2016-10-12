@@ -96,7 +96,7 @@ llvm::Value* sd_IsVPtrInRange(CodeGenModule& CGM,
 
   llvm::MDNode* md = sd_getClassNameMetadata(className, M, VTableGV);
 
-  if (className == preciseClassName) {
+  if (className == preciseClassName) { //Paul: put the class name of the v ptr in a call.
     preciseMD = md;
   } else {
     preciseMD = sd_getClassNameMetadata(preciseClassName, M, NULL);
@@ -129,8 +129,8 @@ llvm::Value* sd_getRangeStart(CodeGenModule& CGM,
   llvm::Value* mdValue = llvm::MetadataAsValue::get(C, md);
   llvm::Value* Args[] = { mdValue }; //the arguments passed to the function underneath 
 
-  return builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_start), //Paul: see Intrinsics.td file
-                            Args);
+  //Paul: see Intrinsics.td file
+  return builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_start), Args);
 }
 
 //Paul: get range end, this method adds the corresponding def contained
@@ -150,7 +150,7 @@ llvm::Value* sd_getRangeEnd(CodeGenModule& CGM,
 
   return builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::sd_vtbl_range_end), //Paul: see Intrinsics.td file
                             Args); //this Args are the parameters of the above sd_vtbl_range_end 
-}
+ }
 }
 
 namespace {
@@ -1703,11 +1703,9 @@ static llvm::Value* sd_getCheckedVTable(CodeGenModule &CGM,
 
   // check if vtbl is inside the range
   if (preciseType) {
-    isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP,
-      CGM.getCXXABI().GetClassMangledName(preciseType));
+    isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP, CGM.getCXXABI().GetClassMangledName(preciseType));
   } else {
-    isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP,
-      Name);
+    isInsideRange = sd_IsVPtrInRange(CGM, CGF.Builder, VTable, Name, VTableAP, Name);
   }
 
   // do the branch
@@ -1730,10 +1728,9 @@ static llvm::Value* sd_getCheckedVTable(CodeGenModule &CGM,
   llvm::Type* argTs[] = { i8ptr, i8ptr };
   llvm::FunctionType *vptr_safeT = llvm::FunctionType::get(llvm::Type::getInt1Ty(C), argTs, false);
   llvm::Constant *vptr_safeF = M.getOrInsertFunction("_Z9vptr_safePKvPKc", vptr_safeT);
-  llvm::Value* slowPathSuccess = CGF.Builder.CreateCall2(
-              vptr_safeF,
-              CGF.Builder.CreateBitCast(VTableAP, i8ptr),
-              CGF.Builder.CreateGlobalStringPtr(Name));
+  llvm::Value* slowPathSuccess = CGF.Builder.CreateCall2(vptr_safeF,
+                                                         CGF.Builder.CreateBitCast(VTableAP, i8ptr),
+                                                         CGF.Builder.CreateGlobalStringPtr(Name));
 
   CGF.Builder.CreateCondBr(slowPathSuccess, checkDone, checkFailed);
 
@@ -1768,7 +1765,7 @@ static llvm::Value* sd_getCheckedVTable2(CodeGenModule &CGM,
                                        CodeGenFunction &CGF, 
                                     const CXXMethodDecl *MD, 
                                      llvm::Value *&VTableAP, 
-                           const CXXRecordDecl *perciseType) {
+                           const CXXRecordDecl *preciseType) {
 
   assert(MD && "Non-null method decl");
   assert(MD->isInstance() && "Shouldn't see a static method");
@@ -1780,7 +1777,7 @@ static llvm::Value* sd_getCheckedVTable2(CodeGenModule &CGM,
               NULL;
 
   std::string ClassName = CGM.getCXXABI().GetClassMangledName(MD->getParent());
-  std::string PreciseName = (perciseType ? CGM.getCXXABI().GetClassMangledName(perciseType) : ClassName);
+  std::string PreciseName = (preciseType ? CGM.getCXXABI().GetClassMangledName(preciseType) : ClassName);
 
   std::cerr << "get checked VTable in " <<
     dyn_cast<NamedDecl>(CGF.CurFuncDecl)->getQualifiedNameAsString() <<
@@ -1810,6 +1807,7 @@ static llvm::Value* sd_getCheckedVTable2(CodeGenModule &CGM,
 
   return CGF.Builder.CreatePointerCast(intr, VTableAP->getType());
 }
+
 
 //Paul: get the virtual function pointer 
 llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,

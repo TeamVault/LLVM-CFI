@@ -11,19 +11,54 @@ containsElement () {
 run_benchmarks() {
   local CUR_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+
   # TODO: Add  'dyn_link1' 
-  #local -a benchmarks=('abi_ex' 'multiple_secondary' 'my_ex1' 'only_mult2' 'simp1' 'virtual_mostly_empty_diamond' 
-#'multiple_secondary1' 'namespace_1' 'only_virt' 'simp_cast' 
-#'double_virtual_diamond' 'multiple_secondary2' 'namespace_2' 'ott' 'simp_virt'  
-#'multiple_secondary_diamond' 'namespace_3' 'partially_empty_virtual_diamond' 'single_template' 
-#'md_test' 'multiple_secondary_partially_virtual_diamond' 'nonvirtual_covariant_thunks' 'quaternary_diamond' 'static_lib' 
-#'member_ptr' 'multiple_secondary_virtual_diamond' 'non_virtual_diamond_with_virtual_ancestor' 'rtti_1' 'virtual_covariant_thunks' 
-#'member_ptr2' 'multiple_virtual' 'only_mult' 'simp0' 'virtual_diamond' 'virtual_with_virtual_primary_base' #'shrink_wrap_paper_example')
+  local -a benchmarks2=('abi_ex' 
+                       'multiple_secondary' 
+                       'my_ex1' 
+                       'only_mult2' 
+                       'simp1' 
+                       'virtual_mostly_empty_diamond' 
+                       'multiple_secondary1' 
+                       'namespace_1' 
+                       'only_virt' 
+                       'simp_cast' 
+                       'double_virtual_diamond' 
+                       'multiple_secondary2' 
+                       'namespace_2' 
+                       'ott' 
+                       'simp_virt'  
+                       'multiple_secondary_diamond' 
+                       'namespace_3' 
+                       'partially_empty_virtual_diamond'       
+                       'single_template' 
+                       'md_test' 
+                       'multiple_secondary_partially_virtual_diamond'                        
+                       'nonvirtual_covariant_thunks' 
+                       'quaternary_diamond' 
+                       'static_lib' 
+                       'member_ptr' 
+                       'multiple_secondary_virtual_diamond' 
+                       'non_virtual_diamond_with_virtual_ancestor' 
+                       'rtti_1'          
+                       'virtual_covariant_thunks' 
+                       'member_ptr2' 
+                       'multiple_virtual' 
+                       'only_mult' 
+                       'simp0' 
+                       'virtual_diamond' 
+                       'virtual_with_virtual_primary_base' 
+                       'shrink_wrap_paper_example')
 
-  local -a benchmarks=('shrink_wrap_paper_example')
+  local -a benchmarks=('shrink_wrap_paper_example')                 
+                       #'shrink_wrap_paper_example_overwrite')
 
-  local -a neg_benchs=('bad_cast' 'bad_multiple_inheritnace_cast'
-    'bad_mult_inh_sibling_cast' 'bad_shrinkwrap_ex' 'bad_sibling_cast_parent_method_call')
+  local -a neg_benchs=('bad_cast' 
+                       'bad_multiple_inheritnace_cast'
+                       'bad_mult_inh_sibling_cast' 
+                       'bad_shrinkwrap_ex' #this contains an invalid cast
+                       'bad_sibling_cast_parent_method_call'
+                       'bad_cast_info')
 
   # add the negative benchmarks as well
   #local -a benchmarks=("${benchmarks[@]}" "${neg_benchs[@]}")

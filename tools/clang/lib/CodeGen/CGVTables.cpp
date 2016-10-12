@@ -552,18 +552,21 @@ llvm::Constant *CodeGenVTables::CreateVTableInitializer(
 
   //comment me if not using
   std::string Name = CGM.getCXXABI().GetClassMangledName(RD);
-  sd_print("CGVTables.cpp: Vtable name: %s \n", Name.c_str());
+  //sd_print("CGVTables.cpp: Vtable name: %s \n", Name.c_str());
+  
   //Paul: printing the component types of the v table 
-  printVTableInitializer(RD, 
+  /*printVTableInitializer(RD, 
                          Components,
                          NumComponents, 
                          VTableThunks,
                          NumVTableThunks, 
                          RTTI);
+  */
 
   for (auto base = RD->bases_begin(); base != RD->bases_end(); base++) {
     //Paul: this calls into the SDVTblMD.h the dump method, the result is the 
     // nice color printings
+    
     //sd_print("Color printing C++ Base :\n"); 
     //base->getType()->getAsCXXRecordDecl()->dump();
   }

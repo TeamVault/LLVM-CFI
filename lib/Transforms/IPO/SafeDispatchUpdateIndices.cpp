@@ -68,7 +68,7 @@ namespace {
       //Paul: second get the results from the class hierarchy analysis pass
       cha = &getAnalysis<SDBuildCHA>();
 
-      sd_print("P4. Started running the 4th pass (Update indices) ...\n");
+      sd_print("\n P4. Started running the 4th pass (Update indices) ...\n");
 
       //Paul: substitute the old v table index witht the new one
       //Intrinsic::sd_get_vtbl_index -> Intrinsic::sd_subst_vtbl_index
@@ -89,7 +89,7 @@ namespace {
       layoutBuilder->removeOldLayouts(M);    //Paul: remove old layouts
       layoutBuilder->clearAnalysisResults(); //Paul: clear all data structures holding analysis data
 
-      sd_print("P4. Finished removing thunks from (Update indices) pass...\n");
+      sd_print("\n P4. Finished removing thunks from (Update indices) pass...\n");
       return true;
     }
 
@@ -169,8 +169,9 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
   Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vtbl_index));
 
   // if the function doesn't exist, do nothing
-  if (!sd_vtbl_indexF)
-    return;
+  if (!sd_vtbl_indexF){
+   return;
+  }
 
   llvm::LLVMContext& C = M->getContext();
   Type* intType = IntegerType::getInt64Ty(C);
@@ -181,12 +182,10 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
 
-    sd_print("CI 1: %s \n", CI->getName());
-
     // get the old arguments
     //this is the vPointer 
-    llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
-    assert(arg1);
+    llvm::ConstantInt* vptr = dyn_cast<ConstantInt>(CI->getArgOperand(0));
+    assert(vptr);
 
     llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
     assert(arg2);
@@ -195,15 +194,23 @@ void SDUpdateIndices::handleSDGetVtblIndex(Module* M) {
     assert(mdNode);
 
     // first argument is the old vtable index
-    int64_t oldIndex = arg1->getSExtValue();
+    int64_t oldIndex = vptr->getSExtValue();
 
     // second one is the tuple that contains the class name and the corresponding global var.
     // note that the global variable isn't always emitted
     // get the class name based on the mdNode of the second argument of the CI.
+    // this class name was previously inserted here during code generation from CGVTable.cpp
     std::string className = sd_getClassNameFromMD(mdNode, 0);
 
     //retrieve the corresponding v table bassed on the class name.
     SDLayoutBuilder::vtbl_t classVtbl(className, 0);
+
+    //do some printings of the classes and the associated v tables
+    sd_print("\n C1: vptr callsite with classname: %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n", 
+                                                               className.c_str(),
+                                                         classVtbl.first.c_str(), 
+                                                                classVtbl.second, 
+                                                           cha->knowsAbout(classVtbl));
 
     // calculate the new index
     int64_t newIndex = layoutBuilder->translateVtblInd(classVtbl, oldIndex, true);
@@ -240,16 +247,16 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
   Type *IntPtrTy = DL.getIntPtrType(C, 0);
 
   // if the function doesn't exist, do nothing
-  if (!sd_vtbl_indexF)
-    return;
+  if (!sd_vtbl_indexF){
+   return;
+  }
+    
 
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
     
     // get the call instruction from the uses 
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-
-    sd_print("CI 2: %s \n", CI->getName());
 
     // get the arguments
     llvm::Value* vptr = CI->getArgOperand(0);
@@ -270,11 +277,12 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     // second one is the tuple that contains the class name and the corresponding global var.
     // note that the global variable isn't always emitted
 
-    //class name of the calling object
-    std::string className = sd_getClassNameFromMD(mdNode,0);
+    // class name of the calling object
+    // this class name was previously inserted here during code generation from CGVTable.cpp
+    std::string className = sd_getClassNameFromMD(mdNode, 0);
 
     //class name of the base class ?
-    std::string preciseClassName = sd_getClassNameFromMD(mdNode1,0);
+    std::string preciseClassName = sd_getClassNameFromMD(mdNode1, 0);
 
     //declare a new v table with order number 0
     SDLayoutBuilder::vtbl_t vtbl(className, 0);
@@ -282,15 +290,27 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     llvm::Constant *start; //Paul: range start
     int64_t rangeWidth;    //Paul: range width
 
-    sd_print("Callsite for class %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n", className.c_str(),
+    sd_print("C2: Callsite for classname: %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n", 
+                                                               className.c_str(),
                                                               vtbl.first.c_str(), 
                                                                      vtbl.second, 
                                                            cha->knowsAbout(vtbl));
- 
-    //in case there is a more precise class name 
+    
     if (cha->knowsAbout(vtbl)) {
       if (preciseClassName != className) {
-        sd_print("More precise class name = %s\n", preciseClassName.c_str());
+        sd_print("C2: Callsite for classname: %s base class: %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n",
+                 className.c_str(),
+                 preciseClassName.c_str(),
+                 vtbl.first.c_str(),
+                 vtbl.second,
+                 cha->knowsAbout(vtbl));
+     }
+    }
+
+    //in case there is a more precise class name (base class)
+    if (cha->knowsAbout(vtbl)) {
+      if (preciseClassName != className) {
+        sd_print("C2: More precise class name = %s\n", preciseClassName.c_str());
         int64_t ind = cha->getSubVTableIndex(preciseClassName, className);
         sd_print("Index = %d \n", ind);
         if (ind != -1) {
@@ -399,16 +419,15 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
   Type *IntPtrTy = DL.getIntPtrType(C, 0);   //Paul: get the Int pointer type
 
   // if the function doesn't exist, do nothing
-  if (!sd_vtbl_indexF)
-    return;
+  if (!sd_vtbl_indexF){
+   return;
+  }
 
   // Paul: iterate through all function uses
   for (const Use &U : sd_vtbl_indexF->uses()) {
     
     // get each call instruction
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-
-    //sd_print("CI 3: %s \n", cast<IntrinsicInst>(CI)->print(errs()));
 
     // get the v ptr
     llvm::Value* vptr = CI->getArgOperand(0);
@@ -441,13 +460,16 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
     llvm::Constant *start;
     int64_t rangeWidth;
 
-    sd_print("Callsite for %s cha->knowsAbout(%s, %d) = %d)\n", className.c_str(),
-      vtbl.first.c_str(), vtbl.second, cha->knowsAbout(vtbl));
+    sd_print("\n C3: Callsite for classname: %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d)\n",
+                                                                          className.c_str(),
+                                                                          vtbl.first.c_str(), 
+                                                                          vtbl.second, 
+                                                                          cha->knowsAbout(vtbl));
   
     //Paul: check if the class hierarchy analysis knows about the v table 
     if (cha->knowsAbout(vtbl)) {
       if (preciseClassName != className) {
-        sd_print("More precise class name = %s\n", preciseClassName.c_str());
+        sd_print("C3: More precise class name (base class) = %s\n", preciseClassName.c_str());
         int64_t ind = cha->getSubVTableIndex(preciseClassName, className);
         SDLayoutBuilder::vtbl_name_t n = preciseClassName;
 
@@ -460,10 +482,12 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
         if (ind != -1) {
           vtbl = SDLayoutBuilder::vtbl_t(n, ind);
         }
-
         sd_print("Index = %d \n", ind);
-      } 
+      } else{
+        sd_print("There is no base class for this call site \n");
+      }
     }
+    sd_print("\n"); //just add a gap in the printings 
 
     LLVMContext& C = CI->getContext();                    //Paul: get call inst. context 
     llvm::BasicBlock *BB = CI->getParent();               //Paul: get the parent 
@@ -508,7 +532,10 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       
       //printing some statistics 
       sd_print("For VTable: {%s , %d } Emitting: %d range check(s) with total width sum %d \n", 
-      vtbl.first.c_str(), vtbl.second, ranges.size(), sum);
+                                       vtbl.first.c_str(), 
+                                       vtbl.second, 
+                                       ranges.size(), 
+                                       sum);
   
       //Paul: iterate throught the ranges for one v table at a time 
       for (auto rangeIt : ranges) {
@@ -582,16 +609,15 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
   Function *sd_vcall_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vcall_index));
 
   // if the function doesn't exist, do nothing
-  if (!sd_vcall_indexF)
-    return;
+  if (!sd_vcall_indexF){
+   return;
+  }
 
   // for each use of the function
   for (const Use &U : sd_vcall_indexF->uses()) {
     
     // get the call inst
     llvm::CallInst* CI = cast<CallInst>(U.getUser());
-
-    sd_print("CI 4: %s \n", CI->getName());
 
     // get the arguments, Paul: this argument is the v pointer.
     llvm::ConstantInt* arg1 = dyn_cast<ConstantInt>(CI->getArgOperand(0));
@@ -620,7 +646,7 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
     }
 
     bool runOnModule(Module &M) {
-      sd_print("P5. Started running SDSubstModule pass ...\n");
+      sd_print("\nP5. Started running SDSubstModule pass ...\n");
       sd_print("P5. Starting final range checks additions ...\n");
       
       //Paul: count the number of indexes substituted
@@ -750,7 +776,7 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
             
             //count the number of range substitutions added
             rangeSubst += 1;
-
+            
             sd_print("Range: %d has width: % d start: %d vptrInt: %d \n", rangeSubst, widthInt, start, vptrInt);
 
             //Paul: range = 1 or 0
@@ -770,11 +796,11 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
       
       //finished adding all the range checks, now print some statistics.
       //in the interleaving paper the average number of ranges per call site was close to 1 (1,005).
-      sd_print("P5. Finished running SDSubstModule pass...\n");
+      sd_print("\n P5. Finished running SDSubstModule pass...\n");
 
-      sd_print(" ---P5. SDSubst Statistics--- \n");
+      sd_print("\n ---P5. SDSubst Statistics--- \n");
 
-      sd_print(" Total indicex substitutions %d \n", indexSubst);
+      sd_print(" Total index substitutions %d \n", indexSubst);
       sd_print(" Total range checks added %d \n", rangeSubst);
       sd_print(" Total eq_checks added %d \n", eqSubst);
       sd_print(" Total const_ptr % d \n", constPtr);

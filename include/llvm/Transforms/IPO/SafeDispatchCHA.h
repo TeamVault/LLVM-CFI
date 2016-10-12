@@ -143,7 +143,7 @@ namespace llvm {
 
 public:
     SDBuildCHA() : ModulePass(ID) {
-      std::cerr << "Creating SDBuildCHA pass!\n";
+      std::cerr << "\nCreating SDBuildCHA pass!\n";
       initializeSDBuildCHAPass(*PassRegistry::getPassRegistry());
     }
 
@@ -170,7 +170,7 @@ public:
       This pass is initiated from their this .h file.
       The executed code resides than in the corresponding .cpp file
       */
-      sd_print("P2. Started building CHA ...\n");
+      sd_print("\nP2. Started building CHA ...\n");
 
       vcallMDId = M.getMDKindID(SD_MD_VCALL);
 
@@ -196,7 +196,7 @@ public:
         std::cerr << i << "\n";
       }
 
-      sd_print("P2. Finished building CHA ...\n");
+      sd_print("\nP2. Finished building CHA ...\n");
 
       return roots.size() > 0;
     }
