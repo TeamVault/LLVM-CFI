@@ -857,9 +857,9 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   order_t preorderV = cha->preorder(root); 
 
   //print preorder nodes of one root node 
-  sd_print("calculateVPtrRanges: Preorder nodes of root %s are: \n", vtbl.c_str());
+  sd_print("\ncalculateVPtrRanges: Preorder nodes of root %s are: \n", vtbl.c_str());
   for (uint64_t i= 0; i < preorderV.size(); i++)
-  std::cerr << "first: " << preorderV[i].first << ", second:" << preorderV[i].second << "\n ";
+  std::cerr << "first: " << preorderV[i].first << ", second: " << preorderV[i].second << "\n";
 
   std::map<vtbl_t, uint64_t> indMap;
 

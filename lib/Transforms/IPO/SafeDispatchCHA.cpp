@@ -210,7 +210,7 @@ void SDBuildCHA::buildClouds(Module &M) {
     if(! md->getName().startswith(SD_MD_CLASSINFO))
       continue;
 
-    sd_print("GOT METADATA: %s\n", md->getName().data());
+    sd_print("\nGOT METADATA: %s\n", md->getName().data());
 
     // Paul: extractMetadata() extracts the metadata from each module
     // and puts it into this vector, this metadata was previously added 
@@ -271,8 +271,7 @@ void SDBuildCHA::buildClouds(Module &M) {
         }
 
         if (cloudMap.find(name) == cloudMap.end()){
-          //sd_print("Inserting %s, %d in cloudMap\n", name.first.c_str(), name.second);
-
+          //sd_print("Inserting vtable: %s, order: %d in cloudMap\n", name.first.c_str(), name.second);
           //Paul: here the cloudMap is filled for the first time 
           cloudMap[name] = std::set<vtbl_t>(); //empty set
         }
@@ -294,6 +293,7 @@ void SDBuildCHA::buildClouds(Module &M) {
             }
 
             // add the current class to the parent's children set
+            sd_print("root: %s in cloudMap insert vtable: %s, \n",  parent.first.c_str(), name.first.c_str());
             cloudMap[parent].insert(name);
           } else {
             assert(ind == 0); // make sure secondary vtables have a direct parent
@@ -513,10 +513,12 @@ uint32_t SDBuildCHA::calculateChildrenCounts(const SDBuildCHA::vtbl_t& root){
   if (cloudMap.find(root) != cloudMap.end()) { // Paul: check if cloud is not empty
     for (const SDBuildCHA::vtbl_t& n : cloudMap[root]) { //Paul: the cloud map has several root nodes
       //Paul: the number of children is determined for each root node
+      //sd_print("list each vtable %s for a given root: %s \n", n.first.c_str(), root.first.c_str());
       count += calculateChildrenCounts(n);
     }
   }
 
+  //sd_print("Root: %s count: %d \n", root.first.c_str(), count);
   //assert(cloudSizeMap.find(root) == cloudSizeMap.end());
   cloudSizeMap[root] = count;
 

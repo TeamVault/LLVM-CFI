@@ -85,7 +85,7 @@ namespace llvm {
     virtual ~SDLayoutBuilder() { }
 
     bool runOnModule(Module &M) {
-      sd_print("P3. Started building layout ...\n");
+      sd_print("\nP3. Started building layout ...\n");
 
       /**Paul:
       first, pass the results from the CHA pass
@@ -103,12 +103,13 @@ namespace llvm {
       The v tables area interleaved or ordered depending 
       on the used interleaving flag. 
       */
+      
       buildNewLayouts(M);
 
       //after building the new layout verify them according to some imposed conditions 
       assert(verifyNewLayouts(M));
 
-      sd_print("P3. Finished building layout ...\n");
+      sd_print("\nP3. Finished building layout ...\n");
       return 1;
     }
     

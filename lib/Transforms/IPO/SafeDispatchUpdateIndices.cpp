@@ -241,6 +241,8 @@ struct range_less_than_key {
 // it uses: 
 // Intrinsic::sd_check_vtbl -> Intrinsic::sd_subst_check_range
 void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
+  //in ItaniumCXXABI.CPP there was a call inserted to sd_check_vtbl which contains the class name 
+  //of the object making the virtual function call
   Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_check_vtbl));
   const DataLayout &DL = M->getDataLayout();
   llvm::LLVMContext& C = M->getContext();
@@ -261,13 +263,15 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     // get the arguments
     llvm::Value* vptr = CI->getArgOperand(0);
     assert(vptr); //Paul: this is the v pointer
-
+    
+    //class name of the object which is making the call 
     llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
     assert(arg2);
 
     MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
     assert(mdNode);
-
+    
+    //precise class name of the object which is making the call, if exists
     llvm::MetadataAsValue* arg3 = dyn_cast<MetadataAsValue>(CI->getArgOperand(2));
     assert(arg3);
 
@@ -298,7 +302,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     
     if (cha->knowsAbout(vtbl)) {
       if (preciseClassName != className) {
-        sd_print("C2: Callsite for classname: %s base class: %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n",
+          sd_print("C2: Callsite for classname: %s base class: %s cha->knowsAbout(vtbl.first: %s, vtbl.second: %d) = bool: %d) \n",
                  className.c_str(),
                  preciseClassName.c_str(),
                  vtbl.first.c_str(),
@@ -322,6 +326,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
     //Paul: calculate the start address of the new v table
     if (cha->knowsAbout(vtbl) &&
        (!cha->isUndefined(vtbl) || cha->hasFirstDefinedChild(vtbl))) {
+      
       // calculate the new index
       start = cha->isUndefined(vtbl) ?
         layoutBuilder->getVTableRangeStart(cha->getFirstDefinedChild(vtbl)) : //Paul: first child or first v table
@@ -330,7 +335,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
       //Paul: cloud size represents the range width
       // It basically counts the number of children in that cloud. 
       // The children have to belong to the inheritance path,
-      // this is not checked here or enforced.
+      // This is not checked here or enforced.
       rangeWidth = cha->getCloudSize(vtbl.first); //count the number of children in the tree 
       sd_print(" [rangeWidth = %d start = %p]  \n", rangeWidth, start);
     } else {
@@ -345,15 +350,15 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
 
     LLVMContext& C = CI->getContext();
     
-    //Paul: the start varible is not NULL
+    //Paul: the start variable is not NULL
     if (start) {
       IRBuilder<> builder(CI);
       builder.SetInsertPoint(CI);//Paul: used to specifi insertion points
 
-      //std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
+      std::cerr << "llvm.sd.callsite.range:" << rangeWidth << std::endl;
         
       // The shift here is implicit since rangeWidth is in terms of indices, not bytes
-      llvm::Value *width = llvm::ConstantInt::get(IntPtrTy, rangeWidth); //rangeWidth is here 0
+      llvm::Value *width    = llvm::ConstantInt::get(IntPtrTy, rangeWidth); //rangeWidth is here 0
       llvm::Type *Int8PtrTy = IntegerType::getInt8PtrTy(C);
       llvm::Value *castVptr = builder.CreateBitCast(vptr, Int8PtrTy); //create bitcast operation here 
 
@@ -367,11 +372,12 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
 
       llvm::Constant* alignment = llvm::ConstantInt::get(IntPtrTy, layoutBuilder->alignmentMap[root]);
       llvm::Value *Args[] = {castVptr, start, width, alignment};
-      llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M,
-                                                Intrinsic::sd_subst_check_range),
-                                                Args);
 
-      CI->replaceAllUsesWith(newIntr);//Paul: add a new call instruction with rangeWidth = 0 
+      //create a call instruction where we give over the above parameters.
+      //we will be calling the function sd_subst_check_range witht the parameters, Args  
+      llvm::Value* newIntr = builder.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::sd_subst_check_range), Args);
+
+      CI->replaceAllUsesWith(newIntr); //Paul: add a new call instruction with rangeWidth = 0 
       CI->eraseFromParent();
 
       /*
@@ -400,8 +406,7 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
       }        
       */
     } else { //Paul: if start == NULL
-      std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second 
-        << std::endl;
+      std::cerr << "llvm.sd.callsite.false:" << vtbl.first << "," << vtbl.second << std::endl;
       CI->replaceAllUsesWith(llvm::ConstantInt::getFalse(C));
       CI->eraseFromParent();
     }
@@ -413,6 +418,8 @@ void SDUpdateIndices::handleSDCheckVtbl(Module* M) {
 //it uses:  
 // Intrinsic::sd_get_checked_vptr ->  Intrinsic::sd_subst_check_range
 void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
+  //in ItaniumCXXABI.CPP there was a call inserted to sd_get_checked_vptr which contains the class name 
+  //of the object making the virtual function call
   Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
   const DataLayout &DL = M->getDataLayout(); //Paul: get data layout 
   llvm::LLVMContext& C = M->getContext();    //Paul: get the context
@@ -474,7 +481,7 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
         SDLayoutBuilder::vtbl_name_t n = preciseClassName;
 
         if (ind == -1) {
-          //className is the derive and the preciseClassName is the base 
+          //className is the derive and the preciseClassName is the base class 
           ind = cha->getSubVTableIndex(className, preciseClassName);
           n = className;
         }
@@ -531,7 +538,7 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
       }
       
       //printing some statistics 
-      sd_print("For VTable: {%s , %d } Emitting: %d range check(s) with total width sum %d \n", 
+      sd_print("For vTable: {%s , %d } emitting: %d range check(s) with total width of the ranges: %d \n", 
                                        vtbl.first.c_str(), 
                                        vtbl.second, 
                                        ranges.size(), 
@@ -545,18 +552,21 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
    
         //Paul: create the fast path success, this Intrinsic::sd_subst_check_range function
         // was previously added during code generation 
+        //create a call to named fast path success 
         llvm::Value* fastPathSuccess = builder.CreateCall(Intrinsic::getDeclaration(M,
                                                      Intrinsic::sd_subst_check_range),
                                                                                 Args);
 
         char blockName[256];
+        
         //give a name to the failed block and attach an increment value to it, i
         snprintf(blockName, sizeof(blockName), "sd.fastcheck.fail.%d", i);
 
-        //Paul: create the fast path failed  
+        //Paul: create the fast path check failed block 
+        //F is the parent block of the current instructon block making the call to Intrinsic::sd_get_checked_vptr
         llvm::BasicBlock *fastCheckFailed = llvm::BasicBlock::Create(F->getContext(), blockName, F);
         
-        //Paul: create the the conditional branch and add fast path success, success BB and fast check failed
+        //Paul: create the the conditional branch and add fast path success Call, success BB and fast check failed BB
         llvm::BranchInst *BI = builder.CreateCondBr(fastPathSuccess, SuccessBB, fastCheckFailed);
         llvm::MDBuilder MDB(BI->getContext());
 
@@ -593,13 +603,14 @@ void SDUpdateIndices::handleSDGetCheckedVtbl(Module* M) {
     // Insert Check Failure
     builder.CreateCall(Intrinsic::getDeclaration(M, Intrinsic::trap)); //Paul: insert the check failure trap 
    
-    //Paul: this is the an IRBuilder object delclared before the previous for loop
+    //Paul: this is an IRBuilder object delclared before the previous for loop
+    //create unrechable code here. 
     builder.CreateUnreachable();
 
     oldTerminator->eraseFromParent();//Paul: remove old terminator
     CI->replaceAllUsesWith(vptr);//Paul: replace all uses with the new v pointer
     CI->eraseFromParent();
-  }
+  } //end of all uses for loop.
 }
 
 //Paul: read the v call index and add replace all uses with this new value 
@@ -728,9 +739,9 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
           int64_t alignmentInt = alignment->getSExtValue();
           int alignmentBits = floor(log(alignmentInt + 0.5)/log(2.0));
 
-          llvm::Constant* rootVtblInt = dyn_cast<llvm::Constant>(start->getOperand(0));
+          llvm::Constant* rootVtblInt    = dyn_cast<llvm::Constant>(start->getOperand(0));
           llvm::GlobalVariable* rootVtbl = dyn_cast<llvm::GlobalVariable>(rootVtblInt->getOperand(0));
-          llvm::ConstantInt* startOff = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
+          llvm::ConstantInt* startOff    = dyn_cast<llvm::ConstantInt>(start->getOperand(1));
  
           //Paul: sum up all the ranges widths which will be substituted 
           //this is just for statistics relevant
@@ -753,7 +764,7 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
             // create pointer to int
             llvm::Value *vptrInt = builder.CreatePtrToInt(vptr, IntPtrTy);
             
-            //substract pointer fram start address
+            //substract pointer from start address, start - vptrInt
             llvm::Value *diff = builder.CreateSub(vptrInt, start);
             
             //shift right diff with the number of alignmentBits
@@ -804,7 +815,7 @@ void SDUpdateIndices::handleRemainingSDGetVcallIndex(Module* M) {
       sd_print(" Total range checks added %d \n", rangeSubst);
       sd_print(" Total eq_checks added %d \n", eqSubst);
       sd_print(" Total const_ptr % d \n", constPtr);
-      sd_print(" Average range width % lf \n", sumWidth * 1.0 / (rangeSubst + eqSubst + constPtr));
+      sd_print(" Average width % lf \n", sumWidth * 1.0 / (rangeSubst + eqSubst + constPtr));
 
       //one of these values has to be > than 0 
       return indexSubst > 0 || rangeSubst > 0 || eqSubst > 0 || constPtr > 0;
