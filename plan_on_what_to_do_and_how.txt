@@ -1,0 +1,89 @@
+get the total number of callsites  = n
+	
+	
+	was wir genau machen: 
+	wir gehen durch jeden knoten durch und schauen uns die zugehörigen vtables an wenn es sie gibt. 
+	dann traversen wir alle vtables und speichern das paar caller und vtable-anfang  (für alle returns in der virtual function sind alle variablen gleich)
+	ausserdem mappen wir für alle return instructions im programm bei den vtablen die zugehörige start-addresse bzw. die vtable addresse. 
+	mit den start addressen in den vtablen können wir ja eine einfache verknüpfung erstellen wenn wir die infos brauchen beim einsetzen der rangechecks
+	sortiere dann die große große map von all den ret-addressen und ihren zugehörigen call-knoten (bzw. knoten+next instruction) und setze das dann am schluss ein. 
+	wenn wir keine virtuelle methode haben, kann ich rein theoretisch das selbe machen und auch ein caller-ret paar in MAP schreiben. ist ja auch nichts anderes.
+	
+	get caller address and do for every caller:
+		-> get called function (if not virtual)
+			-> get ret-address and map with caller-address    => easy search for every ret instruction in the callee
+			-> safe in big list
+		-> OR get vpointer (if virtual function)
+			-> get vtable 
+			-> safe all address from vtable with corresponding caller     (vllt nicht nötig??)
+			-> for all vtable address go to v-function 
+				-> safe address of ret instruction in v-function with caller address 
+		-> sort big list with ret-address and corresponding caller by ret-addresses 
+		-> sort big list into triplets-matches with min/max  and ret-address as index. 
+		-> safe triplets with functionality before corresponding ret instruction.
+		
+	
+	aufpassen muss ich dann beim einsetzen von den ranges, wenn ich alles einfüge ob die addressen noch passen. das könnte ein problem sein... muss ich nachschaun was ich da mach... bis dahin ist es straight forward
+	
+	WAS AN DER TAFEL STAND STEHT HIER							-- MEINE KOMMENTARE UND ANMERKUNGEN DAZU SIND NACH -- GESCHRIEBEN
+	
+	
+	
+	-----------------------------
+	
+		for (i=0;i<n;i++){      								-- für jeden knoten/callsite machen wir alles nachfolgende:
+		
+																-- wie kann ich einen knoten auswählen?? bzw. wo fängt der knotenbaum an?? kann ich bei safedispatch abschaun aber wie das genau funktioniert fördert das verständniss
+																
+			if(node == cs_node){      							-- wenn der Knoten in dem wir uns befinden ein cs_node ist, dann machen wir das folgende: (GROSSE SCHLEIFE!!  FÜR NORMALFALL NOCHMAL EINE ABFRAGE)
+				
+				int x = get_next_instr();						-- x ist die addresse der nächsten instruction. muss abhängig sein von der derzeitigen instruktion
+																-- wie bekomme ich die nächste instruktion?? ist x ein pointer oder eine int-zahl???? 
+				
+				put_x_vect_retn_address(x);						-- grad unklar was das hier war ???? soll hier schon die verknüpfung zwischen x und der return addresse hergestellt werden??
+				
+				
+				put_vtable_vect_bla(cs_vtable;cs_base_class);	-- bekomme die vtable vom v-vector der derzeitigen node
+																-- hier bekomme ich eine liste mit allen vtable-vectoren die von dem derzeitigen caller aufgerufen werden können
+				
+				traverse_vtable_(vtable_vect);					-- gehe durch alle vatbles durch die mit dem vtable-vector erreicht werden können
+																-- alle einträge der liste gerade werden durchgekämmt und seperat gespeichert in liste VECTLIST
+																
+				
+				for(){											-- für alle von diesen einträgen der liste VECTLIST mache:
+				
+				
+					read_address_for_vtable(U1)...;				-- lese die addressen der vtables
+					
+					vector y = put_cs_vtable_collect();			-- speichere die start-addresse der virtuellen funktionen in kombination mit dem derzeitigen knoten im vector y					
+				
+					forall_vector_y(){								-- für alle verschiedenen vectoren y mache:	
+					
+						get_all_returns_address_for_Vfunct(1);		-- hole dir alle return addressen der ganzen vfunctionen in jedem y
+						
+						
+						map(key=retinst;vector_return(put &005));	-- mappe alle return instructions mit allen returns der vectoren und addiere diese in eine große map MAP
+
+					}
+				}
+			}
+		}
+		
+		
+		
+		-----------------------------
+		AB HIER WAR ES NICHT MEHR AN DER TAFEL; ABER DAS MUSS AUCH GEMACHT WERDEN
+		-----------------------------
+		
+		
+		sort_MAP_ret();											-- Sortiere die große große MAP nach den return addressen 
+																-- wie das genau geschieht weiß ich nciht, aber es gibt sicherlich einen sortieralgorithmus den ich benutzen kann
+																-- nur wenn ich sicher sein kann dass die große liste MAP auch definitiv sortiert ist mit allen ret-addressen die gleich sind nebeneinander, kann ich sicher machen dass ich alle addressen genau habe
+																
+		
+		create_range_triplets_from_MAP();						-- bei der sortierten MAP können wir durchgehen und für jede ret addresse einen minimum und maximum wert einfügen
+																-- das ganze wird in einem triplet gespeichert und diese in einer liste von triplets gespeichert. 
+																-- für jeden neuen wert einer RET addresse fügen wir direkt den zugehörigen ersten wert als oberen und unteren wert ein				
+																-- für jeden weiteren wert schauen wir, ob der max oder min wert über/untersschritten wird und dann setzen wir den überschreitenden wert ein in die gleichung als neuen max/min
+																-- wenn die nächste ret-addresse sich ändert, dann beginne wieder von vorne.
+		
