@@ -34,9 +34,7 @@ else
 				-Wl,-plugin-opt=mcpu=x86-64 \
 				-Wl,-plugin-opt=save-temps \
 				-Wl,-plugin-opt=sd-ivtbl
-
-	LDLIBS  = -L/home/paul/Desktop/llvm/libs -ldyncast -ldlcfi -Wl,-rpath=/home/paul/Desktop/llvm/libs
-
+	LDLIBS  = -L$(LLVM_DIR)/libdyncast -ldyncast
 	AR      = $(LLVM_DIR)/scripts/ar
 endif
 endif
