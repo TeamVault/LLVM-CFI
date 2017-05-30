@@ -1,0 +1,91 @@
+First install GCC 4.8.2, see: http://llvm.org/docs/GettingStarted.html
+
+% wget https://ftp.gnu.org/gnu/gcc/gcc-4.8.2/gcc-4.8.2.tar.bz2
+% wget https://ftp.gnu.org/gnu/gcc/gcc-4.8.2/gcc-4.8.2.tar.bz2.sig
+% wget https://ftp.gnu.org/gnu/gnu-keyring.gpg
+% signature_invalid=`gpg --verify --no-default-keyring --keyring ./gnu-keyring.gpg gcc-4.8.2.tar.bz2.sig`
+% if [ $signature_invalid ]; then echo "Invalid signature" ; exit 1 ; fi
+% tar -xvjf gcc-4.8.2.tar.bz2
+% cd gcc-4.8.2
+% ./contrib/download_prerequisites
+% cd ..
+% mkdir gcc-4.8.2-build
+% cd gcc-4.8.2-build
+% $PWD/../gcc-4.8.2/configure --prefix=$HOME/toolchains --enable-languages=c,c++
+% make -j$(nproc)
+% make install
+
+get hostname: hostname 
+get username: uname -a
+
+
+This is how I set up my computer under Ubuntu (Linux) from scratch and run the benchmarks (I tested this today):
+
+1. clone the repo and switch to the new_intrinsics branch.
+
+2. mkdir llvm3.7 # this directory is going to contain llvm, llvm-build, binutils, binutils-build folders
+3. cd llvm3.7
+4. git clone git@gitlab.lrz.de:ga72foq/llvm_pass.git llvm
+
+ add config to scripts/config.py
+
+5. get compiler-rt and test suite and put them in the right folders.
+see:
+http://llvm.org/docs/GettingStarted.html
+
+6. checkout binutils:
+
+Deps:
+flex bison texinfo
+
+# this library is required to link, archive, etc. llvm IR files
+git clone --depth 1 git://sourceware.org/git/binutils-gdb.git binutils
+mkdir binutils-build && cd binutils-build
+../binutils/configure --enable-gold --enable-plugins --disable-werror
+make
+
+TODO dynamic make files (libs, benchmarks)
+
+7. build libdlcfi and libdyncast separately and put them im approriate folders.
+see makefile.default in the benchmark folder, see the flags -L
+-L$(LLVM_DIR)/libdyncast
+
+(you may have to install makeinfo (sudo apt-get install texinfo))
+ 
+8. build LLVM:
+
+cd ..
+mkdir llvm-build && cd llvm-build
+../llvm/configure --enable-optimized=1 --with-binutils-include=<binutils-source-path>/include
+make
+
+export AR=wrapped-ar (scripts/ar)
+
+
+9. run the benchmarks:
+
+    inside llvm3.7/binutils-build/gold, symlink ld to ld-new (ln -s ld-new ld). This helps us to use binutils-build/gold/ld-new instead of /usr/bin/ld which doesn't support linking IR files.
+    Include your own LLVM_DIR, etc. environment variables inside benchmarks/Makefile.default
+    Run run_all_benchmarks.sh
+
+
+10. check if the link is there with terminal command:
+ls -lah ld
+exampele: lrwxrwxrwx 1 dimo dimo 6 Jul  7 10:26 ld -> ld-new
+
+
+Options:
+use NO_LTO=ok make clean all; to run a benchmark prog. without the checks.
+
+for adding new changes to the pass do go to the llvm-build top folder and run: sudo make
+do not do! sudo make install! This will compile and and install the new compiler. If the
+compiler is buggy and you install it as your default compiler you will b not able do compile 
+other porgrams with this compiler.
+
+alternative (basically you install the compiled compiler and make this your default) copy new clang and llvm in usr/local/bin and usr/local/lib them:
+
+copy the generated bin folder 
+sudo cp -r Release+Asserts/bin/. /usr/local/bin/
+
+and the lib folder
+sudo cp -r Release+Asserts/lib/clang /usr/local/lib/
