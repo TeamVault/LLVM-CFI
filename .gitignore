@@ -78,3 +78,5 @@ llvm3.7.creator
 llvm3.7.creator.user
 llvm3.7.files
 llvm3.7.includes
+
+projects/test-suite/

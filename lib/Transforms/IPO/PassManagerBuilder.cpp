@@ -561,6 +561,9 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
     PM.add(llvm::createSDMoveBasicBlocksPass());
   }
 
+  //Matt: insert return Address pass as late as possible (TODO_MATT: find the right place for this)
+  PM.add(llvm::createSDReturnAddressPass());
+
   if (VerifyOutput)
     PM.add(createVerifierPass());
 }

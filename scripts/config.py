@@ -94,6 +94,10 @@ def is_on_zoidberg():
 def is_on_zoidberg_dimo():
   return get_hostname() == "zoidberg" and get_username() == "dimo"
 
+def is_on_matt_desktop():
+  return get_hostname() == "mattDesktop" and get_username() == "matt"
+
+
 # ----------------------------------------------------------------------
 
 def read_config():
@@ -169,6 +173,14 @@ def read_config():
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/work/sd3.0/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/work/sd3.0/llvm-3.7/scripts",
       "MY_GCC_VER"         : "4.8.4"
+    }
+  elif is_on_matt_desktop(): # mattDesktop
+    clang_config = {
+      "LLVM_DIR"           : os.environ["HOME"] + "/thesis/llvm",
+      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/thesis/llvm-build",
+      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/thesis/binutils-build",
+      "SD_DIR"             : os.environ["HOME"] + "/thesis/llvm/scripts",
+      "MY_GCC_VER"         : "5.4.0"
     }
 
   else: # don't know this machine

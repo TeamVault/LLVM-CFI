@@ -20,6 +20,7 @@
 namespace llvm {
 
 class ModulePass;
+class FunctionPass;
 class Pass;
 class Function;
 class BasicBlock;
@@ -213,6 +214,7 @@ ModulePass* createSDLayoutBuilderPass(bool interleave = false);
 ModulePass* createSDUpdateIndicesPass();
 ModulePass* createSDMoveBasicBlocksPass();
 ModulePass* createSDSubstModulePass();
+FunctionPass* createSDReturnAddressPass();
 
 } // End llvm namespace
 

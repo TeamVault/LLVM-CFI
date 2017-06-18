@@ -319,6 +319,9 @@ void initializeSDMoveBasicBlocksPass(PassRegistry&);
 
 //this pass is used to add the new checks before the v call site
 void initializeSDSubstModulePass(PassRegistry&);
+
+//this pass is used to insert the return address checks
+void initializeSDReturnAddressPass(PassRegistry&);
 }
 
 #endif
