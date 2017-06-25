@@ -27,6 +27,7 @@ add_llvm_library(LLVMipo
   SafeDispatchLayoutBuilder.cpp
   SafeDispatchMoveBasicBlocks.cpp
   SafeDispatchReturnAddressPass.cpp
+  SafeDispatchReturnRange.cpp
   SafeDispatchUpdateIndices.cpp
 
   ADDITIONAL_HEADER_DIRS

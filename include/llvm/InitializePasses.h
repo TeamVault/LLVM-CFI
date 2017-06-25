@@ -322,6 +322,9 @@ void initializeSDSubstModulePass(PassRegistry&);
 
 //this pass is used to insert the return address checks
 void initializeSDReturnAddressPass(PassRegistry&);
+
+//this pass is used to create the return address ranges
+void initializeSDReturnRangePass(PassRegistry&);
 }
 
 #endif
