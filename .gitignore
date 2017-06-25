@@ -80,3 +80,5 @@ llvm3.7.files
 llvm3.7.includes
 
 projects/test-suite/
+
+\.idea/

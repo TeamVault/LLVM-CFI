@@ -21,7 +21,13 @@ add_llvm_library(LLVMipo
   PruneEH.cpp
   StripDeadPrototypes.cpp
   StripSymbols.cpp
-  SafeDispatch.cpp #this is our pass
+  #SafeDispatch files:
+  SafeDispatchCHA.cpp
+  SafeDispatchFix.cpp
+  SafeDispatchLayoutBuilder.cpp
+  SafeDispatchMoveBasicBlocks.cpp
+  SafeDispatchReturnAddressPass.cpp
+  SafeDispatchUpdateIndices.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Transforms
