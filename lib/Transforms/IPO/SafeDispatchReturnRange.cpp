@@ -1,12 +1,8 @@
-#include <sstream>
-#include <iostream>
-
-#include "llvm/Pass.h"
-
-#include "llvm/Transforms/IPO/SafeDispatchCHA.h"
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
+
+#include "llvm/Transforms/IPO/SafeDispatchReturnRange.h"
 
 // you have to modify the following 4 files for each additional LLVM pass
 // 1. include/llvm/IPO.h
@@ -18,64 +14,7 @@
 using namespace llvm;
 using namespace std;
 
-namespace {
-    /**
-     * This pass collects the valid return addresses for each class and builds the
-     * ranges for the returnAddress range check
-     * */
-    struct SDReturnRange : public ModulePass {
-    public:
-        static char ID; // Pass identification, replacement for typeid
-
-        SDReturnRange() : ModulePass(ID), callSites() {
-          sd_print("initializing SDReturnRange pass\n");
-          initializeSDReturnRangePass(*PassRegistry::getPassRegistry());
-        }
-
-        virtual ~SDReturnRange() {
-          sd_print("deleting SDReturnRange pass\n");
-        }
-
-        bool runOnModule(Module &M) override {
-          //Matt: get the results from the class hierarchy analysis pass
-          cha = &getAnalysis<SDBuildCHA>();
-
-          //TODO MATT: fix pass number
-          sd_print("\n P??. Started running the ??th pass (SDReturnRange) ...\n");
-
-          locateCallSites(&M);
-          printCallSites();
-
-          sd_print("\n P??. Finished running the ??th pass (SDReturnRange) ...\n");
-          return true;
-        }
-
-        /*Paul:
-        this method is used to get analysis results on which this pass depends*/
-        void getAnalysisUsage(AnalysisUsage &AU) const override {
-          AU.addRequired<SDBuildCHA>(); //Matt: depends on CHA pass
-          AU.addPreserved<SDBuildCHA>(); //Matt: should preserve the information from the CHA pass
-        }
-
-        struct CallSiteInfo {
-            string className;
-            string preciseName;
-            const CallInst* call;
-        };
-
-    private:
-        SDBuildCHA* cha;
-        vector<pair<string, CallSiteInfo>> callSites;
-
-        void locateCallSites(Module* M);
-        void printCallSites();
-        void addCallSite(const CallInst* checked_vptr_call, const CallInst* callSite);
-        void insertLabel(CallInst* callSite, Module* mod);
-    };
-}
-
 char SDReturnRange::ID = 0;
-
 INITIALIZE_PASS(SDReturnRange, "sdRetRange", "Build return ranges.", false, false)
 
 ModulePass* llvm::createSDReturnRangePass() {
@@ -164,12 +103,12 @@ void SDReturnRange::locateCallSites(Module* M) {
 
     if (CallInst *callSite = dyn_cast<CallInst>(user)) {
       addCallSite(CI, callSite);
-      insertLabel(callSite, M);
+      //insertLabel(callSite, M);
     }
   }
 }
 
-void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, const CallInst* callSite) {
+void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst* callSite) {
   // get the v ptr
   llvm::Value *vptr = checked_vptr_call->getArgOperand(0);
   assert(vptr);//assert not null
@@ -202,9 +141,9 @@ void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, const CallIns
                   << ", PreciseName: " << preciseName
                   << ", Callsite:" << *callSite << "\n";
 
-  CallSiteInfo info{className, preciseName, callSite};
 
-  callSites.push_back(pair<string, CallSiteInfo>(preciseName, info));
+  CallSiteInfo info{className, preciseName, callSite};
+  callSites[className].push_back(info);
 }
 
 void SDReturnRange::insertLabel(CallInst* callSite, Module* mod) {
@@ -224,15 +163,10 @@ void SDReturnRange::insertLabel(CallInst* callSite, Module* mod) {
 
 
 void SDReturnRange::printCallSites() {
-  map<string, vector<CallSiteInfo>> groups;
-  for (auto element : callSites) {
-    groups[element.first].push_back(element.second);
-  }
-
-  for (auto element : groups) {
-    sdLog::stream() << element.first << ":"  << "\n";
-    for (auto callSiteInfo : element.second) {
-      sdLog::stream() << *(callSiteInfo.call) << "\n";
+  for (auto &callSitesEntry : callSites) {
+    sdLog::stream() << callSitesEntry.first << ":"  << "\n";
+    for (auto callSite : callSitesEntry.second) {
+        sdLog::stream() << *(callSite.call) << "\n";
     }
   }
 }
