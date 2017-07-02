@@ -16,6 +16,7 @@
 // 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
+using namespace std;
 
 namespace {
     /**
@@ -26,7 +27,7 @@ namespace {
     public:
         static char ID; // Pass identification, replacement for typeid
 
-        SDReturnRange() : ModulePass(ID) {
+        SDReturnRange() : ModulePass(ID), callSites() {
           sd_print("initializing SDReturnRange pass\n");
           initializeSDReturnRangePass(*PassRegistry::getPassRegistry());
         }
@@ -43,6 +44,7 @@ namespace {
           sd_print("\n P??. Started running the ??th pass (SDReturnRange) ...\n");
 
           locateCallSites(&M);
+          printCallSites();
 
           sd_print("\n P??. Finished running the ??th pass (SDReturnRange) ...\n");
           return true;
@@ -56,15 +58,19 @@ namespace {
         }
 
         struct CallSiteInfo {
-            std::string className;
-            std::string preciseName;
+            string className;
+            string preciseName;
             const CallInst* call;
         };
 
     private:
         SDBuildCHA* cha;
+        vector<pair<string, CallSiteInfo>> callSites;
 
         void locateCallSites(Module* M);
+        void printCallSites();
+        void addCallSite(const CallInst* checked_vptr_call, const CallInst* callSite);
+        void insertLabel(CallInst* callSite, Module* mod);
     };
 }
 
@@ -76,7 +82,7 @@ ModulePass* llvm::createSDReturnRangePass() {
   return new SDReturnRange();
 }
 
-static std::string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
+static string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
 //  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
 //  assert(mdTuple);
 
@@ -130,20 +136,23 @@ void SDReturnRange::locateCallSites(Module* M) {
     sd_print("ERROR");
     return;
   }
-  StringMap<int> Map;
 
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
 
     // get each call instruction
-    llvm::CallInst* CI = dyn_cast<CallInst>(U.getUser());
+    llvm::CallInst *CI = dyn_cast<CallInst>(U.getUser());
     assert(CI);
 
+    //TODO MATT: unsafe use-def chain
     //CI->dump();
-    llvm::User* user = *(CI->users().begin());
-    for (int i = 0; i < 3; ++i){
+    llvm::User *user = *(CI->users().begin());
+    for (int i = 0; i < 3; ++i) {
       //user->dump();
-      user = *(user->users().begin());
+      for(User *next : user->users()) {
+        user = next;
+        break;
+      }
     }
 
     /*
@@ -153,42 +162,77 @@ void SDReturnRange::locateCallSites(Module* M) {
     }
     */
 
-    const CallInst* callSite = dyn_cast<CallInst>(user);
-    assert(callSite);
-
-    // get the v ptr
-    llvm::Value* vptr = CI->getArgOperand(0);
-    assert(vptr);//assert not null
-
-    //Paul: get second operand
-    llvm::MetadataAsValue* arg2 = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
-    assert(arg2);//assert not null
-
-    //Paul: get the metadata of the second param
-    MDNode* mdNode = dyn_cast<MDNode>(arg2->getMetadata());
-    assert(mdNode);//assert not null
-
-    //Paul: get the third parameter
-    llvm::MetadataAsValue* arg3 = dyn_cast<MetadataAsValue>(CI->getArgOperand(2));
-    assert(arg3);//assert not null
-
-    //Paul: get the metadata of the third param
-    MDNode* mdNode1 = dyn_cast<MDNode>(arg3->getMetadata());
-    assert(mdNode1);//assert not null
-
-    // second one is the tuple that contains the class name and the corresponding global var.
-    // note that the global variable isn't always emitted
-    //get the class name class name from argument 1
-    std::string className = sd_getClassNameFromMD(mdNode, 0);
-
-    //get a more precise class name from argument 2
-    std::string preciseName = sd_getClassNameFromMD(mdNode1,0);
-
-    sdLog::stream() << "ClassName: " << className
-                    << ", PreciseName: " << preciseName
-                    << ", Callsite:" << *callSite << "\n";
-
-    CallSiteInfo info{className, preciseName, callSite};
+    if (CallInst *callSite = dyn_cast<CallInst>(user)) {
+      addCallSite(CI, callSite);
+      insertLabel(callSite, M);
+    }
   }
 }
 
+void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, const CallInst* callSite) {
+  // get the v ptr
+  llvm::Value *vptr = checked_vptr_call->getArgOperand(0);
+  assert(vptr);//assert not null
+
+  //Paul: get second operand
+  llvm::MetadataAsValue *arg2 = dyn_cast<MetadataAsValue>(checked_vptr_call->getArgOperand(1));
+  assert(arg2);//assert not null
+
+  //Paul: get the metadata of the second param
+  MDNode *mdNode = dyn_cast<MDNode>(arg2->getMetadata());
+  assert(mdNode);//assert not null
+
+  //Paul: get the third parameter
+  llvm::MetadataAsValue *arg3 = dyn_cast<MetadataAsValue>(checked_vptr_call->getArgOperand(2));
+  assert(arg3);//assert not null
+
+  //Paul: get the metadata of the third param
+  MDNode *mdNode1 = dyn_cast<MDNode>(arg3->getMetadata());
+  assert(mdNode1);//assert not null
+
+  // second one is the tuple that contains the class name and the corresponding global var.
+  // note that the global variable isn't always emitted
+  //get the class name class name from argument 1
+  string className = sd_getClassNameFromMD(mdNode, 0);
+
+  //get a more precise class name from argument 2
+  string preciseName = sd_getClassNameFromMD(mdNode1, 0);
+
+  sdLog::stream() << "ClassName: " << className
+                  << ", PreciseName: " << preciseName
+                  << ", Callsite:" << *callSite << "\n";
+
+  CallSiteInfo info{className, preciseName, callSite};
+
+  callSites.push_back(pair<string, CallSiteInfo>(preciseName, info));
+}
+
+void SDReturnRange::insertLabel(CallInst* callSite, Module* mod) {
+  auto parentBB = callSite->getParent();
+  parentBB->splitBasicBlock(callSite);
+  auto newParent = callSite->getParent();
+  newParent->setName(callSite->getName());
+  sdLog::stream()  << "Old parent: " << parentBB->getName() << ", new parent: " << newParent->getName() << "\n";
+
+  GlobalVariable* gvar_ptr_abc = new GlobalVariable(/*Module=*/*mod,
+          /*Type=*/ Type::getInt8PtrTy(mod->getContext()),
+          /*isConstant=*/false,
+          /*Linkage=*/GlobalValue::CommonLinkage,
+          /*Initializer=*/0, // has initializer, specified below
+          /*Name=*/ newParent->getName() );
+}
+
+
+void SDReturnRange::printCallSites() {
+  map<string, vector<CallSiteInfo>> groups;
+  for (auto element : callSites) {
+    groups[element.first].push_back(element.second);
+  }
+
+  for (auto element : groups) {
+    sdLog::stream() << element.first << ":"  << "\n";
+    for (auto callSiteInfo : element.second) {
+      sdLog::stream() << *(callSiteInfo.call) << "\n";
+    }
+  }
+}
