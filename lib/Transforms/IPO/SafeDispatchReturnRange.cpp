@@ -3,6 +3,14 @@
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 
 #include "llvm/Transforms/IPO/SafeDispatchReturnRange.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/DebugLoc.h"
+
+#include <string>
+#include <fstream>
+#include <sstream>
+
 
 // you have to modify the following 4 files for each additional LLVM pass
 // 1. include/llvm/IPO.h
@@ -12,15 +20,15 @@
 // 5. lib/Transforms/IPO/PassManagerBuilder.cpp
 
 using namespace llvm;
-using namespace std;
 
 char SDReturnRange::ID = 0;
-INITIALIZE_PASS(SDReturnRange, "sdRetRange", "Build return ranges.", false, false)
+INITIALIZE_PASS(SDReturnRange, "sdRetRange", "Build return ranges", false, false)
 
 ModulePass* llvm::createSDReturnRangePass() {
   return new SDReturnRange();
 }
 
+//TODO MATT: format properly / code duplication
 static string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
 //  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
 //  assert(mdTuple);
@@ -66,12 +74,10 @@ static string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0
   return vtblNameRef.str();
 }
 
-void SDReturnRange::locateCallSites(Module* M) {
-  Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
-  //Function *sd_vtbl_indexF = M->getFunction(Intrinsic::getName(Intrinsic::sd_get_vtbl_index));
+void SDReturnRange::locateCallSites(Module &M) {
+  Function *sd_vtbl_indexF = M.getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
 
   if (!sd_vtbl_indexF){
-    //FIXME MATT: intrinsic missing
     sd_print("ERROR");
     return;
   }
@@ -79,12 +85,12 @@ void SDReturnRange::locateCallSites(Module* M) {
   // for each use of the function
   for (const Use &U : sd_vtbl_indexF->uses()) {
 
-    // get each call instruction
+    // get intrinsic call instruction
     llvm::CallInst *CI = dyn_cast<CallInst>(U.getUser());
     assert(CI);
 
-    //TODO MATT: unsafe use-def chain
-    //CI->dump();
+    // find actual call
+    //TODO MATT: unsafe use-def chain (FIX: traverse the chain in reverse (from callSite to intrinsic))
     llvm::User *user = *(CI->users().begin());
     for (int i = 0; i < 3; ++i) {
       //user->dump();
@@ -94,21 +100,14 @@ void SDReturnRange::locateCallSites(Module* M) {
       }
     }
 
-    /*
-    for(User user : CI->users()) {
-      user = user->users();
-      break;
-    }
-    */
-
-    if (CallInst *callSite = dyn_cast<CallInst>(user)) {
-      addCallSite(CI, callSite);
-      //insertLabel(callSite, M);
+    if (CallInst *CallSite = dyn_cast<CallInst>(user)) {
+      // valid virtual CallSite
+      addCallSite(CI, *CallSite);
     }
   }
 }
 
-void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst* callSite) {
+void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst &callSite) {
   // get the v ptr
   llvm::Value *vptr = checked_vptr_call->getArgOperand(0);
   assert(vptr);//assert not null
@@ -137,36 +136,56 @@ void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst* cal
   //get a more precise class name from argument 2
   string preciseName = sd_getClassNameFromMD(mdNode1, 0);
 
-  sdLog::stream() << "ClassName: " << className
-                  << ", PreciseName: " << preciseName
-                  << ", Callsite:" << *callSite << "\n";
+  // write DebugLoc to map (is written to file in storeCallSites)
+  std::stringstream Stream;
+  const DebugLoc &Log = callSite.getDebugLoc();
+  auto *Scope = cast<MDScope>(Log.getScope());
+  Stream << Scope->getFilename().str() << ":" << Log.getLine() << ":" << Log.getCol()
+         << "," << className << "," << preciseName;
+  callSiteDebugLocs.push_back(Stream.str());
 
-
-  CallSiteInfo info{className, preciseName, callSite};
-  callSites[className].push_back(info);
+  // emit a SubclassHierarchy for preciseName if its not already emitted
+  emitSubclassHierarchyIfNeeded(preciseName);
 }
 
-void SDReturnRange::insertLabel(CallInst* callSite, Module* mod) {
-  auto parentBB = callSite->getParent();
-  parentBB->splitBasicBlock(callSite);
-  auto newParent = callSite->getParent();
-  newParent->setName(callSite->getName());
-  sdLog::stream()  << "Old parent: " << parentBB->getName() << ", new parent: " << newParent->getName() << "\n";
-
-  GlobalVariable* gvar_ptr_abc = new GlobalVariable(/*Module=*/*mod,
-          /*Type=*/ Type::getInt8PtrTy(mod->getContext()),
-          /*isConstant=*/false,
-          /*Linkage=*/GlobalValue::CommonLinkage,
-          /*Initializer=*/0, // has initializer, specified below
-          /*Name=*/ newParent->getName() );
+// helper for emitSubclassHierarchyIfNeeded
+std::set<string> SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &root) {
+  std::set<string> result;
+  for (auto it = cha->children_begin(root); it != cha->children_end(root); it++) {
+    const SDBuildCHA::vtbl_t &child = *it;
+    errs() << child.first << ",";
+    result.insert(child.first);
+    const auto subResult = createSubclassHierarchy(child);
+    //TODO MATT: This is broken for diamonds?
+    result.insert(subResult.begin(), subResult.end());
+  }
+  return result;
 }
 
+void SDReturnRange::emitSubclassHierarchyIfNeeded(std::string rootClassName) {
+  if (emittedClassHierarchies.find(rootClassName) != emittedClassHierarchies.end())
+    return;
 
-void SDReturnRange::printCallSites() {
-  for (auto &callSitesEntry : callSites) {
-    sdLog::stream() << callSitesEntry.first << ":"  << "\n";
-    for (auto callSite : callSitesEntry.second) {
-        sdLog::stream() << *(callSite.call) << "\n";
+  auto flatSet = createSubclassHierarchy(SDBuildCHA::vtbl_t(rootClassName, 0));
+  emittedClassHierarchies[rootClassName] = flatSet;
+}
+
+void SDReturnRange::storeCallSites(Module &M) {
+  //TODO MATT: Handle multiple LTO-Modules (write to different files or filesections?)
+  sdLog::stream()  << "storeCallSites: " << M.getName() << "\n";
+  std::ofstream output_file("./_SD_CallSites.txt");
+  std::ostream_iterator<std::string> output_iterator(output_file, "\n");
+  std::copy(callSiteDebugLocs.begin(), callSiteDebugLocs.end(), output_iterator);
+}
+
+void SDReturnRange::storeClassHierarchy(Module &M) {
+  //TODO MATT: We could store to NamedMDNode instead of external files!
+  sdLog::stream()  << "storeClassHierarchy: " << M.getName() << "\n";
+  std::ofstream output_file("./_SD_ClassHierarchy.txt");
+  for (auto& mapEntry : emittedClassHierarchies) {
+    output_file << mapEntry.first;
+    for (auto& element : mapEntry.second) {
+      output_file << "," << element;
     }
   }
 }

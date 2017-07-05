@@ -22,7 +22,15 @@ namespace llvm {
     public:
         static char ID; // Pass identification, replacement for typeid
 
-        SDReturnRange() : ModulePass(ID), callSites() {
+        struct CallSiteInfo {
+            string className;
+            string preciseName;
+            const CallInst *call;
+        };
+
+        typedef std::map <std::string, std::vector<CallSiteInfo>> callSite_map_t;
+
+        SDReturnRange() : ModulePass(ID), callSiteDebugLocs(), emittedClassHierarchies() {
           sd_print("initializing SDReturnRange pass\n");
           initializeSDReturnRangePass(*PassRegistry::getPassRegistry());
         }
@@ -38,8 +46,9 @@ namespace llvm {
           //TODO MATT: fix pass number
           sd_print("\n P??. Started running the ??th pass (SDReturnRange) ...\n");
 
-          locateCallSites(&M);
-          printCallSites();
+          locateCallSites(M);
+          storeCallSites(M);
+          storeClassHierarchy(M);
 
           sd_print("\n P??. Finished running the ??th pass (SDReturnRange) ...\n");
           return true;
@@ -52,20 +61,24 @@ namespace llvm {
           AU.setPreservesAll(); //Matt: should preserve the information from the CHA pass
         }
 
-        struct CallSiteInfo {
-            string className;
-            string preciseName;
-            const CallInst* call;
-        };
-
     private:
-        SDBuildCHA* cha;
-        map<string, vector<CallSiteInfo>> callSites;
+        SDBuildCHA *cha;
+        vector <string> callSiteDebugLocs;
+        std::map <std::string, std::set<std::string>> emittedClassHierarchies;
 
-        void locateCallSites(Module* M);
-        void printCallSites();
-        void addCallSite(const CallInst* checked_vptr_call, CallInst* callSite);
-        void insertLabel(CallInst* callSite, Module* mod);
+        void locateCallSites(Module &M);
+
+        void addCallSite(const CallInst *checked_vptr_call, CallInst &callSite);
+
+
+        std::set <string> createSubclassHierarchy(const SDBuildCHA::vtbl_t &root);
+
+        void emitSubclassHierarchyIfNeeded(std::string rootClassName);
+
+
+        void storeCallSites(Module &M);
+
+        void storeClassHierarchy(Module &M);
     };
 }
 
