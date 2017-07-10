@@ -327,6 +327,8 @@ void initializeSDReturnAddressPass(PassRegistry&);
 void initializeSDReturnRangePass(PassRegistry&);
 
 void initializeSDMachineFunctionPass(PassRegistry&);
+
+void initializeSDSymbolReplacePass(PassRegistry&);
 }
 
 #endif

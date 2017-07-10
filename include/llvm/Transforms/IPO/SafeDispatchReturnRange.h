@@ -70,11 +70,9 @@ namespace llvm {
 
         void addCallSite(const CallInst *checked_vptr_call, CallInst &callSite);
 
-
-        std::set <string> createSubclassHierarchy(const SDBuildCHA::vtbl_t &root);
+        void createSubclassHierarchy(const SDBuildCHA::vtbl_t &root, std::set<string> &output) ;
 
         void emitSubclassHierarchyIfNeeded(std::string rootClassName);
-
 
         void storeCallSites(Module &M);
 

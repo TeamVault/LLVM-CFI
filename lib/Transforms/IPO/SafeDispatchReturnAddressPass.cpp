@@ -64,6 +64,11 @@ namespace {
     }
 
     virtual bool runOnFunction(Function &F) override {
+      sd_print("P??. Started running SDReturnAddress pass ...\n");
+
+      if (F.getName() != "_ZN1E1fEv")
+        return false;
+
       for (auto &B : F) {
         sd_print("P7. Inserting retAddr (%s)\n", F.getName());
 
@@ -75,22 +80,57 @@ namespace {
         Function* retAddrIntrinsic = Intrinsic::getDeclaration(
           F.getParent(), Intrinsic::returnaddress);
         ConstantInt* zero = builder.getInt32(0);
+
         auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
+
+        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
+        auto retAddr = builder.CreatePtrToInt(retAddrCall, int64Ty);
+
+        errs() << "minCheck";
+        auto globalMin = getOrCreateGlobal(F.getParent(), "min");
+        auto minPtr = builder.CreateLoad(globalMin);
+        auto min = builder.CreatePtrToInt(minPtr, int64Ty);
+
+        auto globalMax = getOrCreateGlobal(F.getParent(), "max");
+        auto maxPtr = builder.CreateLoad(globalMax);
+        auto max = builder.CreatePtrToInt(maxPtr, int64Ty);
+
+        auto diff = builder.CreateSub(retAddr, min);
+        errs() << "diffCheck";
+        auto width = builder.CreateSub(max, min);
+        auto check = builder.CreateICmpULE(diff, width);
 
         //Create printf call
         auto printfPrototype = createPrintfPrototype(module);
         auto printfFormatString = createPrintfFormatString(F.getName().str(), builder);
-        ArrayRef<Value*> args = {printfFormatString, retAddrCall};
+        ArrayRef<Value*> args = {printfFormatString, check};
         builder.CreateCall(printfPrototype, args);
 
         // We modified the code.
+        sd_print("P??. Finished running SDReturnAddress pass...\n");
         return true;
       }
+      sd_print("P??. Finished running SDReturnAddress pass...\n");
       return false;
     }
 
     const char *getPassName() const override {
       return "Safe Dispatch Return Address";
+    }
+
+    GlobalVariable* getOrCreateGlobal(Module* M, StringRef suffix) {
+      Twine name = "_SD_RANGESTUB_ZTV1E_" + suffix;
+      auto global = M->getGlobalVariable(name.str());
+      if (global != nullptr)
+        return global;
+
+      errs() << "new global with name: " << name.str() << "\n";
+      auto type = llvm::Type::getInt64PtrTy(M->getContext());
+      auto newGlobal = new GlobalVariable(*M, type, false, GlobalVariable::ExternalLinkage, nullptr, name);
+
+      auto nullPointer = ConstantPointerNull::get(type);
+      newGlobal->setInitializer(nullPointer);
+      return newGlobal;
     }
 
   };

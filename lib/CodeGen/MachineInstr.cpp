@@ -141,6 +141,13 @@ void MachineOperand::ChangeToFPImmediate(const ConstantFP *FPImm) {
   Contents.CFP = FPImm;
 }
 
+void MachineOperand::ChangeToMCSymbol(MCSymbol *Sym) {
+  assert((!isReg() || !isTied()) && "Cannot change a tied operand into an MCSymbol");
+  removeRegFromUses();
+  OpKind = MO_MCSymbol;
+  Contents.Sym = Sym;
+}
+
 /// ChangeToRegister - Replace this operand with a new register operand of
 /// the specified value.  If an operand is known to be an register already,
 /// the setReg method should be used.

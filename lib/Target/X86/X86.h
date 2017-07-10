@@ -73,6 +73,10 @@ FunctionPass *createX86CallFrameOptimization();
 /// generated in the SafeDispatch LTO passes.
 FunctionPass *createSDMachineFunctionPass();
 
+/// createSDSymbolReplacePass - Return a pass that replaces the
+/// symbols for return range checks.
+FunctionPass *createSDSymbolReplacePass();
+
 } // End llvm namespace
 
 #endif

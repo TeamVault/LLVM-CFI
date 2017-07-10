@@ -149,25 +149,25 @@ void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst &cal
 }
 
 // helper for emitSubclassHierarchyIfNeeded
-std::set<string> SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &root) {
-  std::set<string> result;
+void SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &root, std::set<string> &output) {
   for (auto it = cha->children_begin(root); it != cha->children_end(root); it++) {
     const SDBuildCHA::vtbl_t &child = *it;
-    errs() << child.first << ",";
-    result.insert(child.first);
-    const auto subResult = createSubclassHierarchy(child);
-    //TODO MATT: This is broken for diamonds?
-    result.insert(subResult.begin(), subResult.end());
+    output.insert(child.first);
+    createSubclassHierarchy(child, output);
   }
-  return result;
 }
 
 void SDReturnRange::emitSubclassHierarchyIfNeeded(std::string rootClassName) {
   if (emittedClassHierarchies.find(rootClassName) != emittedClassHierarchies.end())
     return;
 
-  auto flatSet = createSubclassHierarchy(SDBuildCHA::vtbl_t(rootClassName, 0));
-  emittedClassHierarchies[rootClassName] = flatSet;
+  std::set<string> SubclassSet;
+  SubclassSet.insert(rootClassName);
+  createSubclassHierarchy(SDBuildCHA::vtbl_t(rootClassName, 0), SubclassSet);
+  emittedClassHierarchies[rootClassName] = SubclassSet;
+  for (auto &element: SubclassSet) {
+    errs() << element << " , ";
+  }
 }
 
 void SDReturnRange::storeCallSites(Module &M) {
@@ -187,5 +187,6 @@ void SDReturnRange::storeClassHierarchy(Module &M) {
     for (auto& element : mapEntry.second) {
       output_file << "," << element;
     }
+    output_file << "\n";
   }
 }
