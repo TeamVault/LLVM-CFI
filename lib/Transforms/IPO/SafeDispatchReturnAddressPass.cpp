@@ -70,65 +70,78 @@ namespace {
         return false;
 
       for (auto &B : F) {
-        sd_print("P7. Inserting retAddr (%s)\n", F.getName());
+        for (auto &I : B ) {
+          if (!isa<ReturnInst>(I))
+            continue;
 
-        Module* module = F.getParent();
-        IRBuilder<> builder(&B);
-        builder.SetInsertPoint(&B, ++builder.GetInsertPoint());
+          sd_print("P7. Inserting retAddr (%s)\n", F.getName());
 
-        //Create returnAddr intrinsic call
-        Function* retAddrIntrinsic = Intrinsic::getDeclaration(
-          F.getParent(), Intrinsic::returnaddress);
-        ConstantInt* zero = builder.getInt32(0);
+          Module *module = F.getParent();
+          IRBuilder<> builder(&I);
+          //builder.SetInsertPoint(&B, ++builder.GetInsertPoint());
 
-        auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
+          //Create returnAddr intrinsic call
+          Function *retAddrIntrinsic = Intrinsic::getDeclaration(
+                  F.getParent(), Intrinsic::returnaddress);
+          ConstantInt *zero = builder.getInt32(0);
 
-        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
-        auto retAddr = builder.CreatePtrToInt(retAddrCall, int64Ty);
+          auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
 
-        errs() << "minCheck";
-        auto globalMin = getOrCreateGlobal(F.getParent(), "min");
-        auto minPtr = builder.CreateLoad(globalMin);
-        auto min = builder.CreatePtrToInt(minPtr, int64Ty);
+          auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
+          auto retAddr = builder.CreatePtrToInt(retAddrCall, int64Ty);
 
-        auto globalMax = getOrCreateGlobal(F.getParent(), "max");
-        auto maxPtr = builder.CreateLoad(globalMax);
-        auto max = builder.CreatePtrToInt(maxPtr, int64Ty);
+          errs() << "minCheck";
+          auto globalMin = getOrCreateGlobal(F.getParent(), B, "min");
+          //auto minPtr = builder.CreateLoad(globalMin);
+          auto min = builder.CreatePtrToInt(globalMin, int64Ty);
 
-        auto diff = builder.CreateSub(retAddr, min);
-        errs() << "diffCheck";
-        auto width = builder.CreateSub(max, min);
-        auto check = builder.CreateICmpULE(diff, width);
+          auto globalMax = getOrCreateGlobal(F.getParent(), B, "max");
+          //auto maxPtr = builder.CreateLoad(globalMax);
+          auto max = builder.CreatePtrToInt(globalMax, int64Ty);
 
-        //Create printf call
-        auto printfPrototype = createPrintfPrototype(module);
-        auto printfFormatString = createPrintfFormatString(F.getName().str(), builder);
-        ArrayRef<Value*> args = {printfFormatString, check};
-        builder.CreateCall(printfPrototype, args);
+          auto diff = builder.CreateSub(retAddr, min);
+          errs() << "diffCheck";
+          auto width = builder.CreateSub(max, min);
+          auto check = builder.CreateICmpULE(diff, width);
 
-        // We modified the code.
-        sd_print("P??. Finished running SDReturnAddress pass...\n");
-        return true;
+          //Create printf call
+          auto printfPrototype = createPrintfPrototype(module);
+          auto printfFormatString = createPrintfFormatString(F.getName().str(), builder);
+          ArrayRef < Value * > args = {printfFormatString, check};
+          builder.CreateCall(printfPrototype, args);
+
+          // We modified the code.
+          sd_print("P??. Finished running SDReturnAddress pass...\n");
+        }
       }
       sd_print("P??. Finished running SDReturnAddress pass...\n");
-      return false;
+      return true;
     }
 
     const char *getPassName() const override {
       return "Safe Dispatch Return Address";
     }
 
-    GlobalVariable* getOrCreateGlobal(Module* M, StringRef suffix) {
+    GlobalVariable* getOrCreateGlobal(Module* M, BasicBlock &BB, StringRef suffix) {
       Twine name = "_SD_RANGESTUB_ZTV1E_" + suffix;
       auto global = M->getGlobalVariable(name.str());
       if (global != nullptr)
         return global;
 
       errs() << "new global with name: " << name.str() << "\n";
-      auto type = llvm::Type::getInt64PtrTy(M->getContext());
-      auto newGlobal = new GlobalVariable(*M, type, false, GlobalVariable::ExternalLinkage, nullptr, name);
+      //auto type = llvm::Type::getInt64PtrTy(M->getContext());
 
-      auto nullPointer = ConstantPointerNull::get(type);
+      PointerType* labelType = llvm::Type::getInt8PtrTy(M->getContext()); // TODO MATT: second arg?
+
+      //ArrayType* arrayOfLabelType = ArrayType::get(labelType, 1);
+      auto newGlobal = new GlobalVariable(*M, labelType, false, GlobalVariable::ExternalLinkage, nullptr, name);
+
+      //std::vector<Constant*> vector;
+      //vector.push_back(BlockAddress::get(&BB));
+      //auto init = ConstantArray::get(arrayOfLabelType, array);
+
+
+      auto nullPointer = ConstantPointerNull::get(labelType);
       newGlobal->setInitializer(nullPointer);
       return newGlobal;
     }

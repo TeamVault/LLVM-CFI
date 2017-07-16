@@ -55,7 +55,6 @@ namespace llvm {
           //const auto &M = MF.getMMI().getModule();
           //const auto &MD = M->getNamedMetadata("sd.class_info._ZTV1A");
           //MD->dump();
-
           for (auto &MBB: MF) {
             for (auto &MI : MBB) {
               if (MI.isCall()) {
@@ -79,12 +78,21 @@ namespace llvm {
                 ss << "SD_LABEL_" << count++;
                 auto name = ss.str();
 
-                auto data = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max");
-                errs() << "Global Data: " << *data << "\n";
+                /*
+                for (auto &entry: MF.getMMI().getModule()->globals()) {
+                  errs() << "Global Data: " << entry << "\n";
+                  if (entry.hasInitializer())
+                    errs() << *entry.getInitializer() << "\n";
+                } //->getGlobalVariable("_ZZ4mainE6labels");
+
+                 */
 
                 auto symbol = MF.getContext().GetOrCreateSymbol(name);
-                BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(TargetOpcode::GC_LABEL))
+                BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
                         .addSym(symbol);
+
+                auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max");
+                global->setInitializer(BlockAddress::get(const_cast<BasicBlock*>(MBB.getBasicBlock())));
 
                 //const MCSymbolRefExpr *FnExpr =
                  //       MCSymbolRefExpr::Create(FnSym, MCSymbolRefExpr::VK_PLT, Ctx);

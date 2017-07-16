@@ -52,7 +52,7 @@ namespace llvm {
               for (auto &Op : MI.operands()) {
                 if (Op.isGlobal() && Op.getGlobal()->getName().startswith("_SD_RANGESTUB_"))  {
                   errs() << "FOUND USAGE: " << MI << "\n";
-                  Op.ChangeToMCSymbol(MF.getContext().GetOrCreateSymbol("SD_LABEL_0"));
+                  //Op.ChangeToMCSymbol(MF.getContext().GetOrCreateSymbol("SD_LABEL_0"));
                 }
                 i++;
               }
