@@ -92,13 +92,17 @@ namespace {
 
           errs() << "minCheck";
           auto globalMin = getOrCreateGlobal(F.getParent(), B, "min");
-          //auto minPtr = builder.CreateLoad(globalMin);
-          auto min = builder.CreatePtrToInt(globalMin, int64Ty);
+          auto minPtr = builder.CreateLoad(globalMin);
+          auto min = builder.CreatePtrToInt(minPtr, int64Ty);
+          //auto min = builder.CreateLoad(int64Ty, globalMin,  "sd_range_min");
+
 
           auto globalMax = getOrCreateGlobal(F.getParent(), B, "max");
-          //auto maxPtr = builder.CreateLoad(globalMax);
-          auto max = builder.CreatePtrToInt(globalMax, int64Ty);
+          auto maxPtr = builder.CreateLoad(globalMax);
+          auto max = builder.CreatePtrToInt(maxPtr, int64Ty);
+          //auto max = builder.CreateLoad(int64Ty, globalMax, "sd_range_max");
 
+          errs() << *minPtr->getType() << " "  << *retAddr->getType();
           auto diff = builder.CreateSub(retAddr, min);
           errs() << "diffCheck";
           auto width = builder.CreateSub(max, min);
@@ -144,6 +148,11 @@ namespace {
       auto nullPointer = ConstantPointerNull::get(labelType);
       newGlobal->setInitializer(nullPointer);
       return newGlobal;
+    }
+
+
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
+      AU.setPreservesAll();
     }
 
   };

@@ -68,15 +68,25 @@ namespace llvm {
                 sdLog::stream() << "Machine CallInst:\n" << MI
                                 << "has callee base class: " << className << "\n";
 
-                // insert MI into the vectors for the base class and all of its subclasses!
-                for (auto &SubClass : ClassHierarchies[className]) {
-                  insert(SubClass, &MI);
-                }
 
+
+                //create label
                 sdLog::stream() << "\n";
                 std::stringstream ss;
                 ss << "SD_LABEL_" << count++;
                 auto name = ss.str();
+                auto symbol = MF.getContext().GetOrCreateSymbol(name);
+                BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
+                        .addSym(symbol);
+
+                //get address of the new basicBlock
+                auto blockAddress = BlockAddress::get(const_cast<BasicBlock*>(MBB.getBasicBlock()));
+
+                // insert MI into the vectors for the base class and all of its subclasses!
+                for (auto &SubClass : ClassHierarchies[className]) {
+                  insert(SubClass, MI, MF, blockAddress);
+                }
+
 
                 /*
                 for (auto &entry: MF.getMMI().getModule()->globals()) {
@@ -87,27 +97,14 @@ namespace llvm {
 
                  */
 
-                auto symbol = MF.getContext().GetOrCreateSymbol(name);
-                BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
-                        .addSym(symbol);
-
-                auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max");
-                global->setInitializer(BlockAddress::get(const_cast<BasicBlock*>(MBB.getBasicBlock())));
-
-                //const MCSymbolRefExpr *FnExpr =
-                 //       MCSymbolRefExpr::Create(FnSym, MCSymbolRefExpr::VK_PLT, Ctx);
-                //EmitInstruction(Out, MCInstBuilder(X86::CALL64pcrel32).addExpr(FnExpr));
-
-
-                //BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(X86::MOV))
-
               }
-              //sdLog::stream() << "TESTING:  " << MI << "\n";
             }
           }
 
           //TODO MATT: fix pass number
           sd_print("P??. Finished running SDMachineFunction pass (%s) ...\n", MF.getName());
+          sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_min") << "\n";
+          sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max") << "\n";
           for (auto &entry : RangeBounds) {
             auto bounds = entry.second;
             sdLog::stream() << entry.first
@@ -118,13 +115,20 @@ namespace llvm {
           return true;
         }
 
-        void insert(std::string className, MachineInstr *MI) {
+        void insert(std::string className, MachineInstr &MI, MachineFunction &MF, BlockAddress* Address) {
           sdLog::stream() << "Call is valid for vtable: " << className << "\n";
-          CallSiteMap[className].push_back(MI);
+          CallSiteMap[className].push_back(&MI);
+
           if (RangeBounds.find(className) == RangeBounds.end()) {
-            RangeBounds[className].first = debugLocToString(MI->getDebugLoc());
+            errs() << "min: " << *Address << "\n";
+            auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_min");
+            global->setInitializer(Address);
+            RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
           }
-          RangeBounds[className].second = debugLocToString(MI->getDebugLoc());
+          errs() << "max: " << *Address << "\n";
+          auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max");
+          global->setInitializer(Address);
+          RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
         }
 
         void loadCallSiteData() {
