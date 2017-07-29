@@ -51,7 +51,7 @@ namespace llvm {
               int i = 0;
               for (auto &Op : MI.operands()) {
                 if (Op.isGlobal() && Op.getGlobal()->getName().startswith("_SD_RANGESTUB_"))  {
-                  errs() << "FOUND USAGE: " << MI << "\n";
+                  errs() << "FOUND USAGE: " << MI;
                   //Op.ChangeToMCSymbol(MF.getContext().GetOrCreateSymbol("SD_LABEL_0"));
                 }
                 i++;

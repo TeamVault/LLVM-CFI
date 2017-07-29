@@ -30,6 +30,20 @@ namespace llvm {
      * This pass receives information generated in the SafeDispatch LTO passes
      * (SafeDispatchReturnRange) for use in the X86 backend.
      * */
+
+    static std::string demangleClassname(std::string mangledClassname) {
+      std::string className = "";
+      bool foundDigit = false;
+      for (auto c : mangledClassname){
+        if (isdigit(c)) {
+          foundDigit = true;
+        } else if (foundDigit) {
+          className.push_back(c);
+        }
+      }
+      return className;
+    }
+
     struct SDMachineFunction : public MachineFunctionPass {
     public:
         static char ID; // Pass identification, replacement for typeid
@@ -79,8 +93,17 @@ namespace llvm {
                 BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
                         .addSym(symbol);
 
+                for (auto &MBB: MF) {
+                  errs() << MBB;
+                }
                 //get address of the new basicBlock
-                auto blockAddress = BlockAddress::get(const_cast<BasicBlock*>(MBB.getBasicBlock()));
+                auto blockAddress = BlockAddress::lookup(MBB.getBasicBlock());
+                if (blockAddress == nullptr) {
+                  errs() << "Block not taken: " << MBB.getBasicBlock()->getName() << "\n";
+                  MBB.setHasAddressTaken();
+                  //MBB.setIsLandingPad(true);
+                  blockAddress = BlockAddress::get(const_cast<BasicBlock*>(MBB.getBasicBlock()));
+                }
 
                 // insert MI into the vectors for the base class and all of its subclasses!
                 for (auto &SubClass : ClassHierarchies[className]) {
@@ -103,8 +126,8 @@ namespace llvm {
 
           //TODO MATT: fix pass number
           sd_print("P??. Finished running SDMachineFunction pass (%s) ...\n", MF.getName());
-          sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_min") << "\n";
-          sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max") << "\n";
+          //sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_min") << "\n";
+          //sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max") << "\n";
           for (auto &entry : RangeBounds) {
             auto bounds = entry.second;
             sdLog::stream() << entry.first
@@ -115,20 +138,23 @@ namespace llvm {
           return true;
         }
 
-        void insert(std::string className, MachineInstr &MI, MachineFunction &MF, BlockAddress* Address) {
-          sdLog::stream() << "Call is valid for vtable: " << className << "\n";
+        void insert(std::string mangledClassname, MachineInstr &MI, MachineFunction &MF, BlockAddress* Address) {
+          auto className = demangleClassname(mangledClassname);
+          sdLog::stream() << "Call is valid for class: " << className << "\n";
           CallSiteMap[className].push_back(&MI);
 
           if (RangeBounds.find(className) == RangeBounds.end()) {
-            errs() << "min: " << *Address << "\n";
-            auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_min");
+            auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_min");
             global->setInitializer(Address);
+            global->setConstant(true);
             RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
+            sdLog::stream() << "min: " << *global << "\n";
           }
-          errs() << "max: " << *Address << "\n";
-          auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max");
+          auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_max");
           global->setInitializer(Address);
+          global->setConstant(true);
           RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
+          sdLog::stream() << "max: " << *global << "\n";
         }
 
         void loadCallSiteData() {
@@ -143,7 +169,7 @@ namespace llvm {
             std::getline(LineStream, DebugLoc, ',');
             std::getline(LineStream, ClassName, ',');
             LineStream >> PreciseName;
-            CallSiteDebugLoc[DebugLoc] = PreciseName;
+            CallSiteDebugLoc[DebugLoc] = ClassName;
 
             sdLog::stream() << DebugLoc << " is call to " << ClassName << ", " << PreciseName << "\n";
           }

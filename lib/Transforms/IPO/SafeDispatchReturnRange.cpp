@@ -17,7 +17,7 @@
 // 2. lib/Transforms/IPO/IPO.cpp
 // 3. include/llvm/LinkAllPasses.h
 // 4. include/llvm/InitializePasses.h
-// 5. lib/Transforms/IPO/PassManagerBuilder.cpp
+// 5. lib/Transforms/IPO/PassManasdgerBuilder.cpp
 
 using namespace llvm;
 
@@ -144,8 +144,11 @@ void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst &cal
          << "," << className << "," << preciseName;
   callSiteDebugLocs.push_back(Stream.str());
 
+  sdLog::stream() << "Callsite @" <<Scope->getFilename().str() << ":" << Log.getLine() << ":" << Log.getCol()
+                  << " for class " << className << " (" << preciseName << ")\n";
+
   // emit a SubclassHierarchy for preciseName if its not already emitted
-  emitSubclassHierarchyIfNeeded(preciseName);
+  emitSubclassHierarchyIfNeeded(className);
 }
 
 // helper for emitSubclassHierarchyIfNeeded
@@ -153,6 +156,7 @@ void SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &root, std:
   for (auto it = cha->children_begin(root); it != cha->children_end(root); it++) {
     const SDBuildCHA::vtbl_t &child = *it;
     output.insert(child.first);
+    errs() << "inserting: " << child.first << "\n";
     createSubclassHierarchy(child, output);
   }
 }
@@ -161,6 +165,7 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(std::string rootClassName) {
   if (emittedClassHierarchies.find(rootClassName) != emittedClassHierarchies.end())
     return;
 
+  sdLog::stream() << "Emitting hierarchy for " << rootClassName << ":\n";
   std::set<string> SubclassSet;
   SubclassSet.insert(rootClassName);
   createSubclassHierarchy(SDBuildCHA::vtbl_t(rootClassName, 0), SubclassSet);
@@ -168,6 +173,7 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(std::string rootClassName) {
   for (auto &element: SubclassSet) {
     errs() << element << " , ";
   }
+  errs() << "\n";
 }
 
 void SDReturnRange::storeCallSites(Module &M) {
