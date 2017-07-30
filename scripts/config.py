@@ -12,6 +12,7 @@ ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 # When this is False, we remove any optimization flag from the compiler command
 ENABLE_COMPILER_OPT = True
 ENABLE_LLVM_CFI = False
+BUILD_DEBUG = False
 
 # Enabled linker flags
 sd_config = {
@@ -34,6 +35,11 @@ if ENABLE_LLVM_CFI:
   sd_config["SD_ENABLE_INTERLEAVING"] = True
   sd_config["SD_ENABLE_CHECKS"]       = False
   sd_config["SD_LLVM_CFI"]            = True
+
+#Debug build
+BUILD_OUTPUT_DIR = "/Release+Asserts"
+if BUILD_DEBUG:
+  BUILD_OUTPUT_DIR = "/Debug+Asserts"
 
 isTrue = lambda s : s.lower() in ['true', '1', 't', 'y', 'yes', 'ok']
 
@@ -189,12 +195,12 @@ def read_config():
   clang_config.update({
     "LLVM_SCRIPTS_DIR"    : clang_config["LLVM_DIR"] + "/scripts",
     "ENABLE_COMPILER_OPT" : ENABLE_COMPILER_OPT,
-    "GOLD_PLUGIN"         : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/lib/LLVMgold.so",
+    "GOLD_PLUGIN"         : clang_config["LLVM_BUILD_DIR"] + BUILD_OUTPUT_DIR + "/lib/LLVMgold.so",
     })
 
   clang_config.update({
-    "CC"              : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang",
-    "CXX"             : clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts/bin/clang++",
+    "CC"              : clang_config["LLVM_BUILD_DIR"] + BUILD_OUTPUT_DIR + "/bin/clang",
+    "CXX"             : clang_config["LLVM_BUILD_DIR"] + BUILD_OUTPUT_DIR + "/bin/clang++",
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : [],
