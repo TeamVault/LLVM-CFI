@@ -78,7 +78,6 @@ namespace llvm {
             for (auto &MI : MBB) {
               if (MI.isCall()) {
                 auto debugLocString = debugLocToString(MI.getDebugLoc());
-
                 auto classNameIt = CallSiteDebugLoc.find(debugLocString);
                 if (classNameIt == CallSiteDebugLoc.end())
                   continue;
@@ -86,9 +85,6 @@ namespace llvm {
                 auto className = classNameIt->second;
                 sdLog::stream() << "Machine CallInst:\n" << MI
                                 << "has callee base class: " << className << "\n";
-
-
-
                 //create label
                 sdLog::stream() << "\n";
                 std::stringstream ss;
@@ -99,25 +95,10 @@ namespace llvm {
                 BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
                         .addSym(symbol);
 
-                for (auto &MBB: MF) {
-                  errs() << MBB;
-                }
-
                 // insert MI into the vectors for the base class and all of its subclasses!
                 for (auto &SubClass : ClassHierarchies[className]) {
                   insert(SubClass, MI, MF, symbol);
                 }
-
-
-                /*
-                for (auto &entry: MF.getMMI().getModule()->globals()) {
-                  errs() << "Global Data: " << entry << "\n";
-                  if (entry.hasInitializer())
-                    errs() << *entry.getInitializer() << "\n";
-                } //->getGlobalVariable("_ZZ4mainE6labels");
-
-                 */
-
               }
             }
           }
@@ -142,17 +123,30 @@ namespace llvm {
           CallSiteMap[className].push_back(&MI);
 
           if (RangeBounds.find(className) == RangeBounds.end()) {
+
             auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_min");
+            if (global == nullptr) {
+              sdLog::stream() << "No min global found...\n";
+              return;
+            }
             global->setConstant(true);
+
             RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
             Labels["_SD_RANGESTUB_" + className + "_min"] = Label;
-            sdLog::stream() << "min: " << *global << "\n";
+            sdLog::stream() << "min: " << "_SD_RANGESTUB_" << className << "_min" << "\n";
+
           }
+
           auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_max");
+          if (global == nullptr) {
+            sdLog::stream() << "No max global found...\n";
+            return;
+          }
           global->setConstant(true);
+
           RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
           Labels["_SD_RANGESTUB_" + className + "_max"] = Label;
-          sdLog::stream() << "max: " << *global << "\n";
+          sdLog::stream() << "max: " << "_SD_RANGESTUB_" << className << "_max" << "\n";
         }
 
         void loadCallSiteData() {

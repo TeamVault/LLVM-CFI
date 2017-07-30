@@ -91,7 +91,7 @@ namespace {
 
     virtual bool runOnFunction(Function &F) override {
       sd_print("P7. Running SDReturnAddress pass for %s\n", F.getName());
-      if (!F.getName().startswith("_Z")) {
+      if (!F.getName().startswith("_ZN")) {
         sd_print("Function skipped!\n");
         return false;
       }
