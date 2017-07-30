@@ -1,9 +1,11 @@
-#include "SafeDispatchMachineFunction.h"
+#include "llvm/CodeGen/SafeDispatchMachineFunction.h"
 
 using namespace llvm;
 
 char SDMachineFunction::ID = 0;
 std::map <std::string, std::pair<std::string, std::string>> SDMachineFunction::RangeBounds;
+std::map < std::string, MCSymbol* > SDMachineFunction::Labels;
+
 int SDMachineFunction::count = 0;
 
 INITIALIZE_PASS(SDMachineFunction, "sdMachinePass", "Get frontend infos.", false, true)

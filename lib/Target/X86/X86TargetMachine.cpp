@@ -239,7 +239,4 @@ void X86PassConfig::addPreEmitPass() {
     addPass(createX86PadShortFunctions());
     addPass(createX86FixupLEAs());
   }
-  //TODO MATT: find the best location for the backend pass
-  addPass(createSDMachineFunctionPass());
-  addPass(createSDSymbolReplacePass());
 }

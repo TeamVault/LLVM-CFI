@@ -558,6 +558,9 @@ void TargetPassConfig::addMachinePasses() {
 
   addPass(&StackMapLivenessID, false);
 
+  //TODO MATT: find the best location for the backend pass
+  addPass(createSDMachineFunctionPass(), false, false);
+
   AddingMachinePasses = false;
 }
 

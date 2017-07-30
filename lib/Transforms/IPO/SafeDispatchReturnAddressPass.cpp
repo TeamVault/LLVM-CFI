@@ -44,7 +44,7 @@ namespace {
 
   static Constant* createPrintfFormatString(std::string funcName, IRBuilder<> &builder){
     GlobalVariable* formatStr = builder.CreateGlobalString(
-      funcName + " min: %p, max: %p\n", "SafeDispatchPrintfFormatStr");
+      funcName + " retAddr: %p, min: %p, max: %p -> %d\n", "SafeDispatchPrintfFormatStr");
     
     // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
     ConstantInt* zero = builder.getInt32(0);
@@ -140,7 +140,7 @@ namespace {
           //Create printf call
           auto printfPrototype = createPrintfPrototype(module);
           auto printfFormatString = createPrintfFormatString(F.getName().str(), builder);
-          ArrayRef < Value * > args = {printfFormatString, min, max};
+          ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
           builder.CreateCall(printfPrototype, args);
 
           // We modified the code.

@@ -529,6 +529,11 @@ namespace llvm {
   ///
   FunctionPass *createGCInfoPrinter(raw_ostream &OS);
 
+  //TODO MATT: Write docs
+  /// createSDMachineFunctionPass - Return a pass that receives information
+  /// generated in the SafeDispatch LTO passes.
+  FunctionPass *createSDMachineFunctionPass();
+
   /// MachineCSE - This pass performs global CSE on machine instructions.
   extern char &MachineCSEID;
 

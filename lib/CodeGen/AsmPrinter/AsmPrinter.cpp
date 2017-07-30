@@ -53,6 +53,10 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
+
+#include "SDAsmPrinterHandler.h"
+#include "llvm/CodeGen/SafeDispatchMachineFunction.h"
+
 using namespace llvm;
 
 #define DEBUG_TYPE "asm-printer"
@@ -60,6 +64,7 @@ using namespace llvm;
 static const char *const DWARFGroupName = "DWARF Emission";
 static const char *const DbgTimerName = "Debug Info Emission";
 static const char *const EHTimerName = "DWARF Exception Writer";
+static const char *const SDTimerName = "SD Handler";
 static const char *const CodeViewLineTablesGroupName = "CodeView Line Tables";
 
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
@@ -166,6 +171,7 @@ void AsmPrinter::getAnalysisUsage(AnalysisUsage &AU) const {
   MachineFunctionPass::getAnalysisUsage(AU);
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<GCModuleInfo>();
+  AU.addRequired<SDMachineFunction>();
   if (isVerbose())
     AU.addRequired<MachineLoopInfo>();
 }
@@ -274,6 +280,14 @@ bool AsmPrinter::doInitialization(Module &M) {
   }
   if (ES)
     Handlers.push_back(HandlerInfo(ES, EHTimerName, DWARFGroupName));
+
+  //TODO MATT: Fix: getAnalysis doesn't find SDMachineFunction?
+  //TODO MATT: make data in SDMachineFunction non-static
+  //SDMachineFunction &SDPass = getAnalysis<SDMachineFunction>();
+  AsmPrinterHandler *SDHandler = new SDAsmPrinterHandler(this);
+  Handlers.push_back(HandlerInfo(SDHandler, SDTimerName, SDTimerName));
+  errs() << "AsmPrinter didn't require SDMachineFunction?\n";
+
   return false;
 }
 
@@ -506,7 +520,16 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 
   OutStreamer->EmitLabel(GVSym);
 
-  EmitGlobalConstant(GV->getInitializer());
+  bool hasEmittedInitializer = false;
+  for (const HandlerInfo &HI : Handlers) {
+    NamedRegionTimer T(HI.TimerName, HI.TimerGroupName, TimePassesIsEnabled);
+    hasEmittedInitializer = HI.Handler->emitGlobalVariableInitializer(GV);
+    if (hasEmittedInitializer)
+      break;
+  }
+
+  if (!hasEmittedInitializer)
+    EmitGlobalConstant(GV->getInitializer());
 
   if (MAI->hasDotTypeDotSizeDirective())
     // .size foo, 42

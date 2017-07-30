@@ -69,14 +69,6 @@ FunctionPass *createX86FixupLEAs();
 /// esp-relative movs with pushes.
 FunctionPass *createX86CallFrameOptimization();
 
-/// createSDMachineFunctionPass - Return a pass that receives information
-/// generated in the SafeDispatch LTO passes.
-FunctionPass *createSDMachineFunctionPass();
-
-/// createSDSymbolReplacePass - Return a pass that replaces the
-/// symbols for return range checks.
-FunctionPass *createSDSymbolReplacePass();
-
 } // End llvm namespace
 
 #endif

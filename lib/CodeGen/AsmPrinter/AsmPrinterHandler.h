@@ -22,6 +22,8 @@ namespace llvm {
 class MachineFunction;
 class MachineInstr;
 class MCSymbol;
+class GlobalVariable;
+
 
 /// \brief Collects and handles AsmPrinter objects required to build debug
 /// or EH information.
@@ -55,6 +57,10 @@ public:
 
   /// \brief Process end of an instruction.
   virtual void endInstruction() = 0;
+
+  virtual bool emitGlobalVariableInitializer(const GlobalVariable *GV) {
+    return false;
+  };
 };
 } // End of namespace llvm
 

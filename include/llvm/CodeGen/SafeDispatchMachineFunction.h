@@ -6,10 +6,6 @@
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 
-#include "X86.h"
-#include "X86InstrInfo.h"
-#include "X86Subtarget.h"
-#include "X86MachineFunctionInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -17,12 +13,12 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Target/TargetInstrInfo.h"
-
-
+#include "llvm/MC/MCSymbol.h"
 
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 
 
 namespace llvm {
@@ -54,12 +50,21 @@ namespace llvm {
           sd_print("initializing SDMachineFunction pass\n");
           initializeSDMachineFunctionPass(*PassRegistry::getPassRegistry());
 
+          //TODO MATT: STOPPER FOR DEBUG
+          //std::string stopper;
+          //std::cin >> stopper;
+
           loadCallSiteData();
           loadCallHierarchyData();
         }
 
         virtual ~SDMachineFunction() {
           sd_print("deleting SDMachineFunction pass\n");
+        }
+
+        void getAnalysisUsage(AnalysisUsage &AU) const {
+          MachineFunctionPass::getAnalysisUsage(AU);
+          AU.setPreservesAll();
         }
 
         bool runOnMachineFunction(MachineFunction &MF) override {
@@ -89,25 +94,18 @@ namespace llvm {
                 std::stringstream ss;
                 ss << "SD_LABEL_" << count++;
                 auto name = ss.str();
-                auto symbol = MF.getContext().GetOrCreateSymbol(name);
-                BuildMI(MBB, &MI, MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
+                MCSymbol *symbol = MF.getContext().GetOrCreateSymbol(name);
+                //TODO MATT: getNextNode() potentially unsafe (?)
+                BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
                         .addSym(symbol);
 
                 for (auto &MBB: MF) {
                   errs() << MBB;
                 }
-                //get address of the new basicBlock
-                auto blockAddress = BlockAddress::lookup(MBB.getBasicBlock());
-                if (blockAddress == nullptr) {
-                  errs() << "Block not taken: " << MBB.getBasicBlock()->getName() << "\n";
-                  MBB.setHasAddressTaken();
-                  //MBB.setIsLandingPad(true);
-                  blockAddress = BlockAddress::get(const_cast<BasicBlock*>(MBB.getBasicBlock()));
-                }
 
                 // insert MI into the vectors for the base class and all of its subclasses!
                 for (auto &SubClass : ClassHierarchies[className]) {
-                  insert(SubClass, MI, MF, blockAddress);
+                  insert(SubClass, MI, MF, symbol);
                 }
 
 
@@ -138,22 +136,22 @@ namespace llvm {
           return true;
         }
 
-        void insert(std::string mangledClassname, MachineInstr &MI, MachineFunction &MF, BlockAddress* Address) {
+        void insert(std::string mangledClassname, MachineInstr &MI, MachineFunction &MF, MCSymbol *Label) {
           auto className = demangleClassname(mangledClassname);
           sdLog::stream() << "Call is valid for class: " << className << "\n";
           CallSiteMap[className].push_back(&MI);
 
           if (RangeBounds.find(className) == RangeBounds.end()) {
             auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_min");
-            global->setInitializer(Address);
             global->setConstant(true);
             RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
+            Labels["_SD_RANGESTUB_" + className + "_min"] = Label;
             sdLog::stream() << "min: " << *global << "\n";
           }
           auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_max");
-          global->setInitializer(Address);
           global->setConstant(true);
           RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
+          Labels["_SD_RANGESTUB_" + className + "_max"] = Label;
           sdLog::stream() << "max: " << *global << "\n";
         }
 
@@ -196,12 +194,17 @@ namespace llvm {
           }
         }
 
+        static MCSymbol *getLabelForGlobal(Twine globalName) {
+          return Labels[globalName.str()];
+        }
+
     private:
         std::map <std::string, std::string> CallSiteDebugLoc;
         std::map <std::string, std::vector<std::string>> ClassHierarchies;
 
         std::map <std::string, std::vector<MachineInstr *>> CallSiteMap;
-        static std::map <std::string, std::pair<std::string, std::string>> RangeBounds;
+        static std::map < std::string, std::pair<std::string, std::string> > RangeBounds;
+        static std::map < std::string, MCSymbol*> Labels;
 
         static std::string debugLocToString(const DebugLoc &Log);
         static int count;
