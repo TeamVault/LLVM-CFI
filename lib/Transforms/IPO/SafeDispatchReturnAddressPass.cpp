@@ -13,6 +13,7 @@
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
+#include <cxxabi.h>
 
 // you have to modify the following 4 files for each additional LLVM pass
 // 1. include/llvm/IPO.h
@@ -45,7 +46,7 @@ namespace {
   static Constant* createPrintfFormatString(std::string funcName, IRBuilder<> &builder){
     GlobalVariable* formatStr = builder.CreateGlobalString(
       funcName + " retAddr: %p, min: %p, max: %p -> %d\n", "SafeDispatchPrintfFormatStr");
-    
+
     // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
     ConstantInt* zero = builder.getInt32(0);
     Constant* indices[] = {zero, zero};
@@ -56,24 +57,19 @@ namespace {
   }
 
   static std::string demangleFunction(std::string functionName) {
-    std::string className = "";
-    bool foundDigit = false;
-    bool startedWriting = false;
-    for (auto c : functionName){
-      if (isdigit(c)) {
+    int status = 0;
+    std::unique_ptr<char, void(*)(void*)> res {
+            abi::__cxa_demangle(functionName.c_str(), NULL, NULL, &status),
+            std::free
+    };
+    if (status != 0)
+      return "";
 
-        if (foundDigit && startedWriting) {
-          return className;
-        } else {
-          foundDigit = true;
-        }
+    StringRef demangledName = res.get();
+    auto index = demangledName.rfind("::");
+    auto className = demangledName.substr(0, index);
 
-      } else if (foundDigit) {
-        startedWriting = true;
-        className.push_back(c);
-      }
-    }
-    assert(false && "Demangle failed!");
+    errs() << className << "\n";
     return className;
   }
 
@@ -90,24 +86,29 @@ namespace {
     }
 
     virtual bool runOnFunction(Function &F) override {
-      sd_print("P7. Running SDReturnAddress pass for %s\n", F.getName());
+      sd_print("P7. SDReturnAddress: %s", F.getName());
       if (!F.getName().startswith("_ZN")) {
-        sd_print("Function skipped!\n");
+        errs() << "\t -> Function skipped!\n";
         return false;
       }
       for (auto token : itaniumConstructorTokens) {
         if (F.getName().endswith(token)) {
-          sd_print("Constructor skipped!\n");
+          errs() << "\t -> Constructor skipped!\n";
           return false;
         }
       }
 
+      auto className = demangleFunction(F.getName());
+      if (className == "") {
+        errs() << "\t -> WARNING: Skipping after error!\n";
+        return false;
+      }
+
+      int count = 0;
       for (auto &B : F) {
         for (auto &I : B ) {
           if (!isa<ReturnInst>(I))
             continue;
-
-          auto className = demangleFunction(F.getName());
           Module *module = F.getParent();
           IRBuilder<> builder(&I);
           //builder.SetInsertPoint(&B, ++builder.GetInsertPoint());
@@ -142,10 +143,13 @@ namespace {
           auto printfFormatString = createPrintfFormatString(F.getName().str(), builder);
           ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
           builder.CreateCall(printfPrototype, args);
+          count++;
 
           // We modified the code.
         }
       }
+      sdLog::stream() << "\tChecks created: " << count << "\n";
+      sdLog::stream() << "\n";
       return true;
     }
 
@@ -159,7 +163,7 @@ namespace {
       if (global != nullptr)
         return global;
 
-      sdLog::stream() << "New global with name: " << name.str() << "\n";
+      sdLog::stream() << "\tCreated global: " << name.str() << "\n";
       //auto type = llvm::Type::getInt64PtrTy(M->getContext());
 
       PointerType* labelType = llvm::Type::getInt8PtrTy(M->getContext());

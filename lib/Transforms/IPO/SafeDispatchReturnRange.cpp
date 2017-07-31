@@ -10,7 +10,7 @@
 #include <string>
 #include <fstream>
 #include <sstream>
-
+#include <cxxabi.h>
 
 // you have to modify the following 4 files for each additional LLVM pass
 // 1. include/llvm/IPO.h
@@ -22,40 +22,41 @@
 using namespace llvm;
 
 char SDReturnRange::ID = 0;
-INITIALIZE_PASS(SDReturnRange, "sdRetRange", "Build return ranges", false, false)
+INITIALIZE_PASS(SDReturnRange,
+"sdRetRange", "Build return ranges", false, false)
 
-ModulePass* llvm::createSDReturnRangePass() {
+ModulePass *llvm::createSDReturnRangePass() {
   return new SDReturnRange();
 }
 
 //TODO MATT: format properly / code duplication
-static string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0) {
+static string sd_getClassNameFromMD(llvm::MDNode *mdNode, unsigned operandNo = 0) {
 //  llvm::MDTuple* mdTuple = dyn_cast<llvm::MDTuple>(mdNode);
 //  assert(mdTuple);
 
-  llvm::MDTuple* mdTuple = cast<llvm::MDTuple>(mdNode);
+  llvm::MDTuple *mdTuple = cast<llvm::MDTuple>(mdNode);
   assert(mdTuple->getNumOperands() > operandNo + 1);
 
 //  llvm::MDNode* nameMdNode = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
 //  assert(nameMdNode);
-  llvm::MDNode* nameMdNode = cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
+  llvm::MDNode *nameMdNode = cast<llvm::MDNode>(mdTuple->getOperand(operandNo).get());
 
 //  llvm::MDString* mdStr = dyn_cast<llvm::MDString>(nameMdNode->getOperand(0));
 //  assert(mdStr);
-  llvm::MDString* mdStr = cast<llvm::MDString>(nameMdNode->getOperand(0));
+  llvm::MDString *mdStr = cast<llvm::MDString>(nameMdNode->getOperand(0));
 
   StringRef strRef = mdStr->getString();
   assert(sd_isVtableName_ref(strRef));
 
 //  llvm::MDNode* gvMd = dyn_cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
-  llvm::MDNode* gvMd = cast<llvm::MDNode>(mdTuple->getOperand(operandNo+1).get());
+  llvm::MDNode *gvMd = cast<llvm::MDNode>(mdTuple->getOperand(operandNo + 1).get());
 
 //  SmallString<256> OutName;
 //  llvm::raw_svector_ostream Out(OutName);
 //  gvMd->print(Out, CURR_MODULE);
 //  Out.flush();
 
-  llvm::ConstantAsMetadata* vtblConsMd = dyn_cast_or_null<ConstantAsMetadata>(gvMd->getOperand(0).get());
+  llvm::ConstantAsMetadata *vtblConsMd = dyn_cast_or_null<ConstantAsMetadata>(gvMd->getOperand(0).get());
   if (vtblConsMd == NULL) {
 //    llvm::MDNode* tmpnode = dyn_cast<llvm::MDNode>(gvMd);
 //    llvm::MDString* tmpstr = dyn_cast<llvm::MDString>(tmpnode->getOperand(0));
@@ -66,7 +67,7 @@ static string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0
 
 //  llvm::GlobalVariable* vtbl = dyn_cast<llvm::GlobalVariable>(vtblConsMd->getValue());
 //  assert(vtbl);
-  llvm::GlobalVariable* vtbl = cast<llvm::GlobalVariable>(vtblConsMd->getValue());
+  llvm::GlobalVariable *vtbl = cast<llvm::GlobalVariable>(vtblConsMd->getValue());
 
   StringRef vtblNameRef = vtbl->getName();
   assert(vtblNameRef.startswith(strRef));
@@ -77,7 +78,7 @@ static string sd_getClassNameFromMD(llvm::MDNode* mdNode, unsigned operandNo = 0
 void SDReturnRange::locateCallSites(Module &M) {
   Function *sd_vtbl_indexF = M.getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
 
-  if (!sd_vtbl_indexF){
+  if (!sd_vtbl_indexF) {
     sd_print("ERROR");
     return;
   }
@@ -94,20 +95,20 @@ void SDReturnRange::locateCallSites(Module &M) {
     llvm::User *user = *(CI->users().begin());
     for (int i = 0; i < 3; ++i) {
       //user->dump();
-      for(User *next : user->users()) {
+      for (User *next : user->users()) {
         user = next;
         break;
       }
     }
 
-    if (CallInst *CallSite = dyn_cast<CallInst>(user)) {
+    if (CallInst * CallSite = dyn_cast<CallInst>(user)) {
       // valid virtual CallSite
       addCallSite(CI, *CallSite);
     }
   }
 }
 
-void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst &callSite) {
+void SDReturnRange::addCallSite(const CallInst *checked_vptr_call, CallInst &callSite) {
   // get the v ptr
   llvm::Value *vptr = checked_vptr_call->getArgOperand(0);
   assert(vptr);//assert not null
@@ -144,19 +145,46 @@ void SDReturnRange::addCallSite(const CallInst* checked_vptr_call, CallInst &cal
          << "," << className << "," << preciseName;
   callSiteDebugLocs.push_back(Stream.str());
 
-  sdLog::stream() << "Callsite @" <<Scope->getFilename().str() << ":" << Log.getLine() << ":" << Log.getCol()
+  sdLog::stream() << "Callsite @" << Scope->getFilename().str() << ":" << Log.getLine() << ":" << Log.getCol()
                   << " for class " << className << " (" << preciseName << ")\n";
 
   // emit a SubclassHierarchy for preciseName if its not already emitted
   emitSubclassHierarchyIfNeeded(className);
 }
 
+
+static StringRef VTABLE_DEMANGLE_PREFIX = "vtable for ";
+static StringRef CONSTRUCTION_VTABLE_DEMANGLE_PREFIX = "construction vtable for ";
+
+static std::string demangleVtableToClassName(std::string vtableName) {
+  int status = 0;
+  std::unique_ptr<char, void(*)(void*)> res {
+          abi::__cxa_demangle(vtableName.c_str(), NULL, NULL, &status),
+          std::free
+  };
+  if (status != 0) {
+    sdLog::stream() << "WARNING: Demangle failed for " << vtableName << " with status: " << status << "\n";
+    return "";
+  }
+
+  StringRef demangledName = res.get();
+  if (demangledName.startswith(VTABLE_DEMANGLE_PREFIX)) {
+    return demangledName.drop_front(VTABLE_DEMANGLE_PREFIX.size());
+  } else if (demangledName.startswith(CONSTRUCTION_VTABLE_DEMANGLE_PREFIX)) {
+    return "";
+  }
+  sdLog::stream() << "WARNING: Demangle with unknown format " << vtableName << " to: " << demangledName << "\n";
+  return demangledName;
+}
+
 // helper for emitSubclassHierarchyIfNeeded
-void SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &root, std::set<string> &output) {
+void SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &root, std::set <string> &output) {
   for (auto it = cha->children_begin(root); it != cha->children_end(root); it++) {
     const SDBuildCHA::vtbl_t &child = *it;
-    output.insert(child.first);
-    errs() << "inserting: " << child.first << "\n";
+    auto className = demangleVtableToClassName(child.first);
+    if (className == "")
+      continue;
+    output.insert(className);
     createSubclassHierarchy(child, output);
   }
 }
@@ -166,31 +194,36 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(std::string rootClassName) {
     return;
 
   sdLog::stream() << "Emitting hierarchy for " << rootClassName << ":\n";
-  std::set<string> SubclassSet;
-  SubclassSet.insert(rootClassName);
+  std::set <string> SubclassSet;
+  auto className = demangleVtableToClassName(rootClassName);
+  if (className == "") {
+    "WARNING: Skipping emitting!";
+  }
+  SubclassSet.insert(className);
   createSubclassHierarchy(SDBuildCHA::vtbl_t(rootClassName, 0), SubclassSet);
   emittedClassHierarchies[rootClassName] = SubclassSet;
+  sdLog::stream() << rootClassName << " -> ";
   for (auto &element: SubclassSet) {
-    errs() << element << " , ";
+    errs() << element << ", ";
   }
   errs() << "\n";
 }
 
 void SDReturnRange::storeCallSites(Module &M) {
-  //TODO MATT: Handle multiple LTO-Modules (write to different files or filesections?)
-  sdLog::stream()  << "storeCallSites: " << M.getName() << "\n";
+//TODO MATT: Handle multiple LTO-Modules (write to different files or filesections?)
+  sdLog::stream() << "storeCallSites: " << M.getName() << "\n";
   std::ofstream output_file("./_SD_CallSites.txt");
-  std::ostream_iterator<std::string> output_iterator(output_file, "\n");
+  std::ostream_iterator <std::string> output_iterator(output_file, "\n");
   std::copy(callSiteDebugLocs.begin(), callSiteDebugLocs.end(), output_iterator);
 }
 
 void SDReturnRange::storeClassHierarchy(Module &M) {
-  //TODO MATT: We could store to NamedMDNode instead of external files!
-  sdLog::stream()  << "storeClassHierarchy: " << M.getName() << "\n";
+//TODO MATT: We could store to NamedMDNode instead of external files!
+  sdLog::stream() << "storeClassHierarchy: " << M.getName() << "\n";
   std::ofstream output_file("./_SD_ClassHierarchy.txt");
-  for (auto& mapEntry : emittedClassHierarchies) {
+  for (auto &mapEntry : emittedClassHierarchies) {
     output_file << mapEntry.first;
-    for (auto& element : mapEntry.second) {
+    for (auto &element : mapEntry.second) {
       output_file << "," << element;
     }
     output_file << "\n";

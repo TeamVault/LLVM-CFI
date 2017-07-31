@@ -20,25 +20,11 @@
 #include <sstream>
 #include <iostream>
 
-
 namespace llvm {
     /**
      * This pass receives information generated in the SafeDispatch LTO passes
      * (SafeDispatchReturnRange) for use in the X86 backend.
      * */
-
-    static std::string demangleClassname(std::string mangledClassname) {
-      std::string className = "";
-      bool foundDigit = false;
-      for (auto c : mangledClassname){
-        if (isdigit(c)) {
-          foundDigit = true;
-        } else if (foundDigit) {
-          className.push_back(c);
-        }
-      }
-      return className;
-    }
 
     struct SDMachineFunction : public MachineFunctionPass {
     public:
@@ -117,8 +103,7 @@ namespace llvm {
           return true;
         }
 
-        void insert(std::string mangledClassname, MachineInstr &MI, MachineFunction &MF, MCSymbol *Label) {
-          auto className = demangleClassname(mangledClassname);
+        void insert(std::string className, MachineInstr &MI, MachineFunction &MF, MCSymbol *Label) {
           sdLog::stream() << "Call is valid for class: " << className << "\n";
           CallSiteMap[className].push_back(&MI);
 
