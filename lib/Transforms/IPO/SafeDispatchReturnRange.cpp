@@ -135,8 +135,20 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
   const StringRef ClassName = sd_getClassNameFromMD(ClassNameNode, 0);
   const StringRef PreciseName = sd_getClassNameFromMD(PreciseNameNode, 0);
 
-  // write DebugLoc to map (is written to file in storeCallSites)
   const DebugLoc &Loc = CallSite->getDebugLoc();
+  if (!Loc) {
+    // Minor hack: We generate our own DebugLoc using a dummy MDSubprogram.
+    // pseudoDebugLoc is the unique ID for this CallSite.
+    llvm::LLVMContext &C = M.getContext();
+    auto DummyProgram = MDSubprogram::getDistinct(C, nullptr, "", "", nullptr, 0,
+                              nullptr, false, false, 0, nullptr, 0, 0, 0,
+                              0);
+    MDLocation *Location = MDLocation::get(C, 0, pseudoDebugLoc++, DummyProgram);
+    DebugLoc newLoc(Location);
+    CallSite->setDebugLoc(Location);
+  }
+
+  // write DebugLoc to map (is written to file in storeCallSites)
   auto *Scope = cast<MDScope>(Loc.getScope());
   std::stringstream Stream;
   Stream << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
@@ -208,7 +220,7 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(StringRef RootVtableName) {
   }
   sdLog::stream() << "Emitting hierarchy for " << RootClassName << " (" << RootVtableName << "): ";
 
-  // Traverse through subvtables and search for subclasses. (RootClass is subclass as well)
+  // Traverse through subvtables and search for subclasses. (RootClass is a subclass as well)
   std::set<std::string> SubclassSet;
   SubclassSet.insert(RootClassName);
   createSubclassHierarchy(SDBuildCHA::vtbl_t(RootVtableName, 0), SubclassSet);
