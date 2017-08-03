@@ -15,7 +15,7 @@ SDAsmPrinterHandler::SDAsmPrinterHandler(AsmPrinter *A):
 SDAsmPrinterHandler::~SDAsmPrinterHandler() {}
 
 bool SDAsmPrinterHandler::emitGlobalVariableInitializer(const GlobalVariable *GV) {
-  if (!GV->getName().startswith("_SD_RANGESTUB"))
+  if (!GV->getName().startswith("_SD_RANGE"))
     return false;
 
   MCSymbol *Label = SDMachineFunction::getLabelForGlobal(GV->getName());

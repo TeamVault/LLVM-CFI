@@ -3,30 +3,36 @@
 
 #define SD_DEBUG
 
+#include "llvm/Support/raw_ostream.h"
+
 namespace sdLog {
 
-  typedef llvm::raw_string_ostream stream_t;
+typedef llvm::raw_string_ostream stream_t;
 
   static inline llvm::raw_ostream &stream() {
 #ifdef SD_DEBUG
-    llvm::errs() << "SD] ";
-    return llvm::errs();
+  llvm::errs() << "SD] ";
+  return llvm::errs();
 #else
-    return llvm::nulls();
+  return llvm::nulls();
 #endif
-  }
+}
 
-  static inline sdLog::stream_t &delayed_stream() {
-    std::string str;
-    llvm::raw_string_ostream stream(str);
-    return stream;
-  }
-
-  static inline void print_delayed_stream(sdLog::stream_t &stream) {
+static inline llvm::raw_ostream &streamWithoutToken() {
 #ifdef SD_DEBUG
-    llvm::errs() << "SD] " << stream.str();
+  return llvm::errs();
+#else
+  return llvm::nulls();
 #endif
-  }
+}
+
+static void blankLine() {
+#ifdef SD_DEBUG
+  llvm::errs() << "\n";
+#endif
+}
+
+static llvm::StringRef newLine = "\nSD] ";
 
 }
 

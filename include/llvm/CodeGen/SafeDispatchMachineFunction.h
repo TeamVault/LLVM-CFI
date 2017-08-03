@@ -91,8 +91,6 @@ namespace llvm {
 
           //TODO MATT: fix pass number
           sd_print("P??. Finished running SDMachineFunction pass (%s) ...\n", MF.getName());
-          //sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_min") << "\n";
-          //sdLog::stream() << *MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_ZTV1E_max") << "\n";
           for (auto &entry : RangeBounds) {
             auto bounds = entry.second;
             sdLog::stream() << entry.first
@@ -109,7 +107,7 @@ namespace llvm {
 
           if (RangeBounds.find(className) == RangeBounds.end()) {
 
-            auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_min");
+            auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_min");
             if (global == nullptr) {
               sdLog::stream() << "No min global found...\n";
               return;
@@ -117,12 +115,12 @@ namespace llvm {
             global->setConstant(true);
 
             RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
-            Labels["_SD_RANGESTUB_" + className + "_min"] = Label;
-            sdLog::stream() << "min: " << "_SD_RANGESTUB_" << className << "_min" << "\n";
+            Labels["_SD_RANGE_" + className + "_min"] = Label;
+            sdLog::stream() << "min: " << "_SD_RANGE_" << className << "_min" << "\n";
 
           }
 
-          auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGESTUB_" + className + "_max");
+          auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_max");
           if (global == nullptr) {
             sdLog::stream() << "No max global found...\n";
             return;
@@ -130,8 +128,8 @@ namespace llvm {
           global->setConstant(true);
 
           RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
-          Labels["_SD_RANGESTUB_" + className + "_max"] = Label;
-          sdLog::stream() << "max: " << "_SD_RANGESTUB_" << className << "_max" << "\n";
+          Labels["_SD_RANGE_" + className + "_max"] = Label;
+          sdLog::stream() << "max: " << "_SD_RANGE_" << className << "_max" << "\n";
         }
 
         void loadCallSiteData() {
