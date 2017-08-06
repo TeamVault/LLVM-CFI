@@ -21,171 +21,236 @@
 #include <iostream>
 
 namespace llvm {
-    /**
-     * This pass receives information generated in the SafeDispatch LTO passes
-     * (SafeDispatchReturnRange) for use in the X86 backend.
-     * */
+/**
+ * This pass receives information generated in the SafeDispatch LTO passes
+ * (SafeDispatchReturnRange) for use in the X86 backend.
+ * */
 
-    struct SDMachineFunction : public MachineFunctionPass {
-    public:
-        static char ID; // Pass identification, replacement for typeid
+struct SDMachineFunction : public MachineFunctionPass {
+public:
+  static char ID; // Pass identification, replacement for typeid
 
-        SDMachineFunction() : MachineFunctionPass(ID),
-                              CallSiteDebugLoc(),
-                              CallSiteMap() {
-          sd_print("initializing SDMachineFunction pass\n");
-          initializeSDMachineFunctionPass(*PassRegistry::getPassRegistry());
+  SDMachineFunction() : MachineFunctionPass(ID),
+                        CallSiteDebugLoc(),
+                        CallSiteMap() {
+    sd_print("initializing SDMachineFunction pass\n");
+    initializeSDMachineFunctionPass(*PassRegistry::getPassRegistry());
 
-          //TODO MATT: STOPPER FOR DEBUG
-          //std::string stopper;
-          //std::cin >> stopper;
+    //TODO MATT: STOPPER FOR DEBUG
+    //std::string stopper;
+    //std::cin >> stopper;
 
-          loadCallSiteData();
-          loadCallHierarchyData();
-        }
+    loadCallSiteData();
+    loadStaticCallSiteData();
+    loadCallHierarchyData();
+  }
 
-        virtual ~SDMachineFunction() {
-          sd_print("deleting SDMachineFunction pass\n");
-        }
+  virtual ~SDMachineFunction() {
+    sd_print("deleting SDMachineFunction pass\n");
+  }
 
-        void getAnalysisUsage(AnalysisUsage &AU) const {
-          MachineFunctionPass::getAnalysisUsage(AU);
-          AU.setPreservesAll();
-        }
+  void getAnalysisUsage(AnalysisUsage &AU) const {
+    MachineFunctionPass::getAnalysisUsage(AU);
+    AU.setPreservesAll();
+  }
 
-        bool runOnMachineFunction(MachineFunction &MF) override {
-          sd_print("P??. Started running SDMachineFunction pass (%s) ...\n", MF.getName());
-          auto TII = MF.getSubtarget().getInstrInfo();
-          //We would get NamedMetadata like this:
-          //const auto &M = MF.getMMI().getModule();
-          //const auto &MD = M->getNamedMetadata("sd.class_info._ZTV1A");
-          //MD->dump();
-          for (auto &MBB: MF) {
-            for (auto &MI : MBB) {
-              if (MI.isCall()) {
-                auto debugLocString = debugLocToString(MI.getDebugLoc());
-                auto classNameIt = CallSiteDebugLoc.find(debugLocString);
-                if (classNameIt == CallSiteDebugLoc.end())
-                  continue;
+  bool runOnMachineFunction(MachineFunction &MF) override {
+    if (MF.getMMI().getModule()->getNamedMetadata("SD_emit_return_labels") == nullptr)
+      return false;
 
-                auto className = classNameIt->second;
-                sdLog::stream() << "Machine CallInst:\n" << MI
-                                << "has callee base class: " << className << "\n";
-                //create label
-                sdLog::stream() << "\n";
-                std::stringstream ss;
-                ss << "SD_LABEL_" << count++;
-                auto name = ss.str();
-                MCSymbol *symbol = MF.getContext().GetOrCreateSymbol(name);
-                //TODO MATT: getNextNode() potentially unsafe (?)
-                BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
-                        .addSym(symbol);
+    sd_print("P??. Started running SDMachineFunction pass (%s) ...\n", MF.getName());
+    auto TII = MF.getSubtarget().getInstrInfo();
+    //We would get NamedMetadata like this:
+    //const auto &M = MF.getMMI().getModule();
+    //const auto &MD = M->getNamedMetadata("sd.class_info._ZTV1A");
+    //MD->dump();
+    for (auto &MBB: MF) {
+      for (auto &MI : MBB) {
+        if (MI.isCall()) {
+          auto debugLocString = debugLocToString(MI.getDebugLoc());
+          auto classNameIt = CallSiteDebugLoc.find(debugLocString);
+          if (classNameIt != CallSiteDebugLoc.end()) {
 
-                // insert MI into the vectors for the base class and all of its subclasses!
-                for (auto &SubClass : ClassHierarchies[className]) {
-                  insert(SubClass, MI, MF, symbol);
-                }
-              }
+            auto className = classNameIt->second;
+            sdLog::stream() << "Machine CallInst: @" << debugLocString
+                            << " has callee base class: " << className << "\n";
+            //create label
+            sdLog::stream() << "\n";
+            std::stringstream ss;
+            ss << "SD_LABEL_" << count++;
+            auto name = ss.str();
+            MCSymbol *symbol = MF.getContext().GetOrCreateSymbol(name);
+            BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
+                    .addSym(symbol);
+
+            // insert MI into the vectors for the base class and all of its subclasses!
+            for (auto &SubClass : ClassHierarchies[className]) {
+              insert(SubClass, MI, MF, symbol);
             }
           }
 
-          //TODO MATT: fix pass number
-          sd_print("P??. Finished running SDMachineFunction pass (%s) ...\n", MF.getName());
-          for (auto &entry : RangeBounds) {
-            auto bounds = entry.second;
-            sdLog::stream() << entry.first
-                            << ": (min: " << bounds.first
-                            << " - max: " << bounds.second << ")\n";
-          }
+          auto FunctionNameIt = CallSiteDebugLocStatic.find(debugLocString);
+          if (FunctionNameIt != CallSiteDebugLocStatic.end()) {
+            auto FunctionName = FunctionNameIt->second;
+            sdLog::stream() << "Machine CallInst in " << MF.getName() << "@" << debugLocString
+                            << " is static caller for: " << FunctionName << "\n";
 
-          return true;
-        }
-
-        void insert(std::string className, MachineInstr &MI, MachineFunction &MF, MCSymbol *Label) {
-          sdLog::stream() << "Call is valid for class: " << className << "\n";
-          CallSiteMap[className].push_back(&MI);
-
-          if (RangeBounds.find(className) == RangeBounds.end()) {
-
-            auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_min");
-            if (global == nullptr) {
-              sdLog::stream() << "No min global found...\n";
-              return;
-            }
-            global->setConstant(true);
-
-            RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
-            Labels["_SD_RANGE_" + className + "_min"] = Label;
-            sdLog::stream() << "min: " << "_SD_RANGE_" << className << "_min" << "\n";
-
-          }
-
-          auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_max");
-          if (global == nullptr) {
-            sdLog::stream() << "No max global found...\n";
-            return;
-          }
-          global->setConstant(true);
-
-          RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
-          Labels["_SD_RANGE_" + className + "_max"] = Label;
-          sdLog::stream() << "max: " << "_SD_RANGE_" << className << "_max" << "\n";
-        }
-
-        void loadCallSiteData() {
-          //TODO MATT: delete file
-          std::ifstream InputFile("./_SD_CallSites.txt");
-          std::string InputLine;
-          std::string DebugLoc, ClassName, PreciseName;
-
-          while (std::getline(InputFile, InputLine)) {
-            std::stringstream LineStream(InputLine);
-
-            std::getline(LineStream, DebugLoc, ',');
-            std::getline(LineStream, ClassName, ',');
-            LineStream >> PreciseName;
-            CallSiteDebugLoc[DebugLoc] = ClassName;
-
-            sdLog::stream() << DebugLoc << " is call to " << ClassName << ", " << PreciseName << "\n";
-          }
-        }
-
-        void loadCallHierarchyData() {
-          //TODO MATT: delete file
-          std::ifstream InputFile("./_SD_ClassHierarchy.txt");
-          std::string Input;
-          std::string BaseClass;
-
-          while (std::getline(InputFile, Input)) {
-            std::stringstream LineStream(Input);
-
-            std::getline(LineStream, BaseClass, ',');
-            std::vector <std::string> SubClasses;
-            while (std::getline(LineStream, Input, ',')) {
-              SubClasses.push_back(Input);
+            auto globalMin = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + FunctionName + "_min");
+            if (globalMin == nullptr) {
+              sdLog::stream() << "No global found...\n";
+              continue;
             }
 
-            ClassHierarchies[BaseClass] = SubClasses;
+            //create label
+            std::stringstream ss;
+            ss << "SD_LABEL_" << count++;
+            auto name = ss.str();
+            MCSymbol *Label = MF.getContext().GetOrCreateSymbol(name);
+            BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
+                    .addSym(Label);
 
-            sdLog::stream() << BaseClass << " subclass hierarchy loaded.\n";
+
+            if (RangeBounds.find(FunctionName) == RangeBounds.end()) {
+              globalMin->setConstant(true);
+              RangeBounds[FunctionName].first = debugLocToString(MI.getDebugLoc());
+              Labels["_SD_RANGE_" + FunctionName + "_min"] = Label;
+              sdLog::stream() << "min: " << "_SD_RANGE_" << FunctionName << "_min" << "\n";
+            }
+
+            auto globalMax = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + FunctionName + "_max");
+            if (globalMax == nullptr) {
+              sdLog::stream() << "No max global found...\n";
+              continue;
+            }
+            globalMax->setConstant(true);
+            RangeBounds[FunctionName].second = debugLocToString(MI.getDebugLoc());
+            Labels["_SD_RANGE_" + FunctionName + "_max"] = Label;
+            sdLog::stream() << "max: " << "_SD_RANGE_" << FunctionName << "_max" << "\n";
           }
+
+          sdLog::stream() << "\n";
         }
+      }
+    }
 
-        static MCSymbol *getLabelForGlobal(Twine globalName) {
-          return Labels[globalName.str()];
-        }
+    //TODO MATT: fix pass number
+    sd_print("P??. Finished running SDMachineFunction pass (%s) ...\n", MF.getName());
+    if (false) {
+      for (auto &entry : RangeBounds) {
+        auto bounds = entry.second;
+        sdLog::stream() << entry.first
+                        << ": (min: " << bounds.first
+                        << " - max: " << bounds.second << ")\n";
+      }
+    }
 
-    private:
-        std::map <std::string, std::string> CallSiteDebugLoc;
-        std::map <std::string, std::vector<std::string>> ClassHierarchies;
+    return true;
+  }
 
-        std::map <std::string, std::vector<MachineInstr *>> CallSiteMap;
-        static std::map < std::string, std::pair<std::string, std::string> > RangeBounds;
-        static std::map < std::string, MCSymbol*> Labels;
+  void insert(std::string className, MachineInstr &MI, MachineFunction &MF, MCSymbol *Label) {
+    sdLog::stream() << "Call is valid for class: " << className << "\n";
+    CallSiteMap[className].push_back(&MI);
 
-        static std::string debugLocToString(const DebugLoc &Log);
-        static int count;
-    };
+    if (RangeBounds.find(className) == RangeBounds.end()) {
+
+      auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_min");
+      if (global == nullptr) {
+        sdLog::stream() << "No min global found...\n";
+        return;
+      }
+      global->setConstant(true);
+
+      RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
+      Labels["_SD_RANGE_" + className + "_min"] = Label;
+      sdLog::stream() << "min: " << "_SD_RANGE_" << className << "_min" << "\n";
+
+    }
+
+    auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_max");
+    if (global == nullptr) {
+      sdLog::stream() << "No max global found...\n";
+      return;
+    }
+    global->setConstant(true);
+
+    RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
+    Labels["_SD_RANGE_" + className + "_max"] = Label;
+    sdLog::stream() << "max: " << "_SD_RANGE_" << className << "_max" << "\n";
+  }
+
+  void loadCallSiteData() {
+    //TODO MATT: delete file
+    std::ifstream InputFile("./_SD_CallSites.txt");
+    std::string InputLine;
+    std::string DebugLoc, ClassName, PreciseName;
+
+    while (std::getline(InputFile, InputLine)) {
+      std::stringstream LineStream(InputLine);
+
+      std::getline(LineStream, DebugLoc, ',');
+      std::getline(LineStream, ClassName, ',');
+      LineStream >> PreciseName;
+      CallSiteDebugLoc[DebugLoc] = ClassName;
+
+      //sdLog::stream() << DebugLoc << " is call to " << ClassName << ", " << PreciseName << "\n";
+    }
+  }
+
+  void loadStaticCallSiteData() {
+    //TODO MATT: delete file
+    std::ifstream InputFile("./_SD_CallSitesStatic.txt");
+    std::string InputLine;
+    std::string DebugLoc, FunctionName;
+
+    while (std::getline(InputFile, InputLine)) {
+      std::stringstream LineStream(InputLine);
+
+      std::getline(LineStream, DebugLoc, ',');
+      LineStream >> FunctionName;
+      CallSiteDebugLocStatic[DebugLoc] = FunctionName;
+
+      //sdLog::stream() << DebugLoc << " is call to static " << FunctionName << "\n";
+    }
+  }
+
+  void loadCallHierarchyData() {
+    //TODO MATT: delete file
+    std::ifstream InputFile("./_SD_ClassHierarchy.txt");
+    std::string Input;
+    std::string BaseClass;
+
+    while (std::getline(InputFile, Input)) {
+      std::stringstream LineStream(Input);
+
+      std::getline(LineStream, BaseClass, ',');
+      std::vector <std::string> SubClasses;
+      while (std::getline(LineStream, Input, ',')) {
+        SubClasses.push_back(Input);
+      }
+
+      ClassHierarchies[BaseClass] = SubClasses;
+
+      //sdLog::stream() << BaseClass << " subclass hierarchy loaded.\n";
+    }
+  }
+
+  static MCSymbol *getLabelForGlobal(Twine globalName) {
+    return Labels[globalName.str()];
+  }
+
+private:
+  std::map <std::string, std::string> CallSiteDebugLoc;
+  std::map <std::string, std::string> CallSiteDebugLocStatic;
+  std::map <std::string, std::vector<std::string>> ClassHierarchies;
+
+  std::map <std::string, std::vector<MachineInstr *>> CallSiteMap;
+  static std::map <std::string, std::pair<std::string, std::string>> RangeBounds;
+  static std::map<std::string, MCSymbol *> Labels;
+
+  static std::string debugLocToString(const DebugLoc &Log);
+
+  static int count;
+};
 }
 
 #endif //LLVM_SAFEDISPATCHMACHINEFUNCION_H

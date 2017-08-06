@@ -286,7 +286,6 @@ bool AsmPrinter::doInitialization(Module &M) {
   //SDMachineFunction &SDPass = getAnalysis<SDMachineFunction>();
   AsmPrinterHandler *SDHandler = new SDAsmPrinterHandler(this);
   Handlers.push_back(HandlerInfo(SDHandler, SDTimerName, SDTimerName));
-  errs() << "AsmPrinter didn't require SDMachineFunction?\n";
 
   return false;
 }

@@ -360,6 +360,9 @@ bool SDFix::fixDestructors2() {
         continue;
 
       // this only handles the 1 -> 2 conversion
+      if (typeInt != 1)
+        continue;
+
       assert(typeInt == 1);
 
       Function* f1 = di.getFunction();

@@ -105,6 +105,7 @@ namespace options {
 
   static bool RunSDIVTBLPass = false;
   static bool RunSDOVTBLPass = false;
+  static bool RunSDReturnPass = false;
 
   static void process_plugin_option(const char* opt_)
   {
@@ -126,6 +127,8 @@ namespace options {
       TheOutputType = OT_BC_ONLY;
     } else if (opt == "sd-ivtbl") {
       RunSDIVTBLPass = true;
+    } else if (opt == "sd-return") {
+      RunSDReturnPass = true;
     } else if (opt == "sd-ovtbl") {
       RunSDOVTBLPass = true;
     } else if (opt == "save-temps") {
@@ -735,6 +738,7 @@ static void runLTOPasses(Module &M, TargetMachine &TM) {
   PMB.SLPVectorize = true;
   PMB.EmitIVTBLs = options::RunSDIVTBLPass;
   PMB.EmitOVTBLs = options::RunSDOVTBLPass;
+  PMB.EmitReturnChecks = options::RunSDReturnPass;
   PMB.OptLevel = options::OptLevel;
   PMB.populateLTOPassManager(passes);
   passes.run(M);

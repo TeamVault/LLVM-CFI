@@ -82,3 +82,5 @@ llvm3.7.includes
 projects/test-suite/
 
 \.idea/
+
+cmake-build-debug/

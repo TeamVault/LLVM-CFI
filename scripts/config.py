@@ -12,7 +12,7 @@ ldRe = re.compile("GNU ld \(GNU Binutils for Ubuntu\) ([.\d]+)")
 # When this is False, we remove any optimization flag from the compiler command
 ENABLE_COMPILER_OPT = True
 ENABLE_LLVM_CFI = False
-BUILD_DEBUG = False
+BUILD_TYPE = os.environ.get('BUILD_TYPE', 'RELEASE')
 
 # Enabled linker flags
 sd_config = {
@@ -35,11 +35,6 @@ if ENABLE_LLVM_CFI:
   sd_config["SD_ENABLE_INTERLEAVING"] = True
   sd_config["SD_ENABLE_CHECKS"]       = False
   sd_config["SD_LLVM_CFI"]            = True
-
-#Debug build
-BUILD_OUTPUT_DIR = "/Release+Asserts"
-if BUILD_DEBUG:
-  BUILD_OUTPUT_DIR = "/Debug+Asserts"
 
 isTrue = lambda s : s.lower() in ['true', '1', 't', 'y', 'yes', 'ok']
 
@@ -184,6 +179,7 @@ def read_config():
     clang_config = {
       "LLVM_DIR"           : os.environ["HOME"] + "/thesis/llvm",
       "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/thesis/llvm-build",
+      "LLVM_DEBUG_BUILD_DIR"     : os.environ["HOME"] + "/thesis/llvm-debug",
       "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/thesis/binutils-build",
       "SD_DIR"             : os.environ["HOME"] + "/thesis/llvm/scripts",
       "MY_GCC_VER"         : "5.4.0"
@@ -192,15 +188,22 @@ def read_config():
   else: # don't know this machine
     return None
 
+  #Debug build?
+  if BUILD_TYPE == "DEBUG":
+    LLVM_BUILD_OUTPUT = clang_config["LLVM_DEBUG_BUILD_DIR"] + "/Debug+Asserts"
+  else:
+    LLVM_BUILD_OUTPUT = clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts"
+
   clang_config.update({
     "LLVM_SCRIPTS_DIR"    : clang_config["LLVM_DIR"] + "/scripts",
     "ENABLE_COMPILER_OPT" : ENABLE_COMPILER_OPT,
-    "GOLD_PLUGIN"         : clang_config["LLVM_BUILD_DIR"] + BUILD_OUTPUT_DIR + "/lib/LLVMgold.so",
+    "GOLD_PLUGIN"         : LLVM_BUILD_OUTPUT + "/lib/LLVMgold.so",
+    "LLVM_BUILD_BIN"      : LLVM_BUILD_OUTPUT + "/bin",
     })
 
   clang_config.update({
-    "CC"              : clang_config["LLVM_BUILD_DIR"] + BUILD_OUTPUT_DIR + "/bin/clang",
-    "CXX"             : clang_config["LLVM_BUILD_DIR"] + BUILD_OUTPUT_DIR + "/bin/clang++",
+    "CC"              : clang_config["LLVM_BUILD_BIN"] + "/clang",
+    "CXX"             : clang_config["LLVM_BUILD_BIN"] + "/clang++",
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : [],

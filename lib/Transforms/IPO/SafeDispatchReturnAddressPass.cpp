@@ -1,9 +1,11 @@
+#include "llvm/ADT/StringSet.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
+#include "llvm/Transforms/IPO/SafeDispatchReturnRange.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include <cxxabi.h>
@@ -71,29 +73,84 @@ public:
   }
 
   bool runOnModule(Module &M) override {
+    // Get the results from the ReturnRange pass.
+    StaticFunctions = getAnalysis<SDReturnRange>().getStaticFunctions();
+
     sdLog::blankLine();
     sdLog::stream() << "P7b. Started running the SDReturnAddress pass ..." << sdLog::newLine << "\n";
 
-    bool hasChanged = false;
+    std::vector<StringRef> FunctionsWithoutChecks;
+    int NumberOfTotalChecks = 0;
     for (auto &F : M) {
-      hasChanged |= processFunction(F);
+      int NumberOfChecks = processFunction(F);
+      if (NumberOfChecks == 0)
+        FunctionsWithoutChecks.push_back(F.getName());
+      NumberOfTotalChecks += NumberOfChecks;
     }
 
+    if (NumberOfTotalChecks > 0) {
+      M.getOrInsertNamedMetadata("SD_emit_return_labels");
+    }
+
+    sdLog::stream() << sdLog::newLine << "Functions without check:\n";
+    for (auto &entry : FunctionsWithoutChecks) {
+      sdLog::stream() << entry << "\n";
+    }
+
+    sdLog::stream() << sdLog::newLine << "Total number of checks: " << std::to_string(NumberOfTotalChecks) << "\n";
     sdLog::stream() << sdLog::newLine << "P7b. Finished running the SDReturnAddress pass ..." << "\n";
     sdLog::blankLine();
-    return hasChanged;
+    return NumberOfTotalChecks > 0;
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequired<SDReturnRange>(); //  depends on ReturnRange pass
     AU.setPreservesAll();
   }
 
 private:
-  bool processFunction(Function &F) {
-    sdLog::stream() << "Function: " << F.getName();
-    if (!isRelevantFunction(F))
+  const StringSet<> *StaticFunctions;
+
+  int processFunction(Function &F) {
+    if (isRelevantVirtualFunction(F))
+      return processVirtualFunction(F);
+    else if (isRelevantStaticFunction(F))
+      return processStaticFunction(F);
+
+    return false;
+  }
+
+  bool isRelevantStaticFunction(const Function &F) const {
+    if (F.getName().startswith("__") || F.getName().startswith("llvm.") || F.getName() == "_Znwm")
       return false;
 
+    return StaticFunctions->find(F.getName()) != StaticFunctions->end();
+  }
+
+  bool isRelevantVirtualFunction(const Function &F) const {
+    if (!F.getName().startswith("_ZN")) {
+      return false;
+    }
+
+    for (auto &Token : itaniumConstructorTokens) {
+      if (F.getName().endswith(Token)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  int processStaticFunction(Function &F) {
+    sdLog::stream() << "Function: " << F.getName() << "\n";
+    int NumberOfChecks = generateReturnChecks(F, F.getName());
+    if (NumberOfChecks > 0) {
+      sdLog::stream() << "\tChecks created: " << std::to_string(NumberOfChecks) << "\n";
+    }
+    return NumberOfChecks > 0;
+  }
+
+  int processVirtualFunction(Function &F) {
+    sdLog::stream() << "Function: " << F.getName();
     std::string className = demangleFunction(F.getName());
     if (className == "") {
       sdLog::streamWithoutToken() << " -> WARNING: Skipping after error!\n";
@@ -101,6 +158,13 @@ private:
     }
     sdLog::streamWithoutToken() << " -> Demangled to " << className << "\n";
 
+    int NumberOfChecks = generateReturnChecks(F, className);
+
+    sdLog::stream() << "\tChecks created: " << std::to_string(NumberOfChecks) << "\n";
+    return NumberOfChecks > 0;
+  }
+
+  int generateReturnChecks(Function &F, Twine CheckName) {
     int count = 0;
     for (auto &B : F) {
       for (auto &I : B) {
@@ -120,16 +184,13 @@ private:
         auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
         auto retAddr = builder.CreatePtrToInt(retAddrCall, int64Ty);
 
-        auto globalMin = getOrCreateGlobal(F.getParent(), className + "_min");
+        auto globalMin = getOrCreateGlobal(F.getParent(), CheckName + "_min");
         auto minPtr = builder.CreateLoad(globalMin);
         auto min = builder.CreatePtrToInt(minPtr, int64Ty);
-        //auto min = builder.CreateLoad(int64Ty, globalMin,  "sd_range_min");
 
-
-        auto globalMax = getOrCreateGlobal(F.getParent(), className + "_max");
+        auto globalMax = getOrCreateGlobal(F.getParent(), CheckName + "_max");
         auto maxPtr = builder.CreateLoad(globalMax);
         auto max = builder.CreatePtrToInt(maxPtr, int64Ty);
-        //auto max = builder.CreateLoad(int64Ty, globalMax, "sd_range_max");
 
         auto diff = builder.CreateSub(retAddr, min);
         auto width = builder.CreateSub(max, min);
@@ -138,38 +199,20 @@ private:
         //Create printf call
         auto printfPrototype = createPrintfPrototype(module);
         auto printfFormatString = createPrintfFormatString(F.getName(), builder);
-        ArrayRef<Value *> args = {printfFormatString, retAddr, min, max, check};
+        ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
         builder.CreateCall(printfPrototype, args);
         count++;
-
-        // We modified the code.
       }
     }
-    sdLog::stream() << "\tChecks created: " << std::to_string(count) << "\n";
-    sdLog::stream() << "\n";
-    return true;
+    return count;
   }
 
-  bool isRelevantFunction(const Function &F) const {
-    if (!F.getName().startswith("_ZN")) {
-      sdLog::streamWithoutToken() << " -> Function skipped!\n";
-      return false;
-    }
 
-    for (auto &Token : itaniumConstructorTokens) {
-      if (F.getName().endswith(Token)) {
-        sdLog::streamWithoutToken() << " -> Constructor skipped!\n";
-        return false;
-      }
-    }
-    return true;
-  }
-
-    GlobalVariable* getOrCreateGlobal(Module* M, Twine suffix) {
-      auto name = "_SD_RANGE_" + suffix;
-      auto global = M->getGlobalVariable(name.str());
-      if (global != nullptr)
-        return global;
+  GlobalVariable *getOrCreateGlobal(Module *M, Twine suffix) {
+    auto name = "_SD_RANGE_" + suffix;
+    auto global = M->getGlobalVariable(name.str());
+    if (global != nullptr)
+      return global;
 
     PointerType *labelType = llvm::Type::getInt8PtrTy(M->getContext());
     auto newGlobal = new GlobalVariable(*M, labelType, false, GlobalVariable::ExternalLinkage, nullptr, name);
@@ -183,7 +226,8 @@ private:
 
 char SDReturnAddress::ID = 0;
 
-INITIALIZE_PASS(SDReturnAddress, "sdRetAdd", "Insert return intrinsic.", false, false)
+INITIALIZE_PASS(SDReturnAddress,
+"sdRetAdd", "Insert return intrinsic.", false, false)
 
 llvm::ModulePass *llvm::createSDReturnAddressPass() {
   return new SDReturnAddress();

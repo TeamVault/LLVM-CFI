@@ -123,6 +123,7 @@ public:
   bool MergeFunctions;
   bool EmitIVTBLs; //Paul: flag variable used for interleaving the v tables
   bool EmitOVTBLs; //Paul: flag variable used for ordering the v tables
+  bool EmitReturnChecks; //Matt: flag variable used for backward edge checks
 
 private:
   /// ExtensionList - This is list of all of the extensions that are registered.

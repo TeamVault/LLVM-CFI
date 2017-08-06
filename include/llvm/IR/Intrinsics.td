@@ -660,7 +660,8 @@ def int_sd_subst_vtbl_index : Intrinsic<[llvm_i64_ty],
 
 def int_sd_get_checked_vptr: Intrinsic<[llvm_ptr_ty], 
                                         [llvm_ptr_ty, 
-                                    llvm_metadata_ty, 
+                                    llvm_metadata_ty,
+                                    llvm_metadata_ty,
                                    llvm_metadata_ty],
                                       [IntrNoMem]>;
 

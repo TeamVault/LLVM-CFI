@@ -28,12 +28,13 @@ ifeq ($(LLVMCFI), OK)
 else
 	CC      = $(LLVM_BUILD_DIR)/clang++ 
 	LD      = $(CC)
-	CFLAGS  = $(OPT) -flto -femit-ivtbl -femit-vtbl-checks 
+	CFLAGS  = $(OPT) -flto -femit-ivtbl -femit-vtbl-checks
 	LDFLAGS = $(OPT) -B $(BINUTILS_BUILD_DIR)/gold \
 				-Wl,-plugin $(LLVM_BUILD_DIR)/../lib/LLVMgold.so \
 				-Wl,-plugin-opt=mcpu=x86-64 \
 				-Wl,-plugin-opt=save-temps \
-				-Wl,-plugin-opt=sd-ivtbl
+				-Wl,-plugin-opt=sd-ivtbl \
+				-Wl,-plugin-opt=sd-return
 	LDLIBS  = -L$(LLVM_DIR)/libdyncast -ldyncast
 	AR      = $(LLVM_DIR)/scripts/ar
 endif

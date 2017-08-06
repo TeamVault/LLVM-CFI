@@ -1807,11 +1807,16 @@ static llvm::Value* sd_getCheckedVTable2(CodeGenModule &CGM,
   //this is the name of the base class of the object making the call to a virtual funtion 
   llvm::Value* preciseMDValue = llvm::MetadataAsValue::get(C, preciseMD);
 
-  llvm::Value* intr = CGF.Builder.CreateCall3(
+  llvm::MDString* functionName = llvm::MDString::get(C, MD->getQualifiedNameAsString());
+  llvm::MDNode* functionMD = llvm::MDNode::get(C, functionName);
+  llvm::Value* functionMDValue = llvm::MetadataAsValue::get(C, functionMD);
+
+  llvm::Value* intr = CGF.Builder.CreateCall4(
               CGM.getIntrinsic(llvm::Intrinsic::sd_get_checked_vptr), //Paul: see Intrinsics.td file
               castPointer,
               mdValue,
-              preciseMDValue);
+              preciseMDValue,
+              functionMDValue);
 
   return CGF.Builder.CreatePointerCast(intr, VTableAP->getType());
 }
