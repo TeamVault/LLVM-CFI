@@ -6,6 +6,7 @@
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/CodeGen/SafeDispatchMachineFunction.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 
 using namespace llvm;
 
@@ -21,7 +22,7 @@ bool SDAsmPrinterHandler::emitGlobalVariableInitializer(const GlobalVariable *GV
   MCSymbol *Label = SDMachineFunction::getLabelForGlobal(GV->getName());
 
   if (Label == nullptr) {
-    errs()  << GV->getName() << ": no Label found!\n";
+    sdLog::log()  << GV->getName() << ": no Label found!\n";
     return false;
   }
 
@@ -31,6 +32,6 @@ bool SDAsmPrinterHandler::emitGlobalVariableInitializer(const GlobalVariable *GV
   uint64_t Size = GV->getParent()->getDataLayout().getTypeAllocSize(InitializerType);
 
   Asm->OutStreamer->EmitValue(LabelExpr, Size);
-  errs() << GV->getName() << ": initializer is " << *Label << "\n";
+  sdLog::log() << GV->getName() << ": initializer is " << *Label << "\n";
   return true;
 }

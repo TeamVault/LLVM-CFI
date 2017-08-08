@@ -79,7 +79,7 @@ void SDReturnRange::locateCallSites(Module &M) {
   Function *IntrinsicFunction = M.getFunction(Intrinsic::getName(Intrinsic::sd_get_checked_vptr));
 
   if (IntrinsicFunction == nullptr) {
-    sdLog::stream() << "ERROR: Intrinsic not found.\n";
+    sdLog::warn() << "Intrinsic not found.\n";
     return;
   }
 
@@ -106,10 +106,10 @@ void SDReturnRange::locateCallSites(Module &M) {
       // valid CallSite
       addCallSite(IntrinsicCall, CallSite, M);
     } else {
-      sdLog::stream() << "WARNING: CallSite for intrinsic was not found.\n";
+      sdLog::warn() << "CallSite for intrinsic was not found.\n";
     }
 
-    sdLog::stream() << "\n";
+    sdLog::log() << "\n";
   }
 }
 
@@ -136,7 +136,8 @@ void SDReturnRange::addStaticCallSite(CallInst *CallSite, Module &M) {
     auto DummyProgram = MDSubprogram::getDistinct(C, nullptr, "", "", nullptr, 0,
                                                   nullptr, false, false, 0, nullptr, 0, 0, 0,
                                                   0);
-    MDLocation *Location = MDLocation::get(C, 0, pseudoDebugLoc++, DummyProgram);
+    MDLocation *Location = MDLocation::get(C, pseudoDebugLoc / 65536, pseudoDebugLoc % 65536, DummyProgram);
+    ++pseudoDebugLoc;
     DebugLoc newLoc(Location);
     CallSite->setDebugLoc(Location);
   }
@@ -151,11 +152,9 @@ void SDReturnRange::addStaticCallSite(CallInst *CallSite, Module &M) {
   CallSiteDebugLocsStatic.push_back(Stream.str());
   CalledFunctions.insert(FunctionName);
 
-  if (false) {
-    sdLog::stream() << "CallSite " << CallSite->getParent()->getParent()->getName()
-                    << " @" << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
-                    << " for STATIC callee " << FunctionName << "\n";
-  }
+  sdLog::log() << "CallSite " << CallSite->getParent()->getParent()->getName()
+                  << " @" << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
+                  << " for callee " << FunctionName << "\n";
 
 }
 
@@ -193,7 +192,8 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
     auto DummyProgram = MDSubprogram::getDistinct(C, nullptr, "", "", nullptr, 0,
                                                   nullptr, false, false, 0, nullptr, 0, 0, 0,
                                                   0);
-    MDLocation *Location = MDLocation::get(C, 0, pseudoDebugLoc++, DummyProgram);
+    MDLocation *Location = MDLocation::get(C, pseudoDebugLoc / 65536, pseudoDebugLoc % 65536, DummyProgram);
+    ++pseudoDebugLoc;
     DebugLoc newLoc(Location);
     CallSite->setDebugLoc(Location);
   }
@@ -202,12 +202,12 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
   auto *Scope = cast<MDScope>(Loc.getScope());
   std::stringstream Stream;
   Stream << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
-         << "," << ClassName.str() << "," << PreciseName.str();
+         << "," << ClassName.str() << "," << PreciseName.str() << "," << FunctionName.str();
 
   CallSiteDebugLocs.push_back(Stream.str());
 
-  sdLog::stream() << "CallSite @" << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
-                  << " for class " << ClassName << " (" << PreciseName << ") " << FunctionName << "\n";
+  sdLog::log() << "CallSite @" << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
+                  << " for class " << ClassName << "(" << PreciseName << ")::" << FunctionName << "\n";
 
   // emit a SubclassHierarchy for ClassName if it's not already emitted
   emitSubclassHierarchyIfNeeded(ClassName);
@@ -222,7 +222,7 @@ std::string SDReturnRange::demangleVtableToClassName(StringRef VTableName) {
   };
 
   if (status != 0) {
-    sdLog::stream() << "WARNING: Demangle failed for " << VTableName << " with status: " << status << "\n";
+    sdLog::warn() << "Demangle failed for " << VTableName << " with status: " << status << "\n";
     return "";
   }
 
@@ -238,7 +238,7 @@ std::string SDReturnRange::demangleVtableToClassName(StringRef VTableName) {
   }
 
   // Unknown demangle?
-  sdLog::stream() << "WARNING: Demangle with unknown format " << VTableName << " to: " << demangledName << "\n";
+  sdLog::errs() << "Demangle with unknown format " << VTableName << " to: " << demangledName << "\n";
   llvm_unreachable("Demangle of unknown type!");
   //return demangledName;
 }
@@ -265,10 +265,10 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(StringRef RootVtableName) {
   const std::string RootClassName = demangleVtableToClassName(RootVtableName);
   if (RootClassName == "") {
     // Failed to demangle...
-    sdLog::stream() << "WARNING: Emitting hierarchy failed for " << RootVtableName << "\n";
+    sdLog::warn() << "Emitting hierarchy failed for " << RootVtableName << "\n";
     return;
   }
-  sdLog::stream() << "Emitting hierarchy for " << RootClassName << " (" << RootVtableName << "): ";
+  sdLog::log() << "Emitting hierarchy for " << RootClassName << " (" << RootVtableName << "): ";
 
   // Traverse through subvtables and search for subclasses. (RootClass is a subclass as well)
   std::set <std::string> SubclassSet;
@@ -281,13 +281,13 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(StringRef RootVtableName) {
   bool first = true;
   for (auto &element: SubclassSet) {
     if (first) {
-      sdLog::streamWithoutToken() << element;
+      sdLog::logNoToken() << element;
       first = false;
     } else {
-      sdLog::streamWithoutToken() << ", " << element;
+      sdLog::logNoToken() << ", " << element;
     }
   }
-  sdLog::blankLine();
+  sdLog::logNoToken() << "\n";
 }
 
 void SDReturnRange::storeCallSites(Module &M) {

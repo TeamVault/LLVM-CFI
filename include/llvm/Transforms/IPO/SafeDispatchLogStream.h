@@ -2,6 +2,7 @@
 #define LLVM_TRANSFORMS_IPO_SAFEDISPATCH_LOG_STREAM_H
 
 #define SD_DEBUG
+#define SD_NORMAL
 
 #include "llvm/Support/raw_ostream.h"
 
@@ -9,7 +10,7 @@ namespace sdLog {
 
 typedef llvm::raw_string_ostream stream_t;
 
-  static inline llvm::raw_ostream &stream() {
+static inline llvm::raw_ostream &log() {
 #ifdef SD_DEBUG
   llvm::errs() << "SD] ";
   return llvm::errs();
@@ -18,7 +19,30 @@ typedef llvm::raw_string_ostream stream_t;
 #endif
 }
 
-static inline llvm::raw_ostream &streamWithoutToken() {
+static inline llvm::raw_ostream &stream() {
+#if defined(SD_DEBUG) || defined(SD_NORMAL)
+  llvm::errs() << "SD] ";
+  return llvm::errs();
+#else
+  return llvm::nulls();
+#endif
+}
+
+static inline llvm::raw_ostream &warn() {
+#if defined(SD_DEBUG) || defined(SD_NORMAL)
+  llvm::errs() << "SD WARNING] ";
+  return llvm::errs();
+#else
+  return llvm::nulls();
+#endif
+}
+
+static inline llvm::raw_ostream &errs() {
+  llvm::errs() << "SD ERROR] ";
+  return llvm::errs();
+}
+
+static inline llvm::raw_ostream &logNoToken() {
 #ifdef SD_DEBUG
   return llvm::errs();
 #else
@@ -27,8 +51,9 @@ static inline llvm::raw_ostream &streamWithoutToken() {
 }
 
 static void blankLine() {
-#ifdef SD_DEBUG
+#if defined(SD_DEBUG) || defined(SD_NORMAL)
   llvm::errs() << "\n";
+  return;
 #endif
 }
 

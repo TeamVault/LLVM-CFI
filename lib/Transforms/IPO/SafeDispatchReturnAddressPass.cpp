@@ -54,7 +54,6 @@ static std::string demangleFunction(StringRef functionName) {
   StringRef demangledName = res.get();
   auto index = demangledName.rfind("::");
   auto className = demangledName.substr(0, index);
-  errs() << className;
   return className;
 }
 
@@ -92,9 +91,9 @@ public:
       M.getOrInsertNamedMetadata("SD_emit_return_labels");
     }
 
-    sdLog::stream() << sdLog::newLine << "Functions without check:\n";
+    sdLog::log() << sdLog::newLine << "Functions without check:\n";
     for (auto &entry : FunctionsWithoutChecks) {
-      sdLog::stream() << entry << "\n";
+      sdLog::log() << entry << "\n";
     }
 
     sdLog::stream() << sdLog::newLine << "Total number of checks: " << std::to_string(NumberOfTotalChecks) << "\n";
@@ -114,10 +113,11 @@ private:
   int processFunction(Function &F) {
     if (isRelevantVirtualFunction(F))
       return processVirtualFunction(F);
-    else if (isRelevantStaticFunction(F))
+
+    if (isRelevantStaticFunction(F))
       return processStaticFunction(F);
 
-    return false;
+    return 0;
   }
 
   bool isRelevantStaticFunction(const Function &F) const {
@@ -141,27 +141,23 @@ private:
   }
 
   int processStaticFunction(Function &F) {
-    sdLog::stream() << "Function: " << F.getName() << "\n";
     int NumberOfChecks = generateReturnChecks(F, F.getName());
-    if (NumberOfChecks > 0) {
-      sdLog::stream() << "\tChecks created: " << std::to_string(NumberOfChecks) << "\n";
-    }
-    return NumberOfChecks > 0;
+    sdLog::log() << "Function: " << F.getName() << " (Checks: " << std::to_string(NumberOfChecks) << ")\n";
+    return NumberOfChecks;
   }
 
   int processVirtualFunction(Function &F) {
-    sdLog::stream() << "Function: " << F.getName();
     std::string className = demangleFunction(F.getName());
     if (className == "") {
-      sdLog::streamWithoutToken() << " -> WARNING: Skipping after error!\n";
+      sdLog::warn() << "Function: " << F.getName() << " -> WARNING: Skipping after error!\n";
       return false;
     }
-    sdLog::streamWithoutToken() << " -> Demangled to " << className << "\n";
+    sdLog::log() << "Function: " << F.getName()  << " -> Demangled to " << className << "\n";
 
     int NumberOfChecks = generateReturnChecks(F, className);
 
-    sdLog::stream() << "\tChecks created: " << std::to_string(NumberOfChecks) << "\n";
-    return NumberOfChecks > 0;
+    sdLog::log() << "\tChecks created: " << std::to_string(NumberOfChecks) << "\n";
+    return NumberOfChecks;
   }
 
   int generateReturnChecks(Function &F, Twine CheckName) {
@@ -200,7 +196,7 @@ private:
         auto printfPrototype = createPrintfPrototype(module);
         auto printfFormatString = createPrintfFormatString(F.getName(), builder);
         ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
-        builder.CreateCall(printfPrototype, args);
+        //builder.CreateCall(printfPrototype, args);
         count++;
       }
     }
