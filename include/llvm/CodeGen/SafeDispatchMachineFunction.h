@@ -67,6 +67,7 @@ public:
     for (auto &MBB: MF) {
       for (auto &MI : MBB) {
         if (MI.isCall()) {
+
           auto debugLocString = debugLocToString(MI.getDebugLoc());
           auto classNameIt = CallSiteDebugLoc.find(debugLocString);
           if (classNameIt != CallSiteDebugLoc.end()) {
@@ -87,10 +88,13 @@ public:
             for (auto &SubClass : ClassHierarchies[className]) {
               insert(SubClass, MI, MF, symbol);
             }
+            sdLog::log() << "\n";
+            continue;
           }
 
           auto FunctionNameIt = CallSiteDebugLocStatic.find(debugLocString);
           if (FunctionNameIt != CallSiteDebugLocStatic.end()) {
+
             auto FunctionName = FunctionNameIt->second;
             sdLog::log() << "Machine CallInst in " << MF.getName() << "@" << debugLocString
                             << " is static caller for: " << FunctionName << "\n";
@@ -126,9 +130,10 @@ public:
             RangeBounds[FunctionName].second = debugLocToString(MI.getDebugLoc());
             Labels["_SD_RANGE_" + FunctionName + "_max"] = Label;
             sdLog::log() << "max: " << "_SD_RANGE_" << FunctionName << "_max" << "\n";
+            sdLog::log() << "\n";
+            continue;
           }
-
-          sdLog::log() << "\n";
+          sdLog::log() << "Unknown call (" << debugLocString << ") for " << MF.getName() << "!\n";
         }
       }
     }

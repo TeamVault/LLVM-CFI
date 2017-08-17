@@ -107,10 +107,16 @@ void SDReturnRange::locateCallSites(Module &M) {
       addCallSite(IntrinsicCall, CallSite, M);
     } else {
       sdLog::warn() << "CallSite for intrinsic was not found.\n";
+      IntrinsicCall->getParent()->dump();
     }
 
     sdLog::log() << "\n";
   }
+}
+
+static bool isRelevantStaticFunction(const Function &F) {
+  return !(F.getName().startswith("__") || F.getName().startswith("llvm.") || F.getName() == "_Znwm");
+
 }
 
 void SDReturnRange::locateStaticCallSites(Module &M) {
@@ -119,7 +125,9 @@ void SDReturnRange::locateStaticCallSites(Module &M) {
       for (auto &I : MBB) {
         if (auto *Call = dyn_cast<CallInst>(&I)) {
           if (Function *F = Call->getCalledFunction()) {
-            addStaticCallSite(Call, M);
+            if (isRelevantStaticFunction(*F)){
+              addStaticCallSite(Call, M);
+            }
           }
         }
       }
@@ -251,7 +259,8 @@ void SDReturnRange::createSubclassHierarchy(const SDBuildCHA::vtbl_t &Root, std:
     if (ClassName == "")
       continue;
 
-    Output.insert(ClassName);
+    Output.insert(Child.first);
+    MangledClassName[ClassName] = Child.first;
     createSubclassHierarchy(Child, Output);
 
   }
@@ -272,7 +281,8 @@ void SDReturnRange::emitSubclassHierarchyIfNeeded(StringRef RootVtableName) {
 
   // Traverse through subvtables and search for subclasses. (RootClass is a subclass as well)
   std::set <std::string> SubclassSet;
-  SubclassSet.insert(RootClassName);
+  SubclassSet.insert(RootVtableName.str());
+  MangledClassName[RootClassName] = RootVtableName.str();
   createSubclassHierarchy(SDBuildCHA::vtbl_t(RootVtableName, 0), SubclassSet);
 
   // Store hierarchy.
@@ -295,10 +305,32 @@ void SDReturnRange::storeCallSites(Module &M) {
   std::ofstream Outfile("./_SD_CallSites.txt");
   std::ostream_iterator <std::string> OutIterator(Outfile, "\n");
   std::copy(CallSiteDebugLocs.begin(), CallSiteDebugLocs.end(), OutIterator);
+  Outfile.close();
+
+  int number = 0;
+  auto outName = "./_SD_CallSites" + std::to_string(number);
+  std::ifstream infile(outName);
+  while(infile.good()) {
+    number++;
+    outName = "./_SD_CallSites" + std::to_string(number);
+    infile = std::ifstream(outName);
+  }
+
+  std::ifstream  src("./_SD_CallSites.txt", std::ios::binary);
+  std::ofstream  dst(outName, std::ios::binary);
+  dst << src.rdbuf();
+
+
 
   std::ofstream Outfile2("./_SD_CallSitesStatic.txt");
   std::ostream_iterator <std::string> OutIterator2(Outfile2, "\n");
   std::copy(CallSiteDebugLocsStatic.begin(), CallSiteDebugLocsStatic.end(), OutIterator2);
+  Outfile2.close();
+
+  outName = "./_SD_CallSitesStatic" + std::to_string(number);
+  std::ifstream  src2("./_SD_CallSitesStatic.txt", std::ios::binary);
+  std::ofstream  dst2(outName, std::ios::binary);
+  dst2 << src2.rdbuf();
 }
 
 void SDReturnRange::storeClassHierarchy(Module &M) {
@@ -311,4 +343,17 @@ void SDReturnRange::storeClassHierarchy(Module &M) {
     }
     Outfile << "\n";
   }
+
+  int number = 0;
+  auto outName = "./_SD_ClassHierarchy" + std::to_string(number);
+  std::ifstream infile(outName);
+  while(infile.good()) {
+    number++;
+    outName = "./_SD_ClassHierarchy" + std::to_string(number);
+    infile = std::ifstream(outName);
+  }
+
+  std::ifstream  src("./_SD_ClassHierarchy.txt", std::ios::binary);
+  std::ofstream  dst(outName, std::ios::binary);
+  dst << src.rdbuf();
 }

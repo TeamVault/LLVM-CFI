@@ -412,6 +412,8 @@ public:
   std::string GetClassMangledName(const CXXRecordDecl *RD);
   std::string GetClassMangledConstrName(const CXXRecordDecl *RD,
                                                 const BaseSubobject &Base);
+  std::string GetFunctionMangledName(const CXXMethodDecl *MD);
+
 
   /**************************** Array cookies ******************************/
 

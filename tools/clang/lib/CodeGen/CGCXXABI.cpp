@@ -27,6 +27,14 @@ std::string CGCXXABI::GetClassMangledName(const CXXRecordDecl *RD) {
   return OutName.str().str();
 }
 
+std::string CGCXXABI::GetFunctionMangledName(const CXXMethodDecl *MD) {
+  SmallString<256> OutName;
+  llvm::raw_svector_ostream Out(OutName);
+  cast<ItaniumMangleContext>(getMangleContext()).mangleCXXName(MD, Out);
+  Out.flush();
+  return OutName.str().str();
+}
+
 std::string CGCXXABI::GetClassMangledConstrName(const CXXRecordDecl *RD,
                                                 const BaseSubobject &Base) {
   SmallString<256> OutName;

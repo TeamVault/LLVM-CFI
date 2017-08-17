@@ -6,9 +6,12 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 #include "llvm/Transforms/IPO/SafeDispatchReturnRange.h"
+#include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include <cxxabi.h>
+#include <llvm/IR/DebugInfoMetadata.h>
+#include <fstream>
 
 namespace llvm {
 /**
@@ -62,7 +65,7 @@ class SDReturnAddress : public ModulePass {
 public:
   static char ID;
 
-  SDReturnAddress() : ModulePass(ID) {
+  SDReturnAddress() : ModulePass(ID), GlobalsCreated(), FunctionToClass() {
     sdLog::stream() << "initializing SDReturnAddress pass ...\n";
     initializeSDReturnAddressPass(*PassRegistry::getPassRegistry());
   }
@@ -73,17 +76,66 @@ public:
 
   bool runOnModule(Module &M) override {
     // Get the results from the ReturnRange pass.
-    StaticFunctions = getAnalysis<SDReturnRange>().getStaticFunctions();
+    ReturnRange = &getAnalysis<SDReturnRange>();
+    StaticFunctions = ReturnRange->getStaticFunctions();
+
+    for (auto &entry : *StaticFunctions) {
+      errs() << "SD WTF]" << entry.first() << "\n";
+    }
+    //TODO MATT: cleanup
+    NamedMDNode *MDNode = M.getNamedMetadata(SD_MD_FUNCTIONINFO);
+    if (MDNode != nullptr) {
+      for (auto *Operand : MDNode->operands()) {
+        assert(Operand->getNumOperands() == 2 && "Malformed Metadata");
+        auto *FunctionMD = dyn_cast_or_null<MDString>(Operand->getOperand(0));
+        auto *ClassMD = dyn_cast_or_null<MDString>(Operand->getOperand(1));
+        assert(FunctionMD && ClassMD && "Malformed Metadata");
+        FunctionToClass[FunctionMD->getString().str()] = ClassMD->getString().str();
+      }
+    }
 
     sdLog::blankLine();
     sdLog::stream() << "P7b. Started running the SDReturnAddress pass ..." << sdLog::newLine << "\n";
 
-    std::vector<StringRef> FunctionsWithoutChecks;
+    std::set<StringRef> FunctionsMarkedStatic;
+    std::set<StringRef> FunctionsMarkedVirtual;
+    std::set<StringRef> FunctionsMarkedNoCaller;
+    std::set<StringRef> FunctionsMarkedNoReturn;
+    std::set<StringRef> FunctionsMarkedBlackListed;
+
     int NumberOfTotalChecks = 0;
     for (auto &F : M) {
-      int NumberOfChecks = processFunction(F);
-      if (NumberOfChecks == 0)
-        FunctionsWithoutChecks.push_back(F.getName());
+      ProcessingInfo Info;
+      Info.RangeName = F.getName();
+      int NumberOfChecks = processFunction(F, Info);
+
+      bool InfoValidatesNoChecks = false;
+      for (auto &Entry : Info.Flags) {
+        switch (Entry) {
+          case Static:
+            FunctionsMarkedStatic.insert(Info.RangeName);
+            break;
+          case Virtual:
+            FunctionsMarkedVirtual.insert(Info.RangeName);
+            break;
+          case NoCaller:
+            errs() << "NO CALLER" << Info.RangeName << "\n";
+            FunctionsMarkedNoCaller.insert(Info.RangeName);
+            break;
+          case NoReturn:
+            FunctionsMarkedNoReturn.insert(Info.RangeName);
+            InfoValidatesNoChecks = true;
+            break;
+          case BlackListed:
+            FunctionsMarkedBlackListed.insert(Info.RangeName);
+            InfoValidatesNoChecks = true;
+            break;
+        }
+      }
+
+      if (NumberOfChecks == 0 && !InfoValidatesNoChecks)
+        sdLog::errs() << "Function: " << Info.RangeName << "has no checks and is not marked with NoReturn!\n";
+
       NumberOfTotalChecks += NumberOfChecks;
     }
 
@@ -91,15 +143,75 @@ public:
       M.getOrInsertNamedMetadata("SD_emit_return_labels");
     }
 
-    sdLog::log() << sdLog::newLine << "Functions without check:\n";
-    for (auto &entry : FunctionsWithoutChecks) {
-      sdLog::log() << entry << "\n";
-    }
+    sdLog::stream() << sdLog::newLine << "P7b. SDReturnAddress statistics:" << "\n";
+    sdLog::stream() << "Total number of checks: " << NumberOfTotalChecks << "\n";
+    sdLog::stream() << "Total number of static functions: " << FunctionsMarkedStatic.size() << "\n";
+    sdLog::stream() << "Total number of virtual functions: " << FunctionsMarkedVirtual.size() << "\n";
+    sdLog::stream() << "Total number of blacklisted functions: " << FunctionsMarkedBlackListed.size() << "\n";
+    sdLog::stream() << "Total number of functions without return: " << FunctionsMarkedNoReturn.size() << "\n";
 
-    sdLog::stream() << sdLog::newLine << "Total number of checks: " << std::to_string(NumberOfTotalChecks) << "\n";
+    storeStatistics(M, NumberOfTotalChecks,
+                    FunctionsMarkedStatic,
+                    FunctionsMarkedVirtual,
+                    FunctionsMarkedNoCaller,
+                    FunctionsMarkedNoReturn,
+                    FunctionsMarkedBlackListed);
+
     sdLog::stream() << sdLog::newLine << "P7b. Finished running the SDReturnAddress pass ..." << "\n";
     sdLog::blankLine();
+
+
     return NumberOfTotalChecks > 0;
+  }
+
+  void storeStatistics(Module &M, int NumberOfTotalChecks,
+                       std::set<StringRef> &FunctionsMarkedStatic,
+                       std::set<StringRef> &FunctionsMarkedVirtual,
+                       std::set<StringRef> &FunctionsMarkedNoCaller,
+                       std::set<StringRef> &FunctionsMarkedNoReturn,
+                       std::set<StringRef> &FunctionsMarkedBlackListed) {
+
+    sdLog::stream() << "Store statistics for module: " << M.getName() << "\n";
+
+    int number = 0;
+    auto outName = "./SD_Stats" + std::to_string(number);
+    std::ifstream infile(outName);
+    while(infile.good()) {
+      number++;
+      outName = "./SD_Stats" + std::to_string(number);
+      infile = std::ifstream(outName);
+    }
+    std::ofstream Outfile(outName);
+
+    std::ostream_iterator <std::string> OutIterator(Outfile, "\n");
+    Outfile << "Total number of checks: " << NumberOfTotalChecks << "\n";
+    Outfile << "\n";
+
+    Outfile << "### Static function checks: " << FunctionsMarkedStatic.size() << "\n";
+    std::copy(FunctionsMarkedStatic.begin(), FunctionsMarkedStatic.end(), OutIterator);
+    Outfile << "##\n";
+
+    Outfile << "### Virtual function checks: " << FunctionsMarkedVirtual.size() << "\n";
+    std::copy(FunctionsMarkedVirtual.begin(), FunctionsMarkedVirtual.end(), OutIterator);
+    Outfile << "##\n";
+
+    Outfile << "### Blacklisted functions: " << FunctionsMarkedBlackListed.size() << "\n";
+    std::copy(FunctionsMarkedBlackListed.begin(), FunctionsMarkedBlackListed.end(), OutIterator);
+    Outfile << "##\n";
+
+    Outfile << "### Without return: " << FunctionsMarkedNoReturn.size() << "\n";
+    std::copy(FunctionsMarkedNoReturn.begin(), FunctionsMarkedNoReturn.end(), OutIterator);
+    Outfile << "##\n";
+
+    Outfile << "### Without caller: " << FunctionsMarkedNoCaller.size() << "\n";
+    std::copy(FunctionsMarkedNoCaller.begin(), FunctionsMarkedNoCaller.end(), OutIterator);
+    Outfile << "##\n";
+
+    Outfile << "### FunctionToClass:\n";
+    for (auto &entry : FunctionToClass) {
+      Outfile << entry.first << "##" << entry.second << "\n";
+    }
+    Outfile << "##\n";
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -107,28 +219,61 @@ public:
     AU.setPreservesAll();
   }
 
+  enum ProcessingInfoFlags {
+    Static, Virtual, NoCaller, NoReturn, BlackListed
+  };
+
+  struct ProcessingInfo {
+    std::set<ProcessingInfoFlags> Flags;
+    StringRef RangeName;
+
+    void insert(ProcessingInfoFlags Flag){
+      Flags.insert(Flag);
+    }
+
+    bool hasFlag(ProcessingInfoFlags Flag) {
+      return Flags.find(Flag) != Flags.end();
+    }
+  };
+
 private:
   const StringSet<> *StaticFunctions;
+  SDReturnRange *ReturnRange;
+  std::map<std::string, std::string> FunctionToClass;
+  std::set<std::string> GlobalsCreated;
 
-  int processFunction(Function &F) {
-    if (isRelevantVirtualFunction(F))
-      return processVirtualFunction(F);
+  int processFunction(Function &F, ProcessingInfo &Info) {
+    if (isBlackListedFunction(F)) {
+      Info.insert(BlackListed);
+      return 0;
+    }
 
-    if (isRelevantStaticFunction(F))
-      return processStaticFunction(F);
+    if (isKnownVirtualFunction(F)) {
+      return processVirtualFunction(F, Info);
+    }
 
-    return 0;
+    if (isPotentialStaticFunction(F, Info)) {
+      return processStaticFunction(F, Info);
+    }
+
+    llvm_unreachable("Function was not processed!");
   }
 
-  bool isRelevantStaticFunction(const Function &F) const {
-    if (F.getName().startswith("__") || F.getName().startswith("llvm.") || F.getName() == "_Znwm")
-      return false;
-
-    return StaticFunctions->find(F.getName()) != StaticFunctions->end();
+  bool isBlackListedFunction(const Function &F) {
+    return F.getName().startswith("__")
+           || F.getName().startswith("llvm.")
+           || F.getName() == "_Znwm"
+           || F.getName() == "main";
   }
 
-  bool isRelevantVirtualFunction(const Function &F) const {
-    if (!F.getName().startswith("_ZN")) {
+  bool isPotentialStaticFunction(const Function &F, ProcessingInfo Info) const {
+    if (StaticFunctions->find(F.getName()) == StaticFunctions->end())
+      Info.insert(NoCaller);
+    return true;
+  }
+
+  bool isKnownVirtualFunction(const Function &F) const {
+    if (!F.getName().startswith("_Z")) {
       return false;
     }
 
@@ -137,26 +282,36 @@ private:
         return false;
       }
     }
-    return true;
+
+    auto MangledClassName = FunctionToClass.find(F.getName());
+    return !(MangledClassName == FunctionToClass.end());
+
   }
 
-  int processStaticFunction(Function &F) {
+  int processStaticFunction(Function &F, ProcessingInfo &Info) {
     int NumberOfChecks = generateReturnChecks(F, F.getName());
-    sdLog::log() << "Function: " << F.getName() << " (Checks: " << std::to_string(NumberOfChecks) << ")\n";
+    Info.insert(Static);
+    if (NumberOfChecks == 0)
+      Info.insert(NoReturn);
+
     return NumberOfChecks;
   }
 
-  int processVirtualFunction(Function &F) {
-    std::string className = demangleFunction(F.getName());
-    if (className == "") {
-      sdLog::warn() << "Function: " << F.getName() << " -> WARNING: Skipping after error!\n";
-      return false;
-    }
-    sdLog::log() << "Function: " << F.getName()  << " -> Demangled to " << className << "\n";
+  int processVirtualFunction(Function &F, ProcessingInfo &Info) {
+    auto MangledClassName = FunctionToClass.find(F.getName());
+    assert(MangledClassName != FunctionToClass.end() && "Unknown Virtual Function!");
 
-    int NumberOfChecks = generateReturnChecks(F, className);
+    int NumberOfChecks = generateReturnChecks(F, MangledClassName->second);
 
-    sdLog::log() << "\tChecks created: " << std::to_string(NumberOfChecks) << "\n";
+    sdLog::log() << "Function (virtual): " << F.getName()
+                 << " in class " << MangledClassName->second
+                 << " (Checks: " << NumberOfChecks << ")\n";
+
+    Info.insert(Virtual);
+    Info.RangeName = MangledClassName->second;
+    if (NumberOfChecks == 0)
+      Info.insert(NoReturn);
+
     return NumberOfChecks;
   }
 
@@ -196,7 +351,7 @@ private:
         auto printfPrototype = createPrintfPrototype(module);
         auto printfFormatString = createPrintfFormatString(F.getName(), builder);
         ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
-        //builder.CreateCall(printfPrototype, args);
+        auto Call = builder.CreateCall(printfPrototype, args);
         count++;
       }
     }
@@ -207,14 +362,18 @@ private:
   GlobalVariable *getOrCreateGlobal(Module *M, Twine suffix) {
     auto name = "_SD_RANGE_" + suffix;
     auto global = M->getGlobalVariable(name.str());
-    if (global != nullptr)
+    if (global != nullptr) {
+      if (GlobalsCreated.find(name.str()) == GlobalsCreated.end())
+        sdLog::warn() << "Used global not created by this pass: " << name.str() << "\n";
       return global;
+    }
 
     PointerType *labelType = llvm::Type::getInt8PtrTy(M->getContext());
     auto newGlobal = new GlobalVariable(*M, labelType, false, GlobalVariable::ExternalLinkage, nullptr, name);
     auto nullPointer = ConstantPointerNull::get(labelType);
     newGlobal->setInitializer(nullPointer);
 
+    GlobalsCreated.insert(name.str());
     sdLog::stream() << "\tCreated global: " << name.str() << "\n";
     return newGlobal;
   }

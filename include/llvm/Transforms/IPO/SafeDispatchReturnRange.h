@@ -33,7 +33,7 @@ public:
     sdLog::stream() << "initializing SDReturnRange pass\n";
     initializeSDReturnRangePass(*PassRegistry::getPassRegistry());
 
-    pseudoDebugLoc = 0;
+    pseudoDebugLoc = 1;
   }
 
   virtual ~SDReturnRange() {
@@ -47,8 +47,16 @@ public:
     AU.setPreservesAll();
   }
 
-  const StringSet<> *getStaticFunctions()  {
+  const StringSet<> *getStaticFunctions() {
     return &CalledFunctions;
+  }
+
+  std::string *getMangledClassName(StringRef ClassName) {
+    auto Entry = MangledClassName.find(ClassName);
+    if (Entry == MangledClassName.end())
+      return nullptr;
+
+    return &Entry->second;
   }
 
 private:
@@ -66,6 +74,8 @@ private:
 
   /// information about static calls.
   StringSet<> CalledFunctions;
+
+  std::map<std::string, std::string> MangledClassName;
 
   uint64_t pseudoDebugLoc;
 
