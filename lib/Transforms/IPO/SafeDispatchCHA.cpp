@@ -17,6 +17,7 @@
 #include "llvm/IR/CallSite.h"
 
 #include "llvm/Transforms/IPO/SafeDispatchLog.h"
+#include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -259,6 +260,11 @@ void SDBuildCHA::buildClouds(Module &M) {
           sd_print("subInfo parents (%s, %d),", it.first.c_str(), it.second);
         }
 
+        for (auto &entry : subInfo->functions) {
+          sd_print("subInfo functions (%s @ %d),", entry.functionName.c_str(), entry.offsetInVTable);
+        }
+        vTableFunctionMap[name] = subInfo->functions;
+
         sd_print("subInfo start-end [%d-%d] AddrPt: %d\n",
           subInfo->start,
           subInfo->end,
@@ -372,11 +378,152 @@ void SDBuildCHA::buildClouds(Module &M) {
       // No parents - then our "layout class" is ourselves.
       if (layoutClass == "none")
         layoutClass = className;
-      
+
       // record the class name of the sub-object
       subObjNameMap[className].push_back(layoutClass);
     }
   }
+}
+
+std::deque<SDBuildCHA::vtbl_name_t> SDBuildCHA::topoSort() {
+  std::deque<vtbl_name_t> ordered;
+  std::set<vtbl_name_t> visited;
+  std::set<vtbl_name_t> tempMarked;
+  for (auto &root : roots) {
+    topoSortHelper(root, ordered, visited, tempMarked);
+  }
+
+  for (auto &entry : ordered) {
+    sdLog::log() << entry << "\n";
+  }
+  return ordered;
+}
+
+void SDBuildCHA::topoSortHelper(vtbl_name_t node, std::deque<vtbl_name_t> &ordered,
+                                std::set<vtbl_name_t> &visited, std::set<vtbl_name_t> &tempMarked) {
+  if (visited.find(node) !=  visited.end())
+    return;
+
+  assert(tempMarked.find(node) == tempMarked.end() && "CHA is cyclic!?");
+  tempMarked.insert(node);
+
+  for (auto &child : cloudMap[vtbl_t(node, 0)]) {
+    topoSortHelper(child.first, ordered, visited, tempMarked);
+  }
+  visited.insert(node);
+  ordered.push_front(node);
+}
+
+void SDBuildCHA::buildFunctionInfo() {
+  uint64_t ID = 1;
+  std::deque<vtbl_name_t> topologicalOrder = topoSort();
+
+  std::vector<FunctionEntry> functionImpls;
+  for (auto &className : topologicalOrder) {
+    int ind = 0;
+    for (auto &function : vTableFunctionMap[vtbl_t(className, 0)]) {
+      if (functionImplMap.find(function.functionName) == functionImplMap.end()) {
+        sdLog::log() << "new impl: " << function << "\n";
+        std::vector<FunctionEntry> entriesForFunction;
+        entriesForFunction.push_back(function);
+
+        int numberOfOverrides = 0;
+        for (auto & parent : parentMap[className][0]) {
+          if (ind < vTableFunctionMap[parent].size()) {
+            sdLog::log() << "\tis override: " << function << "for" << parent.first << "\n";
+            numberOfOverrides++;
+          }
+        }
+
+        for (int64_t i = 1; i < subObjNameMap[className].size(); i++) {
+          for (auto &overrideFunc : vTableFunctionMap[vtbl_t(className, i)]) {
+            if (function.functionName == overrideFunc.functionName) {
+              sdLog::log() << "\tis override: " << overrideFunc << "\n";
+              entriesForFunction.push_back(overrideFunc);
+            }
+          }
+        }
+
+        numberOfOverrides += (entriesForFunction.size() - 1);
+        if (numberOfOverrides > 1) {
+          sdLog::warn() << "Function "<< function.functionName << " overrides "
+                        << numberOfOverrides<< " times!\n";
+        }
+        functionImplMap[function.functionName] = entriesForFunction;
+        functionImpls.push_back(function);
+      }
+
+      ind++;
+    }
+  }
+
+  for (auto &function : functionImpls) {
+    func_and_class_t funcAndClass(function.functionName, function.vTable.first);
+
+    if (functionMap.find(funcAndClass) == functionMap.end()) {
+      sdLog::log() << "New base function: " << function << "\n";
+      buildFunctionInfoForFunction(function, ID);
+    }
+  }
+
+  for (auto &entry : functionMap) {
+    for (auto &function : entry.second) {
+      sdLog::log() << function << ": " << functionIDMap[function] << "\n";
+    }
+  }
+
+  for (auto &entry : functionImplMap) {
+    sdLog::log() << entry.first;
+    for (auto &function : entry.second) {
+      sdLog::logNoToken() << " ("
+                          << functionRangeMap[function].first << "-"
+                          << functionRangeMap[function].second << ") ";
+    }
+    sdLog::logNoToken() << "\n";
+  }
+}
+
+SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &function, uint64_t &currentID) {
+  sdLog::log() << "Function : " << function;
+
+  // functionMap
+  func_and_class_t funcAndClass(function.functionName, function.vTable.first);
+  if (functionMap.find(funcAndClass) != functionMap.end()) {
+    sdLog::warn() << "\nFunction "<< function << " was encountered multiple times!\n";
+  }
+  functionMap[funcAndClass].push_back(function);
+
+  // functionIDMap
+  assert(functionIDMap.find(function) == functionIDMap.end() && "Function already has an ID?");
+  sdLog::logNoToken() << " -> " << currentID << "\n";
+  range_t result(currentID, currentID);
+  functionIDMap[function] = currentID++;
+
+  // recurse for children
+  for (auto &child : cloudMap[function.vTable]) {
+    // find correct sub vtable in child
+    int64_t subIndex = getSubVTableIndex(child.first, function.vTable);
+    assert(subIndex >= 0 && "Failed to find subvTable in child!");
+    vtbl_t childVTable = vtbl_t(child.first, subIndex);
+    assert(child.second == subIndex && "Child not correct according to cloudmap!?");
+
+    FunctionEntry *childFunction = nullptr;
+    for (auto &entry : vTableFunctionMap[childVTable]) {
+      if (entry.offsetInVTable == function.offsetInVTable) {
+        childFunction = &entry;
+      }
+    }
+    assert(childFunction && "Child vtable does not copy function from parent!");
+    range_t subRange = buildFunctionInfoForFunction(*childFunction, currentID);
+
+    assert(result.second + 1 == subRange.first && "Range is not consistent!");
+    result.second = subRange.second;
+  }
+
+  sdLog::log() << "Final range: " << function << " -> (" << result.first << "-" << result.second << ")\n";
+
+  functionRangeMap[function] = result;
+  return result;
 }
 
 /*Paul:
@@ -446,16 +593,17 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
       assert(tup);
       
       /*Paul:
-      assert that the tuple has exactly 5 operands, 
+      assert that the tuple has exactly 6 operands,
       this will be used next*/
-      assert(tup->getNumOperands() == 5);
+      assert(tup->getNumOperands() == 6);
 
-      //Paul: these are the 5 operand mentioned above
+      //Paul: these are the 6 operand mentioned above
       subInfo.order             = sd_getNumberFromMDTuple(tup->getOperand(0)); //Paul: this gives the order
       subInfo.start             = sd_getNumberFromMDTuple(tup->getOperand(1)); //Paul: this gives the start address
       subInfo.end               = sd_getNumberFromMDTuple(tup->getOperand(2)); //Paul: this gives the end address
       subInfo.addressPoint      = sd_getNumberFromMDTuple(tup->getOperand(3)); //Paul: this gives the address point
       llvm::MDTuple* parentsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(4)); //Paul: this returns the parents tuple
+      llvm::MDTuple* functionsTup = dyn_cast<llvm::MDTuple>(tup->getOperand(5)); //Paul: this returns the functions tuple
 
       /*Paul: get the number of parents for the first parent*/
       unsigned numParents = sd_getNumberFromMDTuple(parentsTup->getOperand(0)); 
@@ -477,6 +625,18 @@ std::vector<SDBuildCHA::nmd_t> SDBuildCHA::extractMetadata(NamedMDNode* md) {
         }
         
         subInfo.parents.insert(vtbl_t(ptName, ptIdx));
+      }
+
+      /*Matt: get the number of functions in this sub vtable */
+      unsigned numFunctions = sd_getNumberFromMDTuple(functionsTup->getOperand(0));
+
+      //Matt: iterate through all the functions
+      for (int j = 0; j < numFunctions; j++) {
+
+        //Matt: retrieve the mangled name of the function
+        std::string funcName = sd_getStringFromMDTuple(functionsTup->getOperand(1+j*2));
+        uint64_t offset = sd_getNumberFromMDTuple(functionsTup->getOperand(1+j*2+1));
+        subInfo.functions.push_back(FunctionEntry(funcName, vtbl_t(info.className, subInfo.order), offset));
       }
 
       bool currRangeCheck = (subInfo.start <= subInfo.addressPoint && subInfo.addressPoint <= subInfo.end);

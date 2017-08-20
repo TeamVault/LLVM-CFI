@@ -60,6 +60,37 @@ namespace llvm {
     typedef std::map<vtbl_name_t, ConstantArray*>           oldvtbl_map_t;  //Paul: map of v table name -> ConstantArray
     typedef std::map<vtbl_name_t, std::vector<vtbl_set_t> > parent_map_t;   //Paul: map of v table name -> vector of vt sets of names
 
+    typedef std::string                                     func_name_t;
+    typedef std::pair<func_name_t, vtbl_name_t>             func_and_class_t;
+
+    struct FunctionEntry {
+    public:
+      func_name_t functionName;
+      vtbl_t vTable;
+      uint64_t offsetInVTable;
+
+      FunctionEntry(func_name_t _functionName, vtbl_t _vTable, uint64_t _offsetInVTable) :
+              functionName(_functionName),
+              vTable(_vTable),
+              offsetInVTable(_offsetInVTable)
+      {}
+
+      friend raw_ostream &operator<<(raw_ostream &OS, const SDBuildCHA::FunctionEntry &F) {
+        return OS << F.functionName << " (" << F.vTable.first << ", " << F.vTable.second << ")@" << F.offsetInVTable;
+      }
+
+      bool operator <(const FunctionEntry& rhs) const {
+        return std::tie(functionName, vTable, offsetInVTable) <
+               std::tie(rhs.functionName, rhs.vTable, rhs.offsetInVTable);
+      }
+    };
+
+    typedef std::map<vtbl_t, std::vector<FunctionEntry>>           vtbl_function_map_t;
+    typedef std::map<func_and_class_t, std::vector<FunctionEntry>> function_map_t;
+    typedef std::map<func_name_t, std::vector<FunctionEntry>>      function_impl_map_t;
+    typedef std::map<FunctionEntry, range_t>                       function_range_map_t;
+    typedef std::map<FunctionEntry, uint64_t>                      function_id_map_t;
+
   private:
     cloud_map_t cloudMap;                              // (vtbl,ind) -> set<(vtbl,ind)>; pair -> set
     parent_map_t parentMap;                            // vtbl -> [(vtbl, ind)]; string -> vector of sets
@@ -71,6 +102,12 @@ namespace llvm {
     oldvtbl_map_t oldVTables;                          // vtbl -> &[vtable element]
     std::map<vtbl_t, uint32_t> cloudSizeMap;           // vtbl -> # vtables derived from (vtbl,0), holds the range width for each v table 
     std::set<vtbl_name_t> undefinedVTables;            // contains dynamic classes that don't have vtables defined
+
+    vtbl_function_map_t vTableFunctionMap;
+    function_map_t functionMap;
+    function_impl_map_t functionImplMap;
+    function_range_map_t functionRangeMap;
+    function_id_map_t functionIDMap;
     
     /**
      * These functions and variables used to deal with duplication
@@ -89,6 +126,7 @@ namespace llvm {
       uint64_t    end;
       uint64_t    addressPoint; //this is the address point of the v table in the v table layout 
                                 //e.g., uint64_t addrPt = VTLayout->getAddressPoint(it.second);
+      std::vector<FunctionEntry> functions;  // all function entries the sub v table
     };
     
     //Paul: this is the basic CHA node type, maybe based on the ShrinkWrap approach we need to 
@@ -141,7 +179,12 @@ namespace llvm {
      */
     std::vector<nmd_t> static extractMetadata(NamedMDNode* md);
 
-public:
+    range_t buildFunctionInfoForFunction(FunctionEntry &function, uint64_t &currentID);
+
+    void topoSortHelper(vtbl_name_t node, std::deque<vtbl_name_t> &ordered,
+                        std::set<vtbl_name_t> &visited, std::set<vtbl_name_t> &tempMarked);
+
+  public:
     SDBuildCHA() : ModulePass(ID) {
       std::cerr << "\nCreating SDBuildCHA pass!\n";
       initializeSDBuildCHAPass(*PassRegistry::getPassRegistry());
@@ -383,6 +426,10 @@ public:
     /*Paul:
     get the sub vtable index*/
     int64_t getSubVTableIndex(const vtbl_name_t& derived, const vtbl_name_t &base);
+
+    void buildFunctionInfo();
+
+    std::deque<vtbl_name_t> topoSort();
   };
 
 }

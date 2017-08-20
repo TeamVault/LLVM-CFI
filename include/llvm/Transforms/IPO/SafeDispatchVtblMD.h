@@ -20,6 +20,7 @@ namespace
 {
 typedef std::pair<std::string, uint64_t> vtbl_t;
 typedef std::set<vtbl_t> vtbl_set_t;
+typedef std::set<std::pair<std::string, uint64_t>> function_set_t;
 
 /**
    * This class contains the information needed for each sub-vtable
@@ -36,18 +37,21 @@ public:
   uint64_t start;
   uint64_t end;
   uint64_t addressPoint;
+  const function_set_t functions;
 
   //class constructor
   SD_VtableMD(uint64_t _order,
               const vtbl_set_t &_parents,
               uint64_t _start,
               uint64_t _end,
-              uint64_t _addrPt) : //this are initializers
+              uint64_t _addrPt,
+              const function_set_t &_functions) : //this are initializers
                                   order(_order),
                                   parents(_parents),
                                   start(_start),
                                   end(_end),
-                                  addressPoint(_addrPt)
+                                  addressPoint(_addrPt),
+                                  functions(_functions)
   {
   }
 
@@ -56,6 +60,7 @@ public:
   {
     std::vector<llvm::Metadata *> tuple;
     std::vector<llvm::Metadata *> parentsTuple;
+    std::vector<llvm::Metadata *> functionsTuple;
 
     parentsTuple.push_back(sd_getMDNumber(C, parents.size()));
 
@@ -66,11 +71,19 @@ public:
       parentsTuple.push_back(sd_getClassVtblGVMD(it.first, M));
     }
 
+    functionsTuple.push_back(sd_getMDNumber(C, functions.size()));
+
+    for (auto it : functions) {
+      functionsTuple.push_back(sd_getMDString(C, it.first));
+      functionsTuple.push_back(sd_getMDNumber(C, it.second));
+    }
+
     tuple.push_back(sd_getMDNumber(C, order));
     tuple.push_back(sd_getMDNumber(C, start));
     tuple.push_back(sd_getMDNumber(C, end));
     tuple.push_back(sd_getMDNumber(C, addressPoint));
     tuple.push_back(llvm::MDNode::get(C, parentsTuple));
+    tuple.push_back(llvm::MDNode::get(C, functionsTuple));
 
     return llvm::MDNode::get(C, tuple);
   }
@@ -111,6 +124,17 @@ static std::string sd_getClassName(clang::CodeGen::CGCXXABI *ABI,
   }
 }
 
+
+/**
+ * Returns the mangled name of the given function symbol
+ */
+static std::string sd_getFunctionName(clang::CodeGen::CGCXXABI *ABI,
+                                      const clang::CXXMethodDecl *MD)
+{
+  assert(ABI && MD);
+  std::string functionName = ABI->GetFunctionMangledName(MD);
+  return functionName;
+}
 /**
  * Helper function to extract the CXXRecordDecl from a QualType
  */
@@ -287,10 +311,21 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     assert(end < numComponents);
     clang::VTableComponent::Kind kind = VTLayout->vtable_component_begin()[end].getKind();
 
+    function_set_t functions;
+
     //count the number of components in the v table
-    while (end + 1 < numComponents)
+    while (end < numComponents)
     {
-      kind = VTLayout->vtable_component_begin()[end + 1].getKind();
+      auto component = VTLayout->vtable_component_begin()[end];
+      auto kind = component.getKind();
+
+      if (kind == clang::VTableComponent::CK_FunctionPointer ||
+          kind == clang::VTableComponent::CK_UnusedFunctionPointer) {
+        const clang::CXXMethodDecl *MD = component.getFunctionDecl();
+        std::string functionName = sd_getFunctionName(ABI, MD);
+        functions.insert(std::pair<std::string, uint64_t>(sd_getFunctionName(ABI, MD), end - start));
+      }
+
       if (kind == clang::VTableComponent::CK_FunctionPointer ||
           kind == clang::VTableComponent::CK_UnusedFunctionPointer ||
           kind == clang::VTableComponent::CK_CompleteDtorPointer ||
@@ -311,9 +346,9 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     }
 
     //create a new SD_VtableMD object and add it to the subVtables
-    subVtables.push_back(SD_VtableMD(order, addrPtMap[addrPt], start, end, addrPt));
+    subVtables.push_back(SD_VtableMD(order, addrPtMap[addrPt], start, end - 1, addrPt, functions));
     order++;          //inc. order
-    start = end + 1;  //inc. start
+    start = end;  //inc. start
     prevVal = addrPt; //set preVal
   }
 

@@ -63,6 +63,8 @@ bool SDReturnRange::runOnModule(Module &M) {
   sdLog::blankLine();
   sdLog::stream() << "P7a. Started running the SDReturnRange pass ..." << sdLog::newLine << "\n";
 
+  CHA->buildFunctionInfo();
+
   locateCallSites(M);
   locateStaticCallSites(M);
 
