@@ -430,6 +430,34 @@ namespace llvm {
     void buildFunctionInfo();
 
     std::deque<vtbl_name_t> topoSort();
-  };
 
+    std::vector<uint64_t> getFunctionID(std::string functionName) {
+      auto entryPtr = functionImplMap.find(functionName);
+      if (entryPtr == functionImplMap.end()) {
+        return std::vector<uint64_t>();
+      }
+      std::vector<uint64_t> result;
+      for (auto &entry : entryPtr->second) {
+        auto entryID = functionIDMap.find(entry);
+        if (entryID != functionIDMap.end())
+          result.push_back(entryID->second);
+      }
+      return result;
+    }
+
+    std::vector<range_t> getFunctionRange(std::string functionName, std::string className)  {
+      auto entryPtr = functionMap.find({functionName, className});
+      if (entryPtr == functionMap.end()) {
+        return std::vector<range_t>();
+      }
+      std::vector<range_t> result;
+      for (auto &entry : entryPtr->second) {
+        auto entryID = functionRangeMap.find(entry);
+        if (entryID != functionRangeMap.end())
+          result.push_back(entryID->second);
+      }
+      return result;
+    }
+
+  };
 }

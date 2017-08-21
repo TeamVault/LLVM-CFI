@@ -6217,6 +6217,18 @@ hasHighOperandLatency(const InstrItineraryData *ItinData,
   return isHighLatencyDef(DefMI->getOpcode());
 }
 
+void X86InstrInfo::insertNoop(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI) const {
+  unsigned BaseReg, ScaleVal, IndexReg, Displacement, SegmentReg;
+  IndexReg = Displacement = SegmentReg = 0;
+  BaseReg = X86::RAX; ScaleVal = 1;
+  Displacement = 512;
+
+  DebugLoc DL;
+  BuildMI(MBB, MI, DL, get(X86::NOOPL)).addReg(BaseReg)
+          .addImm(ScaleVal).addReg(IndexReg)
+          .addImm(Displacement).addReg(SegmentReg);
+}
+
 namespace {
   /// Create Global Base Reg pass. This initializes the PIC
   /// global base register for x86-32.

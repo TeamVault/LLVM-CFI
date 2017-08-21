@@ -208,11 +208,15 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
     CallSite->setDebugLoc(Location);
   }
 
+  std::vector<SDBuildCHA::range_t> ranges = CHA->getFunctionRange(FunctionName, ClassName);
+  sdLog::log() << ranges[0].first << "-" << ranges[0].second << "\n";
+
   // write DebugLoc to map (is written to file in storeCallSites)
   auto *Scope = cast<MDScope>(Loc.getScope());
   std::stringstream Stream;
   Stream << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
-         << "," << ClassName.str() << "," << PreciseName.str() << "," << FunctionName.str();
+         << "," << ClassName.str() << "," << PreciseName.str() << "," << FunctionName.str()
+         << "," << ranges[0].first << "," << ranges[0].second;
 
   CallSiteDebugLocs.push_back(Stream.str());
 

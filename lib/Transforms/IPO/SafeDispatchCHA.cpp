@@ -415,7 +415,7 @@ void SDBuildCHA::topoSortHelper(vtbl_name_t node, std::deque<vtbl_name_t> &order
 }
 
 void SDBuildCHA::buildFunctionInfo() {
-  uint64_t ID = 1;
+  uint64_t currentID = 1;
   std::deque<vtbl_name_t> topologicalOrder = topoSort();
 
   std::vector<FunctionEntry> functionImpls;
@@ -425,32 +425,42 @@ void SDBuildCHA::buildFunctionInfo() {
       if (functionImplMap.find(function.functionName) == functionImplMap.end()) {
         sdLog::log() << "new impl: " << function << "\n";
         std::vector<FunctionEntry> entriesForFunction;
-        entriesForFunction.push_back(function);
 
-        int numberOfOverrides = 0;
+        int directOverride = 0;
         for (auto & parent : parentMap[className][0]) {
           if (ind < vTableFunctionMap[parent].size()) {
-            sdLog::log() << "\tis override: " << function << "for" << parent.first << "\n";
-            numberOfOverrides++;
+            sdLog::log() << "\t is direct override of" << parent.first << "\n";
+            directOverride++;
           }
         }
 
+        if (directOverride > 0) {
+          entriesForFunction.push_back(function);
+        }
+
+        int indirectOverride = 0;
         for (int64_t i = 1; i < subObjNameMap[className].size(); i++) {
           for (auto &overrideFunc : vTableFunctionMap[vtbl_t(className, i)]) {
             if (function.functionName == overrideFunc.functionName) {
-              sdLog::log() << "\tis override: " << overrideFunc << "\n";
+              sdLog::log() << "\t is indirect override: " << overrideFunc << "\n";
               entriesForFunction.push_back(overrideFunc);
+              indirectOverride++;
             }
           }
         }
 
-        numberOfOverrides += (entriesForFunction.size() - 1);
-        if (numberOfOverrides > 1) {
+        int totalOverrides = directOverride + indirectOverride;
+        if (totalOverrides > 1) {
           sdLog::warn() << "Function "<< function.functionName << " overrides "
-                        << numberOfOverrides<< " times!\n";
+                        << totalOverrides << " times!\n";
         }
-        functionImplMap[function.functionName] = entriesForFunction;
-        functionImpls.push_back(function);
+
+        if (totalOverrides == 0) {
+          functionImpls.push_back(function);
+          functionImplMap[function.functionName].push_back(function);
+        } else {
+          functionImplMap[function.functionName] = entriesForFunction;
+        }
       }
 
       ind++;
@@ -462,24 +472,32 @@ void SDBuildCHA::buildFunctionInfo() {
 
     if (functionMap.find(funcAndClass) == functionMap.end()) {
       sdLog::log() << "New base function: " << function << "\n";
-      buildFunctionInfoForFunction(function, ID);
+      buildFunctionInfoForFunction(function, currentID);
     }
   }
 
   for (auto &entry : functionMap) {
     for (auto &function : entry.second) {
-      sdLog::log() << function << ": " << functionIDMap[function] << "\n";
+      auto range = functionRangeMap.find(function);
+      if (range != functionRangeMap.end()) {
+        sdLog::log() << function << ": ("
+                     << range->second.first << "-"
+                     << range->second.second << ")\n";
+      } else {
+        sdLog::warn() << function << " in functionMap has no range\n";
+      }
     }
   }
 
   for (auto &entry : functionImplMap) {
-    sdLog::log() << entry.first;
     for (auto &function : entry.second) {
-      sdLog::logNoToken() << " ("
-                          << functionRangeMap[function].first << "-"
-                          << functionRangeMap[function].second << ") ";
+      auto ID = functionIDMap.find(function);
+      if (ID != functionIDMap.end()) {
+        sdLog::log() << function << ": " << ID->second << "\n";
+      } else {
+        sdLog::warn() << function << " in functionImplMap has no ID\n";
+      }
     }
-    sdLog::logNoToken() << "\n";
   }
 }
 
@@ -501,14 +519,8 @@ SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &func
 
   // recurse for children
   for (auto &child : cloudMap[function.vTable]) {
-    // find correct sub vtable in child
-    int64_t subIndex = getSubVTableIndex(child.first, function.vTable);
-    assert(subIndex >= 0 && "Failed to find subvTable in child!");
-    vtbl_t childVTable = vtbl_t(child.first, subIndex);
-    assert(child.second == subIndex && "Child not correct according to cloudmap!?");
-
     FunctionEntry *childFunction = nullptr;
-    for (auto &entry : vTableFunctionMap[childVTable]) {
+    for (auto &entry : vTableFunctionMap[child]) {
       if (entry.offsetInVTable == function.offsetInVTable) {
         childFunction = &entry;
       }

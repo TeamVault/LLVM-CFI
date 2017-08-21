@@ -45,6 +45,19 @@ static Constant *createPrintfFormatString(std::string funcName, IRBuilder<> &bui
   return formatStringRef;
 }
 
+static Constant *createPrintfFormatString2(std::string funcName, IRBuilder<> &builder) {
+  GlobalVariable *formatStr = builder.CreateGlobalString(
+          funcName + " virtual ID %d (%d, %d) -> %d\n", "SafeDispatchPrintfFormatStr");
+
+  // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
+  ConstantInt *zero = builder.getInt32(0);
+  Constant *indices[] = {zero, zero};
+  Constant *formatStringRef = ConstantExpr::getGetElementPtr(
+          nullptr, formatStr, indices, true);
+
+  return formatStringRef;
+}
+
 static std::string demangleFunction(StringRef functionName) {
   int status = 0;
   std::unique_ptr<char, void (*)(void *)> res{
@@ -65,7 +78,7 @@ class SDReturnAddress : public ModulePass {
 public:
   static char ID;
 
-  SDReturnAddress() : ModulePass(ID), GlobalsCreated(), FunctionToClass() {
+  SDReturnAddress() : ModulePass(ID), GlobalsCreated() {
     sdLog::stream() << "initializing SDReturnAddress pass ...\n";
     initializeSDReturnAddressPass(*PassRegistry::getPassRegistry());
   }
@@ -76,23 +89,9 @@ public:
 
   bool runOnModule(Module &M) override {
     // Get the results from the ReturnRange pass.
+    CHA = &getAnalysis<SDBuildCHA>();
     ReturnRange = &getAnalysis<SDReturnRange>();
     StaticFunctions = ReturnRange->getStaticFunctions();
-
-    for (auto &entry : *StaticFunctions) {
-      errs() << "SD WTF]" << entry.first() << "\n";
-    }
-    //TODO MATT: cleanup
-    NamedMDNode *MDNode = M.getNamedMetadata(SD_MD_FUNCTIONINFO);
-    if (MDNode != nullptr) {
-      for (auto *Operand : MDNode->operands()) {
-        assert(Operand->getNumOperands() == 2 && "Malformed Metadata");
-        auto *FunctionMD = dyn_cast_or_null<MDString>(Operand->getOperand(0));
-        auto *ClassMD = dyn_cast_or_null<MDString>(Operand->getOperand(1));
-        assert(FunctionMD && ClassMD && "Malformed Metadata");
-        FunctionToClass[FunctionMD->getString().str()] = ClassMD->getString().str();
-      }
-    }
 
     sdLog::blankLine();
     sdLog::stream() << "P7b. Started running the SDReturnAddress pass ..." << sdLog::newLine << "\n";
@@ -206,15 +205,10 @@ public:
     Outfile << "### Without caller: " << FunctionsMarkedNoCaller.size() << "\n";
     std::copy(FunctionsMarkedNoCaller.begin(), FunctionsMarkedNoCaller.end(), OutIterator);
     Outfile << "##\n";
-
-    Outfile << "### FunctionToClass:\n";
-    for (auto &entry : FunctionToClass) {
-      Outfile << entry.first << "##" << entry.second << "\n";
-    }
-    Outfile << "##\n";
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.addRequired<SDBuildCHA>(); //  depends on SDBuildCHA pass
     AU.addRequired<SDReturnRange>(); //  depends on ReturnRange pass
     AU.setPreservesAll();
   }
@@ -238,8 +232,8 @@ public:
 
 private:
   const StringSet<> *StaticFunctions;
+  SDBuildCHA *CHA;
   SDReturnRange *ReturnRange;
-  std::map<std::string, std::string> FunctionToClass;
   std::set<std::string> GlobalsCreated;
 
   int processFunction(Function &F, ProcessingInfo &Info) {
@@ -282,10 +276,7 @@ private:
         return false;
       }
     }
-
-    auto MangledClassName = FunctionToClass.find(F.getName());
-    return !(MangledClassName == FunctionToClass.end());
-
+    return !(CHA->getFunctionID(F.getName()).empty());
   }
 
   int processStaticFunction(Function &F, ProcessingInfo &Info) {
@@ -298,21 +289,70 @@ private:
   }
 
   int processVirtualFunction(Function &F, ProcessingInfo &Info) {
-    auto MangledClassName = FunctionToClass.find(F.getName());
-    assert(MangledClassName != FunctionToClass.end() && "Unknown Virtual Function!");
+    std::vector<uint64_t> IDs = CHA->getFunctionID(F.getName());
+    assert(!IDs.empty() && "Unknown Virtual Function!");
 
-    int NumberOfChecks = generateReturnChecks(F, MangledClassName->second);
+    int NumberOfChecks = generateReturnChecks2(F, IDs);
 
     sdLog::log() << "Function (virtual): " << F.getName()
-                 << " in class " << MangledClassName->second
+                 << " in class "
                  << " (Checks: " << NumberOfChecks << ")\n";
 
     Info.insert(Virtual);
-    Info.RangeName = MangledClassName->second;
     if (NumberOfChecks == 0)
       Info.insert(NoReturn);
 
     return NumberOfChecks;
+  }
+
+  int generateReturnChecks2(Function &F, std::vector<uint64_t> IDs) {
+    int count = 0;
+    for (auto &B : F) {
+      for (auto &I : B) {
+        if (!isa<ReturnInst>(I))
+          continue;
+
+        Module *module = F.getParent();
+        IRBuilder<> builder(&I);
+
+        //Create returnAddr intrinsic call
+        Function *retAddrIntrinsic = Intrinsic::getDeclaration(
+                F.getParent(), Intrinsic::returnaddress);
+        ConstantInt *zero = builder.getInt32(0);
+        ConstantInt *offset = builder.getInt32(3);
+        ConstantInt *offset2 = builder.getInt32(3 + 7);
+        ConstantInt *bitPattern = builder.getInt32(0x7FFFF);
+
+        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
+        auto int32PtrTy = Type::getInt32PtrTy(F.getParent()->getContext());
+
+        auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
+
+        auto minPtr = builder.CreateGEP(retAddrCall, offset);
+        auto min32Ptr = builder.CreatePointerCast(minPtr, int32PtrTy);
+        auto min = builder.CreateLoad(min32Ptr);
+        auto minFixed = builder.CreateAnd(min, bitPattern);
+
+        auto widthPtr = builder.CreateGEP(retAddrCall, offset2);
+        auto width32Ptr = builder.CreatePointerCast(widthPtr, int32PtrTy);
+        auto width = builder.CreateLoad(width32Ptr);
+        auto widthFixed = builder.CreateAnd(width, bitPattern);
+
+        for (auto &ID : IDs) {
+          //Create printf call
+          ConstantInt *IDValue = builder.getInt32(ID);
+          auto diff = builder.CreateSub(IDValue, minFixed);
+          auto check = builder.CreateICmpULE(diff, widthFixed);
+
+          auto printfPrototype = createPrintfPrototype(module);
+          auto printfFormatString = createPrintfFormatString2(F.getName(), builder);
+          ArrayRef<Value *> args = {printfFormatString, IDValue, minFixed, widthFixed, check};
+          auto Call = builder.CreateCall(printfPrototype, args);
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   int generateReturnChecks(Function &F, Twine CheckName) {
@@ -351,7 +391,7 @@ private:
         auto printfPrototype = createPrintfPrototype(module);
         auto printfFormatString = createPrintfFormatString(F.getName(), builder);
         ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
-        auto Call = builder.CreateCall(printfPrototype, args);
+        //auto Call = builder.CreateCall(printfPrototype, args);
         count++;
       }
     }

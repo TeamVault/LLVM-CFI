@@ -15,6 +15,7 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/MC/MCSymbol.h"
 
+
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -81,8 +82,21 @@ public:
             ss << "SD_LABEL_" << count++;
             auto name = ss.str();
             MCSymbol *symbol = MF.getContext().GetOrCreateSymbol(name);
+
+            auto range = CallSiteRange[debugLocString];
+            errs() << "range: " << range.first << "-" << range.second << "\n";
+
+            TII->insertNoop(MBB, MI.getNextNode());
+            MI.getNextNode()->operands_begin()[3].setImm((range.second - range.first) | 0x80000);
+            MI.getNextNode()->dump();
+
+            TII->insertNoop(MBB, MI.getNextNode());
+            MI.getNextNode()->operands_begin()[3].setImm(range.first | 0x80000);
+            MI.getNextNode()->dump();
+
             BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
                     .addSym(symbol);
+            //BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(X86::NOOPL)).addImm(range.first);
 
             // insert MI into the vectors for the base class and all of its subclasses!
             for (auto &SubClass : ClassHierarchies[className]) {
@@ -179,14 +193,22 @@ public:
     std::ifstream InputFile("./_SD_CallSites.txt");
     std::string InputLine;
     std::string DebugLoc, ClassName, PreciseName, FunctionName;
+    std::string MinStr, MaxStr;
+
 
     while (std::getline(InputFile, InputLine)) {
       std::stringstream LineStream(InputLine);
 
       std::getline(LineStream, DebugLoc, ',');
       std::getline(LineStream, ClassName, ',');
-      LineStream >> PreciseName;
+      std::getline(LineStream, PreciseName, ',');
+      std::getline(LineStream, FunctionName, ',');
+      std::getline(LineStream, MinStr, ',');
+      LineStream >> MaxStr;
+      int min = std::stoi(MinStr);
+      int max = std::stoi(MaxStr);
       CallSiteDebugLoc[DebugLoc] = ClassName;
+      CallSiteRange[DebugLoc] = {min, max};
     }
   }
 
@@ -230,6 +252,7 @@ public:
 
 private:
   std::map <std::string, std::string> CallSiteDebugLoc;
+  std::map <std::string, std::pair<int, int>> CallSiteRange;
   std::map <std::string, std::string> CallSiteDebugLocStatic;
   std::map <std::string, std::vector<std::string>> ClassHierarchies;
 

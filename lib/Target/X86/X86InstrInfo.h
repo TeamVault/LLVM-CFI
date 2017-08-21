@@ -453,6 +453,10 @@ public:
                                   unsigned &FoldAsLoadDefReg,
                                   MachineInstr *&DefMI) const override;
 
+
+  void insertNoop(MachineBasicBlock &MBB,
+                          MachineBasicBlock::iterator MI) const override;
+
 private:
   MachineInstr * convertToThreeAddressWithLEA(unsigned MIOpc,
                                               MachineFunction::iterator &MFI,

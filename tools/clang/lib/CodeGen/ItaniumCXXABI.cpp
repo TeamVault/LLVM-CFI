@@ -1807,7 +1807,7 @@ static llvm::Value* sd_getCheckedVTable2(CodeGenModule &CGM,
   //this is the name of the base class of the object making the call to a virtual funtion 
   llvm::Value* preciseMDValue = llvm::MetadataAsValue::get(C, preciseMD);
 
-  llvm::MDString* functionName = llvm::MDString::get(C, MD->getQualifiedNameAsString());
+  llvm::MDString* functionName = llvm::MDString::get(C, CGM.getCXXABI().GetFunctionMangledName(MD));
   llvm::MDNode* functionMD = llvm::MDNode::get(C, functionName);
   llvm::Value* functionMDValue = llvm::MetadataAsValue::get(C, functionMD);
 
