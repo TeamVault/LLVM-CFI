@@ -58,6 +58,19 @@ static Constant *createPrintfFormatString2(std::string funcName, IRBuilder<> &bu
   return formatStringRef;
 }
 
+static Constant *createPrintfFormatString3(std::string funcName, IRBuilder<> &builder) {
+  GlobalVariable *formatStr = builder.CreateGlobalString(
+          funcName + " static ID %d (%d) -> %d\n", "SafeDispatchPrintfFormatStr");
+
+  // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
+  ConstantInt *zero = builder.getInt32(0);
+  Constant *indices[] = {zero, zero};
+  Constant *formatStringRef = ConstantExpr::getGetElementPtr(
+          nullptr, formatStr, indices, true);
+
+  return formatStringRef;
+}
+
 static std::string demangleFunction(StringRef functionName) {
   int status = 0;
   std::unique_ptr<char, void (*)(void *)> res{
@@ -89,12 +102,14 @@ public:
 
   bool runOnModule(Module &M) override {
     // Get the results from the ReturnRange pass.
+    sdLog::blankLine();
+    sdLog::stream() << "P7b. Started running the SDReturnAddress pass ..." << sdLog::newLine << "\n";
+
     CHA = &getAnalysis<SDBuildCHA>();
     ReturnRange = &getAnalysis<SDReturnRange>();
     StaticFunctions = ReturnRange->getStaticFunctions();
-
-    sdLog::blankLine();
-    sdLog::stream() << "P7b. Started running the SDReturnAddress pass ..." << sdLog::newLine << "\n";
+    functionID = CHA->getMaxID() + 1;
+    sdLog::log() << "start id for static functions: " << functionID << "\n";
 
     std::set<StringRef> FunctionsMarkedStatic;
     std::set<StringRef> FunctionsMarkedVirtual;
@@ -156,9 +171,10 @@ public:
                     FunctionsMarkedNoReturn,
                     FunctionsMarkedBlackListed);
 
+    storeFunctionIDMap(M);
+
     sdLog::stream() << sdLog::newLine << "P7b. Finished running the SDReturnAddress pass ..." << "\n";
     sdLog::blankLine();
-
 
     return NumberOfTotalChecks > 0;
   }
@@ -231,10 +247,13 @@ public:
   };
 
 private:
-  const StringSet<> *StaticFunctions;
   SDBuildCHA *CHA;
   SDReturnRange *ReturnRange;
   std::set<std::string> GlobalsCreated;
+
+  const StringSet<> *StaticFunctions;
+  std::map<std::string, uint64_t> FunctionIDMap;
+  uint64_t functionID;
 
   int processFunction(Function &F, ProcessingInfo &Info) {
     if (isBlackListedFunction(F)) {
@@ -280,7 +299,10 @@ private:
   }
 
   int processStaticFunction(Function &F, ProcessingInfo &Info) {
-    int NumberOfChecks = generateReturnChecks(F, F.getName());
+    FunctionIDMap[F.getName()] = functionID;
+    int NumberOfChecks = generateCmpChecks(F, functionID);
+    functionID++;
+
     Info.insert(Static);
     if (NumberOfChecks == 0)
       Info.insert(NoReturn);
@@ -355,6 +377,49 @@ private:
     return count;
   }
 
+  int generateCmpChecks(Function &F, uint64_t ID) {
+    int count = 0;
+    for (auto &B : F) {
+      for (auto &I : B) {
+        if (!isa<ReturnInst>(I))
+          continue;
+
+        Module *module = F.getParent();
+        IRBuilder<> builder(&I);
+
+        //Create returnAddr intrinsic call
+        Function *retAddrIntrinsic = Intrinsic::getDeclaration(
+                F.getParent(), Intrinsic::returnaddress);
+        ConstantInt *zero = builder.getInt32(0);
+        ConstantInt *offset = builder.getInt32(3);
+        ConstantInt *offset2 = builder.getInt32(3 + 7);
+        ConstantInt *bitPattern = builder.getInt32(0x7FFFF);
+
+        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
+        auto int32PtrTy = Type::getInt32PtrTy(F.getParent()->getContext());
+
+        auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
+
+        auto minPtr = builder.CreateGEP(retAddrCall, offset);
+        auto min32Ptr = builder.CreatePointerCast(minPtr, int32PtrTy);
+        auto min = builder.CreateLoad(min32Ptr);
+        auto minFixed = builder.CreateAnd(min, bitPattern);
+
+        //Create printf call
+        ConstantInt *IDValue = builder.getInt32(ID);
+        auto check = builder.CreateICmpEQ(IDValue, minFixed);
+
+        auto printfPrototype = createPrintfPrototype(module);
+        auto printfFormatString = createPrintfFormatString3(F.getName(), builder);
+        ArrayRef<Value *> args = {printfFormatString, IDValue, minFixed, check};
+        auto Call = builder.CreateCall(printfPrototype, args);
+        count++;
+
+      }
+    }
+    return count;
+  }
+
   int generateReturnChecks(Function &F, Twine CheckName) {
     int count = 0;
     for (auto &B : F) {
@@ -416,6 +481,30 @@ private:
     GlobalsCreated.insert(name.str());
     sdLog::stream() << "\tCreated global: " << name.str() << "\n";
     return newGlobal;
+  }
+
+  void storeFunctionIDMap(Module &M) {
+    sdLog::stream() << "Store all function IDs for module: " << M.getName() << "\n";
+    std::ofstream Outfile("./_SD_FunctionIDMap.txt");
+
+    for (auto &mapEntry : FunctionIDMap) {
+      Outfile << mapEntry.first << "," << mapEntry.second << "\n";
+    }
+
+    Outfile.close();
+
+    int number = 0;
+    auto outName = "./_SD_FunctionIDMap" + std::to_string(number);
+    std::ifstream infile(outName);
+    while(infile.good()) {
+      number++;
+      outName = "./_SD__SD_FunctionIDMap" + std::to_string(number);
+      infile = std::ifstream(outName);
+    }
+
+    std::ifstream  src("./_SD_CallSites.txt", std::ios::binary);
+    std::ofstream  dst(outName, std::ios::binary);
+    dst << src.rdbuf();
   }
 };
 

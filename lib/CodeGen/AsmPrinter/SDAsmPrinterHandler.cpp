@@ -16,22 +16,5 @@ SDAsmPrinterHandler::SDAsmPrinterHandler(AsmPrinter *A):
 SDAsmPrinterHandler::~SDAsmPrinterHandler() {}
 
 bool SDAsmPrinterHandler::emitGlobalVariableInitializer(const GlobalVariable *GV) {
-  if (!GV->getName().startswith("_SD_RANGE"))
-    return false;
-
-  MCSymbol *Label = SDMachineFunction::getLabelForGlobal(GV->getName());
-
-  if (Label == nullptr) {
-    sdLog::log()  << GV->getName() << ": no Label found!\n";
-    return false;
-  }
-
-  //TODO MATT: Fix offset by calculating CallInst size (?)
-  const MCExpr *LabelExpr = MCSymbolRefExpr::Create(Label, Asm->OutContext);
-  Type *InitializerType = GV->getInitializer()->getType();
-  uint64_t Size = GV->getParent()->getDataLayout().getTypeAllocSize(InitializerType);
-
-  Asm->OutStreamer->EmitValue(LabelExpr, Size);
-  sdLog::log() << GV->getName() << ": initializer is " << *Label << "\n";
-  return true;
+  return false;
 }

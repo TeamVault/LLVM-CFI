@@ -209,6 +209,12 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
   }
 
   std::vector<SDBuildCHA::range_t> ranges = CHA->getFunctionRange(FunctionName, ClassName);
+
+  if (ranges.empty()) {
+    sdLog::errs() << "Call for " << FunctionName << " (" << ClassName << "," << PreciseName << ") has no range!?\n";
+    return;
+  }
+
   sdLog::log() << ranges[0].first << "-" << ranges[0].second << "\n";
 
   // write DebugLoc to map (is written to file in storeCallSites)

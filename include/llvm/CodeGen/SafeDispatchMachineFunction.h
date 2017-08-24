@@ -44,6 +44,7 @@ public:
     loadCallSiteData();
     loadStaticCallSiteData();
     loadCallHierarchyData();
+    loadStaticFunctionIDData();
   }
 
   virtual ~SDMachineFunction() {
@@ -77,11 +78,10 @@ public:
             sdLog::log() << "Machine CallInst: @" << debugLocString
                          << ": " << className  << "\n";
 
-            //create label
-            std::stringstream ss;
-            ss << "SD_LABEL_" << count++;
-            auto name = ss.str();
-            MCSymbol *symbol = MF.getContext().GetOrCreateSymbol(name);
+            if (CallSiteRange.find(debugLocString) == CallSiteRange.end()) {
+              sdLog::errs() << debugLocString << " has not Range!";
+              continue;
+            }
 
             auto range = CallSiteRange[debugLocString];
             errs() << "range: " << range.first << "-" << range.second << "\n";
@@ -94,15 +94,6 @@ public:
             MI.getNextNode()->operands_begin()[3].setImm(range.first | 0x80000);
             MI.getNextNode()->dump();
 
-            BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
-                    .addSym(symbol);
-            //BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(X86::NOOPL)).addImm(range.first);
-
-            // insert MI into the vectors for the base class and all of its subclasses!
-            for (auto &SubClass : ClassHierarchies[className]) {
-              insert(SubClass, MI, MF, symbol);
-            }
-            sdLog::log() << "\n";
             continue;
           }
 
@@ -113,38 +104,18 @@ public:
             sdLog::log() << "Machine CallInst in " << MF.getName() << "@" << debugLocString
                             << " is static caller for: " << FunctionName << "\n";
 
-            auto globalMin = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + FunctionName + "_min");
-            if (globalMin == nullptr) {
-              sdLog::log() << "No global found...\n";
+            if (FunctionIDMap.find(FunctionName) == FunctionIDMap.end()) {
+              sdLog::errs() << FunctionName << " has not ID!";
               continue;
             }
 
-            //create label
-            std::stringstream ss;
-            ss << "SD_LABEL_" << count++;
-            auto name = ss.str();
-            MCSymbol *Label = MF.getContext().GetOrCreateSymbol(name);
-            BuildMI(MBB, MI.getNextNode(), MI.getDebugLoc(), TII->get(TargetOpcode::EH_LABEL))
-                    .addSym(Label);
+            auto ID = FunctionIDMap[FunctionName];
+            errs() << "id: " << ID << "\n";
 
+            //TII->insertNoop(MBB, MI.getNextNode());
+            //MI.getNextNode()->operands_begin()[3].setImm(ID | 0x80000);
+            //MI.getNextNode()->dump();
 
-            if (RangeBounds.find(FunctionName) == RangeBounds.end()) {
-              globalMin->setConstant(true);
-              RangeBounds[FunctionName].first = debugLocToString(MI.getDebugLoc());
-              Labels["_SD_RANGE_" + FunctionName + "_min"] = Label;
-              sdLog::log() << "min: " << "_SD_RANGE_" << FunctionName << "_min" << "\n";
-            }
-
-            auto globalMax = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + FunctionName + "_max");
-            if (globalMax == nullptr) {
-              sdLog::warn() << "No global: "<< "_SD_RANGE_" << FunctionName << "_max" << "\n";
-              continue;
-            }
-            globalMax->setConstant(true);
-            RangeBounds[FunctionName].second = debugLocToString(MI.getDebugLoc());
-            Labels["_SD_RANGE_" + FunctionName + "_max"] = Label;
-            sdLog::log() << "max: " << "_SD_RANGE_" << FunctionName << "_max" << "\n";
-            sdLog::log() << "\n";
             continue;
           }
           sdLog::log() << "Unknown call (" << debugLocString << ") for " << MF.getName() << "!\n";
@@ -227,6 +198,22 @@ public:
     }
   }
 
+  void loadStaticFunctionIDData() {
+    //TODO MATT: delete file
+    std::ifstream InputFile("./_SD_FunctionIDMap.txt");
+    std::string InputLine;
+    std::string FunctionName, IDString;
+
+    while (std::getline(InputFile, InputLine)) {
+      std::stringstream LineStream(InputLine);
+
+      std::getline(LineStream, FunctionName, ',');
+      LineStream >> IDString;
+      int ID = std::stoi(IDString);
+      FunctionIDMap[FunctionName] = ID;
+    }
+  }
+
   void loadCallHierarchyData() {
     //TODO MATT: delete file
     std::ifstream InputFile("./_SD_ClassHierarchy.txt");
@@ -254,6 +241,7 @@ private:
   std::map <std::string, std::string> CallSiteDebugLoc;
   std::map <std::string, std::pair<int, int>> CallSiteRange;
   std::map <std::string, std::string> CallSiteDebugLocStatic;
+  std::map <std::string, int> FunctionIDMap;
   std::map <std::string, std::vector<std::string>> ClassHierarchies;
 
   std::map <std::string, std::vector<MachineInstr *>> CallSiteMap;

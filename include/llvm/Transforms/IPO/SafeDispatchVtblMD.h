@@ -322,8 +322,10 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
       if (kind == clang::VTableComponent::CK_FunctionPointer ||
           kind == clang::VTableComponent::CK_UnusedFunctionPointer) {
         const clang::CXXMethodDecl *MD = component.getFunctionDecl();
-        std::string functionName = sd_getFunctionName(ABI, MD);
-        functions.insert(std::pair<std::string, uint64_t>(sd_getFunctionName(ABI, MD), end - start));
+        if (!clang::isa<clang::CXXConstructorDecl>(MD) && !clang::isa<clang::CXXDestructorDecl>(MD)) {
+          std::string functionName = sd_getFunctionName(ABI, MD);
+          functions.insert(std::pair<std::string, uint64_t>(sd_getFunctionName(ABI, MD), end - start));
+        }
       }
 
       if (kind == clang::VTableComponent::CK_FunctionPointer ||

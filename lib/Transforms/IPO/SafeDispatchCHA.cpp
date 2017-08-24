@@ -415,7 +415,7 @@ void SDBuildCHA::topoSortHelper(vtbl_name_t node, std::deque<vtbl_name_t> &order
 }
 
 void SDBuildCHA::buildFunctionInfo() {
-  uint64_t currentID = 1;
+  currentID = 1;
   std::deque<vtbl_name_t> topologicalOrder = topoSort();
 
   std::vector<FunctionEntry> functionImpls;
@@ -429,7 +429,7 @@ void SDBuildCHA::buildFunctionInfo() {
         int directOverride = 0;
         for (auto & parent : parentMap[className][0]) {
           if (ind < vTableFunctionMap[parent].size()) {
-            sdLog::log() << "\t is direct override of" << parent.first << "\n";
+            sdLog::log() << "\t is direct override of" << parent.first << ", " << parent.second << "@" << ind << "\n";
             directOverride++;
           }
         }
@@ -455,12 +455,8 @@ void SDBuildCHA::buildFunctionInfo() {
                         << totalOverrides << " times!\n";
         }
 
-        if (totalOverrides == 0) {
-          functionImpls.push_back(function);
-          functionImplMap[function.functionName].push_back(function);
-        } else {
-          functionImplMap[function.functionName] = entriesForFunction;
-        }
+        functionImpls.push_back(function);
+        functionImplMap[function.functionName] = entriesForFunction;
       }
 
       ind++;
@@ -472,7 +468,7 @@ void SDBuildCHA::buildFunctionInfo() {
 
     if (functionMap.find(funcAndClass) == functionMap.end()) {
       sdLog::log() << "New base function: " << function << "\n";
-      buildFunctionInfoForFunction(function, currentID);
+      buildFunctionInfoForFunction(function);
     }
   }
 
@@ -501,7 +497,7 @@ void SDBuildCHA::buildFunctionInfo() {
   }
 }
 
-SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &function, uint64_t &currentID) {
+SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &function) {
   sdLog::log() << "Function : " << function;
 
   // functionMap
@@ -526,7 +522,7 @@ SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &func
       }
     }
     assert(childFunction && "Child vtable does not copy function from parent!");
-    range_t subRange = buildFunctionInfoForFunction(*childFunction, currentID);
+    range_t subRange = buildFunctionInfoForFunction(*childFunction);
 
     assert(result.second + 1 == subRange.first && "Range is not consistent!");
     result.second = subRange.second;

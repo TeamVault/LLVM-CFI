@@ -108,6 +108,7 @@ namespace llvm {
     function_impl_map_t functionImplMap;
     function_range_map_t functionRangeMap;
     function_id_map_t functionIDMap;
+    uint64_t  currentID;
     
     /**
      * These functions and variables used to deal with duplication
@@ -179,7 +180,7 @@ namespace llvm {
      */
     std::vector<nmd_t> static extractMetadata(NamedMDNode* md);
 
-    range_t buildFunctionInfoForFunction(FunctionEntry &function, uint64_t &currentID);
+    range_t buildFunctionInfoForFunction(FunctionEntry &function);
 
     void topoSortHelper(vtbl_name_t node, std::deque<vtbl_name_t> &ordered,
                         std::set<vtbl_name_t> &visited, std::set<vtbl_name_t> &tempMarked);
@@ -187,6 +188,7 @@ namespace llvm {
   public:
     SDBuildCHA() : ModulePass(ID) {
       std::cerr << "\nCreating SDBuildCHA pass!\n";
+      currentID = -1;
       initializeSDBuildCHAPass(*PassRegistry::getPassRegistry());
     }
 
@@ -457,6 +459,11 @@ namespace llvm {
           result.push_back(entryID->second);
       }
       return result;
+    }
+
+    uint64_t getMaxID() {
+      assert(currentID != -1 && "buildFunctionInfo was not executed first!");
+      return currentID;
     }
 
   };

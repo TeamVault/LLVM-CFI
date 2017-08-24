@@ -44,7 +44,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<SDBuildCHA>(); //  depends on CHA pass
-    AU.setPreservesAll();
+    AU.addPreserved<SDBuildCHA>();
   }
 
   const StringSet<> *getStaticFunctions() {
