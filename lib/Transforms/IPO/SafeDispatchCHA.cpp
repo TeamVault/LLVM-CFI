@@ -434,9 +434,7 @@ void SDBuildCHA::buildFunctionInfo() {
           }
         }
 
-        if (directOverride > 0) {
-          entriesForFunction.push_back(function);
-        }
+        entriesForFunction.push_back(function);
 
         int indirectOverride = 0;
         for (int64_t i = 1; i < subObjNameMap[className].size(); i++) {

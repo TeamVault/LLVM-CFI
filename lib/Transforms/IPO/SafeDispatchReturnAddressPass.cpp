@@ -273,10 +273,14 @@ private:
   }
 
   bool isBlackListedFunction(const Function &F) {
-    return F.getName().startswith("__")
+    if (F.getName().startswith("__")
            || F.getName().startswith("llvm.")
            || F.getName() == "_Znwm"
-           || F.getName() == "main";
+           || F.getName() == "main"
+           || F.getName().startswith("_GLOBAL_")) {
+      return true;
+    }
+    return false;
   }
 
   bool isPotentialStaticFunction(const Function &F, ProcessingInfo Info) const {
@@ -301,6 +305,11 @@ private:
   int processStaticFunction(Function &F, ProcessingInfo &Info) {
     FunctionIDMap[F.getName()] = functionID;
     int NumberOfChecks = generateCmpChecks(F, functionID);
+
+    sdLog::log() << "Function (static): " << F.getName()
+                 << " gets ID: " << functionID
+                 << " (Checks: " << NumberOfChecks << ")\n";
+
     functionID++;
 
     Info.insert(Static);
@@ -317,7 +326,6 @@ private:
     int NumberOfChecks = generateReturnChecks2(F, IDs);
 
     sdLog::log() << "Function (virtual): " << F.getName()
-                 << " in class "
                  << " (Checks: " << NumberOfChecks << ")\n";
 
     Info.insert(Virtual);

@@ -32,8 +32,7 @@ public:
   static char ID; // Pass identification, replacement for typeid
 
   SDMachineFunction() : MachineFunctionPass(ID),
-                        CallSiteDebugLoc(),
-                        CallSiteMap() {
+                        CallSiteDebugLoc() {
     sdLog::stream() << "initializing SDMachineFunction pass\n";
     initializeSDMachineFunctionPass(*PassRegistry::getPassRegistry());
 
@@ -41,9 +40,10 @@ public:
     //std::string stopper;
     //std::cin >> stopper;
 
+    unknownID = 0xFFFFF;
+
     loadCallSiteData();
     loadStaticCallSiteData();
-    loadCallHierarchyData();
     loadStaticFunctionIDData();
   }
 
@@ -112,13 +112,18 @@ public:
             auto ID = FunctionIDMap[FunctionName];
             errs() << "id: " << ID << "\n";
 
-            //TII->insertNoop(MBB, MI.getNextNode());
-            //MI.getNextNode()->operands_begin()[3].setImm(ID | 0x80000);
-            //MI.getNextNode()->dump();
+            TII->insertNoop(MBB, MI.getNextNode());
+            MI.getNextNode()->operands_begin()[3].setImm(ID | 0x80000);
+            MI.getNextNode()->dump();
 
             continue;
           }
-          sdLog::log() << "Unknown call (" << debugLocString << ") for " << MF.getName() << "!\n";
+
+          TII->insertNoop(MBB, MI.getNextNode());
+          MI.getNextNode()->operands_begin()[3].setImm(unknownID);
+          MI.getNextNode()->dump();
+
+          sdLog::log() << "Unknown call (" << debugLocString << "," << MI << ") in " << MF.getName() << " gets ID " << unknownID << "!\n";
         }
       }
     }
@@ -126,37 +131,6 @@ public:
     sdLog::log() << "Finished SDMachineFunction pass: "<< MF.getName() << "\n";
 
     return true;
-  }
-
-  void insert(std::string className, MachineInstr &MI, MachineFunction &MF, MCSymbol *Label) {
-    sdLog::log() << "Call is valid for class: " << className << "\n";
-    CallSiteMap[className].push_back(&MI);
-
-    if (RangeBounds.find(className) == RangeBounds.end()) {
-
-      auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_min");
-      if (global == nullptr) {
-        sdLog::warn() << "No global: "<< "_SD_RANGE_" << className << "_min" << "\n";
-        return;
-      }
-      global->setConstant(true);
-
-      RangeBounds[className].first = debugLocToString(MI.getDebugLoc());
-      Labels["_SD_RANGE_" + className + "_min"] = Label;
-      sdLog::log() << "min: " << "_SD_RANGE_" << className << "_min" << "\n";
-
-    }
-
-    auto global = MF.getMMI().getModule()->getGlobalVariable("_SD_RANGE_" + className + "_max");
-    if (global == nullptr) {
-      sdLog::warn() << "No global: "<< "_SD_RANGE_" << className << "_max" << "\n";
-      return;
-    }
-    global->setConstant(true);
-
-    RangeBounds[className].second = debugLocToString(MI.getDebugLoc());
-    Labels["_SD_RANGE_" + className + "_max"] = Label;
-    sdLog::log() << "max: " << "_SD_RANGE_" << className << "_max" << "\n";
   }
 
   void loadCallSiteData() {
@@ -214,43 +188,16 @@ public:
     }
   }
 
-  void loadCallHierarchyData() {
-    //TODO MATT: delete file
-    std::ifstream InputFile("./_SD_ClassHierarchy.txt");
-    std::string Input;
-    std::string BaseClass;
-
-    while (std::getline(InputFile, Input)) {
-      std::stringstream LineStream(Input);
-
-      std::getline(LineStream, BaseClass, ',');
-      std::vector <std::string> SubClasses;
-      while (std::getline(LineStream, Input, ',')) {
-        SubClasses.push_back(Input);
-      }
-
-      ClassHierarchies[BaseClass] = SubClasses;
-    }
-  }
-
-  static MCSymbol *getLabelForGlobal(Twine globalName) {
-    return Labels[globalName.str()];
-  }
-
 private:
   std::map <std::string, std::string> CallSiteDebugLoc;
   std::map <std::string, std::pair<int, int>> CallSiteRange;
   std::map <std::string, std::string> CallSiteDebugLocStatic;
   std::map <std::string, int> FunctionIDMap;
-  std::map <std::string, std::vector<std::string>> ClassHierarchies;
-
-  std::map <std::string, std::vector<MachineInstr *>> CallSiteMap;
-  static std::map <std::string, std::pair<std::string, std::string>> RangeBounds;
-  static std::map<std::string, MCSymbol *> Labels;
 
   static std::string debugLocToString(const DebugLoc &Log);
 
   static int count;
+  uint64_t unknownID;
 };
 }
 
