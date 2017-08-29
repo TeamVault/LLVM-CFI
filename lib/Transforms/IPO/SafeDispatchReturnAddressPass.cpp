@@ -9,9 +9,9 @@
 #include "llvm/Transforms/IPO/SafeDispatchMD.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
-#include <cxxabi.h>
 #include <llvm/IR/DebugInfoMetadata.h>
 #include <fstream>
+#include <llvm/IR/MDBuilder.h>
 
 namespace llvm {
 /**
@@ -32,60 +32,18 @@ static Function *createPrintfPrototype(Module *module) {
   return cast<Function>(module->getOrInsertFunction("printf", printf_type));
 }
 
-static Constant *createPrintfFormatString(std::string funcName, IRBuilder<> &builder) {
-  GlobalVariable *formatStr = builder.CreateGlobalString(
-          funcName + " retAddr: %p, min: %p, max: %p -> %d\n", "SafeDispatchPrintfFormatStr");
-
-  // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
+static void createPrintCall(std::string FormatString, std::vector<Value*> Args, IRBuilder<> &builder, Module* M) {
+  GlobalVariable *formatStrGV = builder.CreateGlobalString(FormatString, "SafeDispatchFormatStr");
   ConstantInt *zero = builder.getInt32(0);
-  Constant *indices[] = {zero, zero};
-  Constant *formatStringRef = ConstantExpr::getGetElementPtr(
-          nullptr, formatStr, indices, true);
+  ArrayRef<Value*> indices({zero, zero});
+  Value *formatStringRef = builder.CreateGEP(nullptr, formatStrGV, indices);
 
-  return formatStringRef;
+  Args.insert(Args.begin(), formatStringRef);
+  ArrayRef<Value*> ArgsRef = ArrayRef<Value*>(Args);
+
+  Function *PrintProto = createPrintfPrototype(M);
+  builder.CreateCall(PrintProto, ArgsRef);
 }
-
-static Constant *createPrintfFormatString2(std::string funcName, IRBuilder<> &builder) {
-  GlobalVariable *formatStr = builder.CreateGlobalString(
-          funcName + " virtual ID %d (%d, %d) -> %d\n", "SafeDispatchPrintfFormatStr");
-
-  // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
-  ConstantInt *zero = builder.getInt32(0);
-  Constant *indices[] = {zero, zero};
-  Constant *formatStringRef = ConstantExpr::getGetElementPtr(
-          nullptr, formatStr, indices, true);
-
-  return formatStringRef;
-}
-
-static Constant *createPrintfFormatString3(std::string funcName, IRBuilder<> &builder) {
-  GlobalVariable *formatStr = builder.CreateGlobalString(
-          funcName + " static ID %d (%d) -> %d\n", "SafeDispatchPrintfFormatStr");
-
-  // Source: https://stackoverflow.com/questions/28168815/adding-a-function-call-in-my-ir-code-in-llvm
-  ConstantInt *zero = builder.getInt32(0);
-  Constant *indices[] = {zero, zero};
-  Constant *formatStringRef = ConstantExpr::getGetElementPtr(
-          nullptr, formatStr, indices, true);
-
-  return formatStringRef;
-}
-
-static std::string demangleFunction(StringRef functionName) {
-  int status = 0;
-  std::unique_ptr<char, void (*)(void *)> res{
-          abi::__cxa_demangle(functionName.str().c_str(), NULL, NULL, &status),
-          std::free
-  };
-  if (status != 0)
-    return "";
-
-  StringRef demangledName = res.get();
-  auto index = demangledName.rfind("::");
-  auto className = demangledName.substr(0, index);
-  return className;
-}
-
 
 class SDReturnAddress : public ModulePass {
 public:
@@ -280,6 +238,19 @@ private:
            || F.getName().startswith("_GLOBAL_")) {
       return true;
     }
+
+    if (F.getName().startswith("_Z")) {
+      if (F.getName().startswith("_ZThn")) {
+        return true;
+      }
+
+      for (auto &Token : itaniumConstructorTokens) {
+        if (F.getName().endswith(Token)) {
+          return true;
+        }
+      }
+    }
+
     return false;
   }
 
@@ -336,159 +307,160 @@ private:
   }
 
   int generateReturnChecks2(Function &F, std::vector<uint64_t> IDs) {
-    int count = 0;
+    std::vector<Instruction *> Returns;
     for (auto &B : F) {
       for (auto &I : B) {
-        if (!isa<ReturnInst>(I))
-          continue;
-
-        Module *module = F.getParent();
-        IRBuilder<> builder(&I);
-
-        //Create returnAddr intrinsic call
-        Function *retAddrIntrinsic = Intrinsic::getDeclaration(
-                F.getParent(), Intrinsic::returnaddress);
-        ConstantInt *zero = builder.getInt32(0);
-        ConstantInt *offset = builder.getInt32(3);
-        ConstantInt *offset2 = builder.getInt32(3 + 7);
-        ConstantInt *bitPattern = builder.getInt32(0x7FFFF);
-
-        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
-        auto int32PtrTy = Type::getInt32PtrTy(F.getParent()->getContext());
-
-        auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
-
-        auto minPtr = builder.CreateGEP(retAddrCall, offset);
-        auto min32Ptr = builder.CreatePointerCast(minPtr, int32PtrTy);
-        auto min = builder.CreateLoad(min32Ptr);
-        auto minFixed = builder.CreateAnd(min, bitPattern);
-
-        auto widthPtr = builder.CreateGEP(retAddrCall, offset2);
-        auto width32Ptr = builder.CreatePointerCast(widthPtr, int32PtrTy);
-        auto width = builder.CreateLoad(width32Ptr);
-        auto widthFixed = builder.CreateAnd(width, bitPattern);
-
-        for (auto &ID : IDs) {
-          //Create printf call
-          ConstantInt *IDValue = builder.getInt32(ID);
-          auto diff = builder.CreateSub(IDValue, minFixed);
-          auto check = builder.CreateICmpULE(diff, widthFixed);
-
-          auto printfPrototype = createPrintfPrototype(module);
-          auto printfFormatString = createPrintfFormatString2(F.getName(), builder);
-          ArrayRef<Value *> args = {printfFormatString, IDValue, minFixed, widthFixed, check};
-          auto Call = builder.CreateCall(printfPrototype, args);
-          count++;
+        if (isa<ReturnInst>(I)) {
+          Returns.push_back(&I);
         }
+      }
+    }
+
+    int count = 0;
+    for (auto RI : Returns) {
+      Module *M = F.getParent();
+      IRBuilder<> builder(RI);
+
+      //Create returnAddr intrinsic call
+      Function *retAddrIntrinsic = Intrinsic::getDeclaration(
+              F.getParent(), Intrinsic::returnaddress);
+      ConstantInt *zero = builder.getInt32(0);
+      ConstantInt *offset = builder.getInt32(3);
+      ConstantInt *offset2 = builder.getInt32(3 + 7);
+      ConstantInt *bitPattern = builder.getInt32(0x7FFFF);
+
+      auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
+      auto int32PtrTy = Type::getInt32PtrTy(F.getParent()->getContext());
+
+      auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
+
+      auto minPtr = builder.CreateGEP(retAddrCall, offset);
+      auto min32Ptr = builder.CreatePointerCast(minPtr, int32PtrTy);
+      auto min = builder.CreateLoad(min32Ptr);
+      auto minFixed = builder.CreateAnd(min, bitPattern);
+
+      auto widthPtr = builder.CreateGEP(retAddrCall, offset2);
+      auto width32Ptr = builder.CreatePointerCast(widthPtr, int32PtrTy);
+      auto width = builder.CreateLoad(width32Ptr);
+      auto widthFixed = builder.CreateAnd(width, bitPattern);
+
+      if (IDs.size() != 1) {
+        sdLog::warn() << F.getName() << "has " << IDs.size() << " IDs!\n";
+      }
+
+      for (auto &ID : IDs) {
+        //Create printf call
+        ConstantInt *IDValue = builder.getInt32(ID);
+        auto diff = builder.CreateSub(IDValue, minFixed);
+        auto check = builder.CreateICmpULE(diff, widthFixed);
+
+        MDBuilder MDB(F.getContext());
+
+        TerminatorInst *Success, *Fail;
+        SplitBlockAndInsertIfThenElse(check,
+                                      RI,
+                                      &Success,
+                                      &Fail,
+                                      MDB.createBranchWeights(
+                                              std::numeric_limits<uint32_t>::max(),
+                                              std::numeric_limits<uint32_t>::min()));
+
+
+
+        /*
+          BI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(
+                std::numeric_limits<uint32_t>::max(),
+                std::numeric_limits<uint32_t>::min()));
+        */
+
+        std::string formatStringSuccess = "'";
+        std::vector<Value *> argsSuccess;
+        std::string formatStringFail = F.getName().str() + " virtual ID %d (%d, %d) -> %d\n";
+        std::vector<Value *> argsFail = {IDValue, minFixed, widthFixed, check};
+
+        builder.SetInsertPoint(Success);
+        createPrintCall(formatStringSuccess, argsSuccess, builder, M);
+
+        builder.SetInsertPoint(Fail);
+        createPrintCall(formatStringFail, argsFail, builder, M);
+        count++;
       }
     }
     return count;
   }
 
   int generateCmpChecks(Function &F, uint64_t ID) {
-    int count = 0;
+    std::vector<Instruction *> Returns;
     for (auto &B : F) {
       for (auto &I : B) {
-        if (!isa<ReturnInst>(I))
-          continue;
-
-        Module *module = F.getParent();
-        IRBuilder<> builder(&I);
-
-        //Create returnAddr intrinsic call
-        Function *retAddrIntrinsic = Intrinsic::getDeclaration(
-                F.getParent(), Intrinsic::returnaddress);
-        ConstantInt *zero = builder.getInt32(0);
-        ConstantInt *offset = builder.getInt32(3);
-        ConstantInt *offset2 = builder.getInt32(3 + 7);
-        ConstantInt *bitPattern = builder.getInt32(0x7FFFF);
-
-        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
-        auto int32PtrTy = Type::getInt32PtrTy(F.getParent()->getContext());
-
-        auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
-
-        auto minPtr = builder.CreateGEP(retAddrCall, offset);
-        auto min32Ptr = builder.CreatePointerCast(minPtr, int32PtrTy);
-        auto min = builder.CreateLoad(min32Ptr);
-        auto minFixed = builder.CreateAnd(min, bitPattern);
-
-        //Create printf call
-        ConstantInt *IDValue = builder.getInt32(ID);
-        auto check = builder.CreateICmpEQ(IDValue, minFixed);
-
-        auto printfPrototype = createPrintfPrototype(module);
-        auto printfFormatString = createPrintfFormatString3(F.getName(), builder);
-        ArrayRef<Value *> args = {printfFormatString, IDValue, minFixed, check};
-        auto Call = builder.CreateCall(printfPrototype, args);
-        count++;
-
+        if (isa<ReturnInst>(I)) {
+          Returns.push_back(&I);
+        }
       }
     }
-    return count;
-  }
 
-  int generateReturnChecks(Function &F, Twine CheckName) {
     int count = 0;
-    for (auto &B : F) {
-      for (auto &I : B) {
-        if (!isa<ReturnInst>(I))
-          continue;
+    for (auto RI : Returns) {
+      errs() << "generate static check\n";
+      Module *M = F.getParent();
+      IRBuilder<> builder(RI);
+      BasicBlock *BB = RI->getParent();
 
-        Module *module = F.getParent();
-        IRBuilder<> builder(&I);
+      //Create returnAddr intrinsic call
+      Function *retAddrIntrinsic = Intrinsic::getDeclaration(
+              F.getParent(), Intrinsic::returnaddress);
+      ConstantInt *zero = builder.getInt32(0);
+      ConstantInt *offset = builder.getInt32(3);
+      ConstantInt *offset2 = builder.getInt32(3 + 7);
+      ConstantInt *bitPattern = builder.getInt32(0x7FFFF);
 
-        //Create returnAddr intrinsic call
-        Function *retAddrIntrinsic = Intrinsic::getDeclaration(
-                F.getParent(), Intrinsic::returnaddress);
-        ConstantInt *zero = builder.getInt32(0);
+      auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
+      auto int32PtrTy = Type::getInt32PtrTy(F.getParent()->getContext());
 
-        auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
+      auto retAddrCall = builder.CreateCall(retAddrIntrinsic, zero);
 
-        auto int64Ty = Type::getInt64Ty(F.getParent()->getContext());
-        auto retAddr = builder.CreatePtrToInt(retAddrCall, int64Ty);
+      auto minPtr = builder.CreateGEP(retAddrCall, offset);
+      auto min32Ptr = builder.CreatePointerCast(minPtr, int32PtrTy);
+      auto min = builder.CreateLoad(min32Ptr);
+      auto minFixed = builder.CreateAnd(min, bitPattern);
 
-        auto globalMin = getOrCreateGlobal(F.getParent(), CheckName + "_min");
-        auto minPtr = builder.CreateLoad(globalMin);
-        auto min = builder.CreatePtrToInt(minPtr, int64Ty);
+      //Create printf call
+      ConstantInt *IDValue = builder.getInt32(ID);
+      auto check = builder.CreateICmpEQ(IDValue, minFixed);
 
-        auto globalMax = getOrCreateGlobal(F.getParent(), CheckName + "_max");
-        auto maxPtr = builder.CreateLoad(globalMax);
-        auto max = builder.CreatePtrToInt(maxPtr, int64Ty);
 
-        auto diff = builder.CreateSub(retAddr, min);
-        auto width = builder.CreateSub(max, min);
-        auto check = builder.CreateICmpULE(diff, width);
+      MDBuilder MDB(F.getContext());
 
-        //Create printf call
-        auto printfPrototype = createPrintfPrototype(module);
-        auto printfFormatString = createPrintfFormatString(F.getName(), builder);
-        ArrayRef < Value * > args = {printfFormatString, retAddr, min, max, check};
-        //auto Call = builder.CreateCall(printfPrototype, args);
-        count++;
-      }
+      TerminatorInst *Success, *Fail;
+      SplitBlockAndInsertIfThenElse(check,
+                                    RI,
+                                    &Success,
+                                    &Fail,
+                                    MDB.createBranchWeights(
+                                            std::numeric_limits<uint32_t>::max(),
+                                            std::numeric_limits<uint32_t>::min()));
+
+
+
+      /*
+        BI->setMetadata(LLVMContext::MD_prof, MDB.createBranchWeights(
+              std::numeric_limits<uint32_t>::max(),
+              std::numeric_limits<uint32_t>::min()));
+      */
+
+      std::string formatStringSuccess = ".";
+      std::vector<Value *> argsSuccess;
+      std::string formatStringFail = F.getName().str() + " static ID %d (got %d from %p) -> %d\n";
+      std::vector<Value *> argsFail = {IDValue, minFixed, retAddrCall, check};
+
+      builder.SetInsertPoint(Success);
+      createPrintCall(formatStringSuccess, argsSuccess, builder, M);
+
+      builder.SetInsertPoint(Fail);
+      createPrintCall(formatStringFail, argsFail, builder, M);
+      count++;
     }
     return count;
-  }
-
-
-  GlobalVariable *getOrCreateGlobal(Module *M, Twine suffix) {
-    auto name = "_SD_RANGE_" + suffix;
-    auto global = M->getGlobalVariable(name.str());
-    if (global != nullptr) {
-      if (GlobalsCreated.find(name.str()) == GlobalsCreated.end())
-        sdLog::warn() << "Used global not created by this pass: " << name.str() << "\n";
-      return global;
-    }
-
-    PointerType *labelType = llvm::Type::getInt8PtrTy(M->getContext());
-    auto newGlobal = new GlobalVariable(*M, labelType, false, GlobalVariable::ExternalLinkage, nullptr, name);
-    auto nullPointer = ConstantPointerNull::get(labelType);
-    newGlobal->setInitializer(nullPointer);
-
-    GlobalsCreated.insert(name.str());
-    sdLog::stream() << "\tCreated global: " << name.str() << "\n";
-    return newGlobal;
   }
 
   void storeFunctionIDMap(Module &M) {
