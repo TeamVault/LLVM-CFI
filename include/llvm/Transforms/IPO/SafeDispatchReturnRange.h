@@ -75,6 +75,8 @@ private:
   /// information about static calls.
   StringSet<> CalledFunctions;
 
+  std::set<CallSite> VirtualCallsites;
+
   std::map<std::string, std::string> MangledClassName;
 
   uint64_t pseudoDebugLoc;
@@ -85,9 +87,9 @@ private:
   void locateStaticCallSites(Module &M);
 
   /// Extract the callSite information from @param CheckedVptrCall and add the CallSite to CallSiteDebugLocs.
-  void addCallSite(const CallInst *CheckedVptrCall, CallInst *CallSite, Module &M);
+  void addCallSite(const CallInst *CheckedVptrCall, CallSite CallSite, Module &M);
 
-  void addStaticCallSite(CallInst *CallSite, Module &M);
+  void addStaticCallSite(CallSite CallSite, Module &M);
 
   /// Write the subclass hierarchy of @param RootClassName to ClassHierarchies if not previously done so.
   void emitSubclassHierarchyIfNeeded(StringRef RootClassName);

@@ -530,6 +530,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (OptLevel > 1)
     addLTOOptimizationPasses(PM);
 
+  //EmitReturnChecks = true;
   //Paul: emit interleaved or ordered v tables
   if (EmitIVTBLs || EmitOVTBLs || EmitReturnChecks) {
     // Lets get the sd passes out of the way

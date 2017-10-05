@@ -27,9 +27,6 @@ char SDReturnRange::ID = 0;
 INITIALIZE_PASS(SDReturnRange,
 "sdRetRange", "Build return ranges", false, false)
 
-const std::string SDReturnRange::VTABLE_DEMANGLE_PREFIX = "vtable for ";
-const std::string SDReturnRange::CONSTRUCTION_VTABLE_DEMANGLE_PREFIX = "construction vtable for ";
-
 ModulePass *llvm::createSDReturnRangePass() {
   return new SDReturnRange();
 }
@@ -84,6 +81,7 @@ void SDReturnRange::locateCallSites(Module &M) {
     return;
   }
 
+  int count = 0;
   for (const Use &U : IntrinsicFunction->uses()) {
 
     // get the intrinsic call instruction
@@ -103,45 +101,61 @@ void SDReturnRange::locateCallSites(Module &M) {
       }
     }
 
-    if (CallInst *CallSite = dyn_cast<CallInst>(User)) {
+    CallSite CallSite(User);
+    if (CallSite.getInstruction()) {
       // valid CallSite
       addCallSite(IntrinsicCall, CallSite, M);
     } else {
       sdLog::warn() << "CallSite for intrinsic was not found.\n";
       IntrinsicCall->getParent()->dump();
     }
-
+    ++count;
     sdLog::log() << "\n";
   }
+  sdLog::stream() << count << " virtual function Callsites\n";
 }
 
 static bool isRelevantStaticFunction(const Function &F) {
-  return !(F.getName().startswith("__")
-           || F.getName().startswith("llvm.")
+  return !(F.getName().startswith("llvm.")
            || F.getName() == "_Znwm"
-           || F.getName().startswith("_GLOBAL_")
   );
-
 }
 
 void SDReturnRange::locateStaticCallSites(Module &M) {
+  int totalDirect = 0;
+  int totalIndirect = 0;
+
+  int countDirect = 0;
+  int countIndirect = 0;
+
   for (auto &F : M) {
     for(auto &MBB : F) {
       for (auto &I : MBB) {
-        if (auto *Call = dyn_cast<CallInst>(&I)) {
-          if (Function *F = Call->getCalledFunction()) {
-            if (isRelevantStaticFunction(*F)){
+        CallSite Call(&I);
+        if (Call.getInstruction()) {
+          if (Function *Callee = Call.getCalledFunction()) {
+            if (isRelevantStaticFunction(*Callee)){
               addStaticCallSite(Call, M);
+              ++countDirect;
             }
+          } else if (CallSite(Call).isIndirectCall() && VirtualCallsites.find(Call) == VirtualCallsites.end()) {
+            addStaticCallSite(Call, M);
+            ++countIndirect;
           }
         }
       }
     }
+    sdLog::stream() << F.getName() << "(direct: " << countDirect << ", indirect:"<< countIndirect << ")...\n";
+    totalDirect += countDirect;
+    totalIndirect += countIndirect;
+    countDirect = countIndirect = 0;
   }
+  sdLog::stream() << totalDirect << " direct static Callsites\n";
+  sdLog::stream() << totalIndirect << " indirect static Callsites\n";
 }
 
-void SDReturnRange::addStaticCallSite(CallInst *CallSite, Module &M) {
-  const DebugLoc &Loc = CallSite->getDebugLoc();
+void SDReturnRange::addStaticCallSite(CallSite CallSite, Module &M) {
+  const DebugLoc &Loc = CallSite.getInstruction()->getDebugLoc();
   if (!Loc) {
     // Minor hack: We generate our own DebugLoc using a dummy MDSubprogram.
     // pseudoDebugLoc is the unique ID for this CallSite.
@@ -157,21 +171,26 @@ void SDReturnRange::addStaticCallSite(CallInst *CallSite, Module &M) {
 
   // write DebugLoc to map (is written to file in storeCallSites)
   auto *Scope = cast<MDScope>(Loc.getScope());
-  std::string FunctionName = CallSite->getCalledFunction()->getName().str();
+  std::string FunctionName = "__UNDEFINED__";
+  if (CallSite.getCalledFunction()) {
+    FunctionName = CallSite.getCalledFunction()->getName().str();
+    CalledFunctions.insert(FunctionName);
+  } else if (CallSite.isTailCall()) {
+    FunctionName = "__TAIL__";
+  }
+
   std::stringstream Stream;
   Stream << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
          << "," << FunctionName;
 
   CallSiteDebugLocsStatic.push_back(Stream.str());
-  CalledFunctions.insert(FunctionName);
 
   sdLog::log() << "CallSite " << CallSite->getParent()->getParent()->getName()
                   << " @" << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
                   << " for callee " << FunctionName << "\n";
-
 }
 
-void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallSite, Module &M) {
+void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallSite CallSite, Module &M) {
   // get ClassName metadata
   MetadataAsValue *Arg2 = dyn_cast<MetadataAsValue>(CheckedVptrCall->getArgOperand(1));
   assert(Arg2);
@@ -197,7 +216,7 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
   const StringRef PreciseName = sd_getClassNameFromMD(PreciseNameNode);
   const StringRef FunctionName = sd_getFunctionNameFromMD(FunctionNameNode);
 
-  const DebugLoc &Loc = CallSite->getDebugLoc();
+  const DebugLoc &Loc = CallSite.getInstruction()->getDebugLoc();
   if (!Loc) {
     // Minor hack: We generate our own DebugLoc using a dummy MDSubprogram.
     // pseudoDebugLoc is the unique ID for this CallSite.
@@ -208,7 +227,7 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
     MDLocation *Location = MDLocation::getDistinct(C, pseudoDebugLoc / 65536, pseudoDebugLoc % 65536, DummyProgram);
     ++pseudoDebugLoc;
     DebugLoc newLoc(Location);
-    CallSite->setDebugLoc(Location);
+    CallSite.getInstruction()->setDebugLoc(Location);
   }
 
   std::vector<SDBuildCHA::range_t> ranges = CHA->getFunctionRange(FunctionName, ClassName);
@@ -228,6 +247,7 @@ void SDReturnRange::addCallSite(const CallInst *CheckedVptrCall, CallInst *CallS
          << "," << ranges[0].first << "," << ranges[0].second;
 
   CallSiteDebugLocs.push_back(Stream.str());
+  VirtualCallsites.insert(CallSite);
 
   sdLog::log() << "CallSite @" << Scope->getFilename().str() << ":" << Loc.getLine() << ":" << Loc.getCol()
                   << " for class " << ClassName << "(" << PreciseName << ")::" << FunctionName << "\n";

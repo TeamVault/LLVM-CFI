@@ -39,8 +39,11 @@ public:
     //TODO MATT: STOPPER FOR DEBUG
     //std::string stopper;
     //std::cin >> stopper;
+    //errs() << stopper;
 
     unknownID = 0xFFFFF;
+    indirectID = 0xFEFEF;
+    tailID = 0xFEFEF;
 
     loadCallSiteData();
     loadStaticCallSiteData();
@@ -48,6 +51,15 @@ public:
   }
 
   virtual ~SDMachineFunction() {
+    uint64_t sum;
+    if (!rangeWidths.empty()) {
+      for (int i : rangeWidths) {
+        sum += i;
+      }
+      double avg = double(sum) / rangeWidths.size();
+      sdLog::stream() << "AVG RANGE: " << avg << "\n";
+      sdLog::stream() << "TOTAL RANGES: " << rangeWidths.size() << "\n";
+    }
     sdLog::stream() << "deleting SDMachineFunction pass\n";
   }
 
@@ -84,16 +96,11 @@ public:
             }
 
             auto range = CallSiteRange[debugLocString];
-            errs() << "range: " << range.first << "-" << range.second << "\n";
-
+            rangeWidths.push_back(range.second - range.first);
             TII->insertNoop(MBB, MI.getNextNode());
             MI.getNextNode()->operands_begin()[3].setImm((range.second - range.first) | 0x80000);
-            MI.getNextNode()->dump();
-
             TII->insertNoop(MBB, MI.getNextNode());
             MI.getNextNode()->operands_begin()[3].setImm(range.first | 0x80000);
-            MI.getNextNode()->dump();
-
             continue;
           }
 
@@ -104,26 +111,37 @@ public:
             sdLog::log() << "Machine CallInst in " << MF.getName() << "@" << debugLocString
                             << " is static caller for: " << FunctionName << "\n";
 
+            if (FunctionName == "__UNDEFINED__") {
+              TII->insertNoop(MBB, MI.getNextNode());
+              MI.getNextNode()->operands_begin()[3].setImm(indirectID);
+              continue;
+            }
+
+            if (FunctionName == "__TAIL__") {
+              TII->insertNoop(MBB, MI.getNextNode());
+              MI.getNextNode()->operands_begin()[3].setImm(tailID);
+              continue;
+            }
+
             if (FunctionIDMap.find(FunctionName) == FunctionIDMap.end()) {
               sdLog::errs() << FunctionName << " has not ID!";
               continue;
             }
 
             auto ID = FunctionIDMap[FunctionName];
-            errs() << "id: " << ID << "\n";
 
             TII->insertNoop(MBB, MI.getNextNode());
             MI.getNextNode()->operands_begin()[3].setImm(ID | 0x80000);
-            MI.getNextNode()->dump();
-
             continue;
           }
 
-          TII->insertNoop(MBB, MI.getNextNode());
-          MI.getNextNode()->operands_begin()[3].setImm(unknownID);
-          MI.getNextNode()->dump();
+          if (MI.getNumOperands() > 0 && !MI.getOperand(0).isGlobal()) {
+            TII->insertNoop(MBB, MI.getNextNode());
+            MI.getNextNode()->operands_begin()[3].setImm(unknownID);
 
-          sdLog::log() << "Unknown call (" << debugLocString << "," << MI << ") in " << MF.getName() << " gets ID " << unknownID << "!\n";
+            sdLog::warn() << "Unknown call in " << MF.getName() << " (" << debugLocString << "," << MI << ")" << " gets ID "
+                          << unknownID << "!\n";
+          }
         }
       }
     }
@@ -195,9 +213,11 @@ private:
   std::map <std::string, int> FunctionIDMap;
 
   static std::string debugLocToString(const DebugLoc &Log);
-
+  std::vector<int> rangeWidths;
   static int count;
   uint64_t unknownID;
+  uint64_t indirectID;
+  uint64_t tailID;
 };
 }
 
