@@ -1,23 +1,23 @@
 #include "llvm/ADT/StringSet.h"
+#include <llvm/IR/DebugInfoMetadata.h>
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
+#include <llvm/IR/MDBuilder.h>
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 #include "llvm/Transforms/IPO/SafeDispatchReturnRange.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
-#include <llvm/IR/DebugInfoMetadata.h>
 #include <fstream>
-#include <llvm/IR/MDBuilder.h>
 
-namespace llvm {
+using namespace llvm;
 /**
  * Pass for inserting the return address intrinsic
  */
 
-static const std::string itaniumDestructorTokens[] = {"D0Ev", "D1Ev", "D2Ev"};
+//static const std::string itaniumDestructorTokens[] = {"D0Ev", "D1Ev", "D2Ev"};
 static const std::string itaniumConstructorTokens[] = {"C0Ev", "C1Ev", "C2Ev"};
 
 static Function *createPrintfPrototype(Module *module) {
@@ -65,9 +65,9 @@ public:
     // get analysis results
     CHA = &getAnalysis<SDBuildCHA>();
     ReturnRange = &getAnalysis<SDReturnRange>();
-    StaticFunctions = ReturnRange->getStaticFunctions();
+    StaticFunctions = ReturnRange->getStaticCallees();
     functionID = CHA->getMaxID() + 1;
-    sdLog::log() << "start id for static functions: " << functionID << "\n";
+    sdLog::log() << "start ID for static functions: " << functionID << "\n";
 
     // init statistics
     std::set<StringRef> FunctionsMarkedStatic;
@@ -153,7 +153,7 @@ public:
     sdLog::stream() << "Store statistics for module: " << M.getName() << "\n";
 
     int number = 0;
-    auto outName = "./SD_Stats" + std::to_string(number);
+    std::string outName = ((Twine)("./SD_Stats" + std::to_string(number))).str();
     std::ifstream infile(outName);
     while(infile.good()) {
       number++;
@@ -188,8 +188,8 @@ public:
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<SDBuildCHA>(); //  depends on SDBuildCHA pass (max virtual FunctionID)
-    AU.addRequired<SDReturnRange>(); //  depends on ReturnRange pass  (StaticFunctions with Caller)
+    AU.addRequired<SDBuildCHA>(); // depends on SDBuildCHA pass (max virtual FunctionID)
+    AU.addRequired<SDReturnRange>(); // depends on ReturnRange pass  (StaticFunctions with Caller)
     AU.setPreservesAll();
   }
 
@@ -216,7 +216,7 @@ private:
 
   const StringSet<> *StaticFunctions;
   std::map<std::string, uint64_t> FunctionIDMap;
-  uint64_t functionID;
+  uint64_t functionID{};
 
   int processFunction(Function &F, ProcessingInfo &Info) {
     if (isBlackListedFunction(F)) {
@@ -236,15 +236,11 @@ private:
   }
 
   bool isBlackListedFunction(const Function &F) {
-    if (F.getName().startswith("__")
+    return F.getName().startswith("__")
            || F.getName().startswith("llvm.")
            || F.getName() == "_Znwm"
            || F.getName() == "main"
-           || F.getName().startswith("_GLOBAL_")) {
-      return true;
-    }
-
-    return false;
+           || F.getName().startswith("_GLOBAL_");
   }
 
   bool isStaticFunction(const Function &F, ProcessingInfo Info) const {
@@ -370,7 +366,7 @@ private:
       }
 
       // Build first check
-      ConstantInt *IDValue = builder.getInt32(IDs[0]);
+      ConstantInt *IDValue = builder.getInt32(uint32_t(IDs[0]));
       auto diff = builder.CreateSub(IDValue, minID);
       auto check = builder.CreateICmpULE(diff, width);
 
@@ -393,7 +389,7 @@ private:
       for (int i = 1; i < IDs.size(); ++i) {
         // Build check
         builder.SetInsertPoint(CurrentBlock);
-        IDValue = builder.getInt32(IDs[i]);
+        IDValue = builder.getInt32(uint32_t(IDs[i]));
         diff = builder.CreateSub(IDValue, minID);
         check = builder.CreateICmpULE(diff, width);
 
@@ -486,7 +482,7 @@ private:
       auto minID = builder.CreateAnd(minMasked, bitMask);
 
       // Build ID compare check
-      ConstantInt *IDValue = builder.getInt32(ID);
+      ConstantInt *IDValue = builder.getInt32(uint32_t(ID));
       auto check = builder.CreateICmpEQ(IDValue, minID);
 
       // Branch to Success or Fail
@@ -587,7 +583,8 @@ private:
     Outfile.close();
 
     int number = 0;
-    auto outName = "./_SD_FunctionIDMap" + std::to_string(number);
+    std::string outName = ((Twine)("./_SD_FunctionIDMap" + std::to_string(number))).str();
+
     std::ifstream infile(outName);
     while(infile.good()) {
       number++;
@@ -605,8 +602,6 @@ char SDReturnAddress::ID = 0;
 
 INITIALIZE_PASS(SDReturnAddress, "sdRetAdd", "Insert return intrinsic.", false, false)
 
-llvm::ModulePass *llvm::createSDReturnAddressPass() {
+ModulePass *llvm::createSDReturnAddressPass() {
   return new SDReturnAddress();
-}
-
 }
