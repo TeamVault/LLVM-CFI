@@ -20,7 +20,6 @@
 namespace llvm {
 
 class ModulePass;
-class FunctionPass;
 class Pass;
 class Function;
 class BasicBlock;
