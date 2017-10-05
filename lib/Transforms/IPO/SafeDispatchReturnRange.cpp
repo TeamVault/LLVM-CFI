@@ -187,7 +187,7 @@ void SDReturnRange::addStaticCallSite(CallSite CallSite, Module &M) {
     FunctionName = "__TAIL__";
   } else {
     // Indirect Call
-    FunctionName = "__UNDEFINED__";
+    FunctionName = "__INDIRECT__";
   }
 
   // write DebugLoc to map

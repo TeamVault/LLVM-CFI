@@ -574,7 +574,7 @@ private:
 
   void storeFunctionIDMap(Module &M) {
     sdLog::stream() << "Store all function IDs for module: " << M.getName() << "\n";
-    std::ofstream Outfile("./_SD_FunctionIDMap.txt");
+    std::ofstream Outfile("./_SD_FunctionIDMap");
 
     for (auto &mapEntry : FunctionIDMap) {
       Outfile << mapEntry.first << "," << mapEntry.second << "\n";
@@ -583,12 +583,12 @@ private:
     Outfile.close();
 
     int number = 0;
-    std::string outName = ((Twine)("./_SD_FunctionIDMap" + std::to_string(number))).str();
+    std::string outName = ((Twine)("./_SD_FunctionIDMap-backup" + std::to_string(number))).str();
 
     std::ifstream infile(outName);
     while(infile.good()) {
       number++;
-      outName = "./_SD_FunctionIDMap" + std::to_string(number);
+      outName = "./_SD_FunctionIDMap-backup" + std::to_string(number);
       infile = std::ifstream(outName);
     }
 
