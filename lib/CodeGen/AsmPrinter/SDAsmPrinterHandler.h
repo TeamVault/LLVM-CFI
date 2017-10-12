@@ -21,28 +21,29 @@ class SDMachineFunction;
 /// Emits exception handling directives.
 class SDAsmPrinterHandler : public AsmPrinterHandler {
 protected:
-    /// Target of directive emission.
-    AsmPrinter *Asm;
+  /// Target of directive emission.
+  AsmPrinter *Asm;
 
-    /// Collected machine module information.
-    MachineModuleInfo *MMI;
-
-    /// SD Information.
-    SDMachineFunction *SDInfo;
+  /// Collected machine module information.
+  MachineModuleInfo *MMI;
 
 public:
-    SDAsmPrinterHandler(AsmPrinter *A);
-    ~SDAsmPrinterHandler() override;
+  SDAsmPrinterHandler(AsmPrinter *A);
 
-    // Unused.
-    void setSymbolSize(const MCSymbol *Sym, uint64_t Size) override {}
-    void beginInstruction(const MachineInstr *MI) override {}
-    void endInstruction() override {}
-    void beginFunction(const MachineFunction *MF) override {}
-    void endFunction(const MachineFunction *MF) override {}
-    void endModule() override {};
+  ~SDAsmPrinterHandler() override;
 
-    bool emitGlobalVariableInitializer(const GlobalVariable *GV) override;
+  // Unused.
+  void setSymbolSize(const MCSymbol *Sym, uint64_t Size) override {}
+
+  void beginInstruction(const MachineInstr *MI) override {}
+
+  void endInstruction() override {}
+
+  void beginFunction(const MachineFunction *MF) override {}
+
+  void endFunction(const MachineFunction *MF) override {}
+
+  void endModule() override {};
 };
 }
 

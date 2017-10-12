@@ -32,7 +32,7 @@ static Function *createPrintfPrototype(Module *module) {
   return cast<Function>(module->getOrInsertFunction("printf", printf_type));
 }
 
-static void createPrintCall(std::string FormatString, std::vector<Value*> Args, IRBuilder<> &builder, Module* M) {
+static void createPrintCall(const std::string &FormatString, std::vector<Value*> Args, IRBuilder<> &builder, Module* M) {
   GlobalVariable *formatStrGV = builder.CreateGlobalString(FormatString, "SafeDispatchFormatStr");
   ConstantInt *zero = builder.getInt32(0);
   ArrayRef<Value*> indices({zero, zero});
@@ -157,7 +157,7 @@ public:
     std::ifstream infile(outName);
     while(infile.good()) {
       number++;
-      outName = "./SD_Stats" + std::to_string(number);
+      outName = ((Twine)("./SD_Stats" + std::to_string(number))).str();
       infile = std::ifstream(outName);
     }
     std::ofstream Outfile(outName);
@@ -518,7 +518,7 @@ private:
       builder.SetInsertPoint(IsExternal);
       std::string formatStringOutOfSection = F.getName().str() + " external %p\n";
       std::vector<Value *> argsOutOfSection = {ReturnAddress};
-      createPrintCall(formatStringOutOfSection, argsOutOfSection, builder, M);
+      //createPrintCall(formatStringOutOfSection, argsOutOfSection, builder, M);
       builder.SetInsertPoint(IsNotExternal);
 
 
@@ -574,25 +574,25 @@ private:
 
   void storeFunctionIDMap(Module &M) {
     sdLog::stream() << "Store all function IDs for module: " << M.getName() << "\n";
-    std::ofstream Outfile("./_SD_FunctionIDMap");
+    std::ofstream Outfile("./SD_FunctionIDMap");
 
     for (auto &mapEntry : FunctionIDMap) {
       Outfile << mapEntry.first << "," << mapEntry.second << "\n";
     }
-
+    sdLog::stream() << "Stored Function IDs: " << FunctionIDMap.size() << "\n";
     Outfile.close();
 
     int number = 0;
-    std::string outName = ((Twine)("./_SD_FunctionIDMap-backup" + std::to_string(number))).str();
+    std::string outName = ((Twine)("./SD_FunctionIDMap-backup" + std::to_string(number))).str();
 
     std::ifstream infile(outName);
     while(infile.good()) {
       number++;
-      outName = "./_SD_FunctionIDMap-backup" + std::to_string(number);
+      outName = "./SD_FunctionIDMap-backup" + std::to_string(number);
       infile = std::ifstream(outName);
     }
 
-    std::ifstream src("./_SD_FunctionIDMap", std::ios::binary);
+    std::ifstream src("./SD_FunctionIDMap", std::ios::binary);
     std::ofstream dst(outName, std::ios::binary);
     dst << src.rdbuf();
   }

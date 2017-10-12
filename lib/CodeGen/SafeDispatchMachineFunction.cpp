@@ -55,7 +55,7 @@ bool SDMachineFunction::processVirtualCallSite(std::string &DebugLocString,
 
   auto range = CallSiteRange.find(DebugLocString);
   if (range == CallSiteRange.end()) {
-    sdLog::errs() << DebugLocString << " has not Range!";
+    sdLog::errs() << DebugLocString << " has not Range!\n";
     return false;
   }
   int64_t min = range->second.first;
@@ -104,7 +104,10 @@ bool SDMachineFunction::processStaticCallSite(std::string &DebugLocString,
 
   auto IDIterator = FunctionIDMap.find(FunctionName);
   if (IDIterator == FunctionIDMap.end()) {
-    sdLog::errs() << FunctionName << " has not ID!";
+    if (StringRef(FunctionName).startswith("__")) {
+      return false;
+    }
+    sdLog::errs() << FunctionName << " has no ID!\n";
     return false;
   }
 
@@ -121,13 +124,16 @@ bool SDMachineFunction::processUnknownCallSite(std::string &DebugLocString,
                                                MachineBasicBlock &MBB,
                                                const TargetInstrInfo *TII) {
   // Filter out std function and external function calls.
-  if (MI.getNumOperands() > 0 && !MI.getOperand(0).isGlobal()) {
+  if (MI.getNumOperands() > 0
+      && !MI.getOperand(0).isGlobal()
+      && !(MI.getOperand(0).getType() == MachineOperand::MO_ExternalSymbol)) {
     TII->insertNoop(MBB, MI.getNextNode());
     MI.getNextNode()->operands_begin()[3].setImm(unknownID);
 
-    sdLog::warn() << "Machine CallInst (@" << DebugLocString << ")"
-                 << " in " << MBB.getParent()->getName()
-                 << " is an unknown Caller! \n";
+    sdLog::warn() << "Machine CallInst (@" << DebugLocString << ") ";
+    MI.print(sdLog::warn(), false);
+    sdLog::warn() << " in " << MBB.getParent()->getName()
+                  << " is an unknown Caller! \n";
 
     ++NumberOfUnknown;
     return true;
@@ -146,12 +152,12 @@ std::string SDMachineFunction::debugLocToString(const DebugLoc &Loc) {
 
 void SDMachineFunction::loadVirtualCallSiteData() {
   //TODO MATT: delete file
-  std::ifstream InputFile("./_SD_CallSites");
+  std::ifstream InputFile("./SD_CallSitesVirtual");
   std::string InputLine;
   std::string DebugLoc, ClassName, PreciseName, FunctionName;
   std::string MinStr, MaxStr;
 
-
+  int count = 0;
   while (std::getline(InputFile, InputLine)) {
     std::stringstream LineStream(InputLine);
 
@@ -165,30 +171,36 @@ void SDMachineFunction::loadVirtualCallSiteData() {
     int max = std::stoi(MaxStr);
     CallSiteDebugLocVirtual[DebugLoc] = FunctionName;
     CallSiteRange[DebugLoc] = {min, max};
+    ++count;
   }
+  sdLog::stream() << "Loaded virtual CallSites: " << count << "\n";
 }
 
 void SDMachineFunction::loadStaticCallSiteData() {
   //TODO MATT: delete file
-  std::ifstream InputFile("./_SD_CallSitesStatic");
+  std::ifstream InputFile("./SD_CallSitesStatic");
   std::string InputLine;
   std::string DebugLoc, FunctionName;
 
+  int count = 0;
   while (std::getline(InputFile, InputLine)) {
     std::stringstream LineStream(InputLine);
 
     std::getline(LineStream, DebugLoc, ',');
     LineStream >> FunctionName;
     CallSiteDebugLocStatic[DebugLoc] = FunctionName;
+    ++count;
   }
+  sdLog::stream() << "Loaded static CallSites: " << count << "\n";
 }
 
 void SDMachineFunction::loadStaticFunctionIDData() {
   //TODO MATT: delete file
-  std::ifstream InputFile("./_SD_FunctionIDMap");
+  std::ifstream InputFile("./SD_FunctionIDMap");
   std::string InputLine;
   std::string FunctionName, IDString;
 
+  int count = 0;
   while (std::getline(InputFile, InputLine)) {
     std::stringstream LineStream(InputLine);
 
@@ -196,7 +208,10 @@ void SDMachineFunction::loadStaticFunctionIDData() {
     LineStream >> IDString;
     int ID = std::stoi(IDString);
     FunctionIDMap[FunctionName] = ID;
+    ++count;
   }
+
+  sdLog::stream() << "Loaded FunctionIDs: " << count << "\n";
 }
 
 void SDMachineFunction::analyse() {

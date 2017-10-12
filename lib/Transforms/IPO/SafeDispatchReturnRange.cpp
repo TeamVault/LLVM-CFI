@@ -53,7 +53,7 @@ static std::stringstream writeDebugLocToStream(const DebugLoc* Loc) {
 }
 
 static bool isBlackListed(const Function &F) {
-  return (F.getName().startswith("llvm.") || F.getName() == "_Znwm");
+  return (F.getName().startswith("llvm.") || F.getName().startswith("__")  || F.getName() == "_Znwm");
 }
 
 bool SDReturnRange::runOnModule(Module &M) {
@@ -85,6 +85,8 @@ void SDReturnRange::processVirtualCallSites(Module &M) {
     return;
   }
 
+  sdLog::stream() << "\n";
+  sdLog::stream() << "Processing virtual CallSites...\n";
   int count = 0;
   for (const Use &U : IntrinsicFunction->uses()) {
 
@@ -117,7 +119,8 @@ void SDReturnRange::processVirtualCallSites(Module &M) {
     ++count;
     sdLog::log() << "\n";
   }
-  sdLog::stream() << count << " virtual function Callsites.\n";
+  sdLog::stream() << "Found virtual CallSites: " << count << "\n";
+
 }
 
 void SDReturnRange::processStaticCallSites(Module &M) {
@@ -126,6 +129,8 @@ void SDReturnRange::processStaticCallSites(Module &M) {
   int countDirect = 0;
   int countIndirect = 0;
 
+  sdLog::stream() << "\n";
+  sdLog::stream() << "Processing static CallSites...\n";
   for (auto &F : M) {
     for(auto &MBB : F) {
       for (auto &I : MBB) {
@@ -144,34 +149,16 @@ void SDReturnRange::processStaticCallSites(Module &M) {
         }
       }
     }
-    sdLog::stream() << F.getName() << " (direct: " << countDirect << ", indirect:"<< countIndirect << ")...\n";
+    sdLog::stream() << F.getName() << " (direct: " << countDirect << ", indirect:"<< countIndirect << ")\n";
     totalDirect += countDirect;
     totalIndirect += countIndirect;
     countDirect = countIndirect = 0;
   }
 
   sdLog::stream() << "\n";
-  sdLog::stream() << totalDirect << " direct static Callsites.\n";
-  sdLog::stream() << totalIndirect << " indirect static Callsites.\n";
-}
-
-const DebugLoc* SDReturnRange::getOrCreateDebugLoc(CallSite CallSite, Module &M) {
-  const DebugLoc &Loc = CallSite.getInstruction()->getDebugLoc();
-  if (!Loc) {
-    // Minor hack: We generate our own DebugLoc using a dummy MDSubprogram.
-    // pseudoDebugLoc is the unique ID for this CallSite.
-    llvm::LLVMContext &C = M.getContext();
-    auto DummyProgram = MDSubprogram::getDistinct(C, nullptr, "", "", nullptr, 0,
-                                                  nullptr, false, false, 0, nullptr, 0, 0, 0,
-                                                  0);
-    MDLocation *Location = MDLocation::getDistinct(C,
-                                                   uint32_t(pseudoDebugLoc / 65536),
-                                                   uint32_t(pseudoDebugLoc % 65536), DummyProgram);
-    ++pseudoDebugLoc;
-    DebugLoc newLoc(Location);
-    CallSite.getInstruction()->setDebugLoc(Location);
-  }
-  return &Loc;
+  sdLog::stream() << "Found direct static CallSites: " << totalDirect << "\n";
+  sdLog::stream() << "Found indirect CallSites: " << totalIndirect << "\n";
+  sdLog::stream() << "\n";
 }
 
 void SDReturnRange::addStaticCallSite(CallSite CallSite, Module &M) {
@@ -251,11 +238,11 @@ void SDReturnRange::storeCallSites(Module &M) {
 
   // Find new backup number
   int number = 0;
-  auto outName = "./_SD_CallSitesVirtual-backup" + std::to_string(number);
+  auto outName = "./SD_CallSitesVirtual-backup" + std::to_string(number);
   std::ifstream infile(outName);
   while (infile.good()) {
     number++;
-    outName = "./_SD_CallSitesVirtual-backup" + std::to_string(number);
+    outName = "./SD_CallSitesVirtual-backup" + std::to_string(number);
     infile = std::ifstream(outName);
   }
 
@@ -264,6 +251,7 @@ void SDReturnRange::storeCallSites(Module &M) {
     std::ofstream Outfile("./SD_CallSitesVirtual");
     std::ostream_iterator<std::string> OutIterator(Outfile, "\n");
     std::copy(CallSiteDebugLocsVirtual.begin(), CallSiteDebugLocsVirtual.end(), OutIterator);
+    sdLog::stream() << "Stored virtual CallSites: " << CallSiteDebugLocsVirtual.size() << "\n";
     Outfile.close();
 
     // Write backup
@@ -277,14 +265,34 @@ void SDReturnRange::storeCallSites(Module &M) {
     std::ofstream Outfile("./SD_CallSitesStatic");
     std::ostream_iterator<std::string> OutIterator(Outfile, "\n");
     std::copy(CallSiteDebugLocsStatic.begin(), CallSiteDebugLocsStatic.end(), OutIterator);
+    sdLog::stream() << "Stored static CallSites: " << CallSiteDebugLocsStatic.size() << "\n";
     Outfile.close();
 
     // Write backup
-    outName = "./_SD_CallSitesStatic-backup" + std::to_string(number);
-    std::ifstream src2("./_SD_CallSitesStatic", std::ios::binary);
+    outName = "./SD_CallSitesStatic-backup" + std::to_string(number);
+    std::ifstream src2("./SD_CallSitesStatic", std::ios::binary);
     std::ofstream dst2(outName, std::ios::binary);
     dst2 << src2.rdbuf();
   }
+}
+
+const DebugLoc* SDReturnRange::getOrCreateDebugLoc(CallSite CallSite, Module &M) {
+  const DebugLoc &Loc = CallSite.getInstruction()->getDebugLoc();
+  if (!Loc) {
+    // Minor hack: We generate our own DebugLoc using a dummy MDSubprogram.
+    // pseudoDebugLoc is the unique ID for this CallSite.
+    llvm::LLVMContext &C = M.getContext();
+    auto DummyProgram = MDSubprogram::getDistinct(C, nullptr, "", "", nullptr, 0,
+                                                  nullptr, false, false, 0, nullptr, 0, 0, 0,
+                                                  0);
+    MDLocation *Location = MDLocation::getDistinct(C,
+                                                   uint32_t(pseudoDebugLoc / 65536),
+                                                   uint32_t(pseudoDebugLoc % 65536), DummyProgram);
+    ++pseudoDebugLoc;
+    DebugLoc newLoc(Location);
+    CallSite.getInstruction()->setDebugLoc(Location);
+  }
+  return &Loc;
 }
 
 char SDReturnRange::ID = 0;
