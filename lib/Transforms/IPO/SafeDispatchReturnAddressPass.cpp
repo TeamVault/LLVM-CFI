@@ -3,6 +3,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
 #include <llvm/IR/MDBuilder.h>
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
@@ -11,6 +12,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include <fstream>
+#include <llvm/IR/Type.h>
 
 using namespace llvm;
 /**
@@ -443,6 +445,60 @@ private:
     return count;
   }
 
+  static uint8_t encodeType(Type* T) {
+    switch (T->getTypeID()) {
+      case Type::TypeID::VoidTyID:
+        return 0;
+      case Type::TypeID::IntegerTyID: {
+        auto Bits = cast<IntegerType>(T)->getBitWidth();
+        if (Bits <= 1) {
+          return 1;
+        }
+        if (Bits <= 8) {
+          return 2;
+        }
+        if (Bits <= 16) {
+          return 3;
+        }
+        if (Bits <= 32) {
+          return 4;
+        }
+        return 5;
+      }
+      case Type::TypeID::HalfTyID:
+        return 6;
+      case Type::TypeID::FloatTyID:
+        return 7;
+      case Type::TypeID::DoubleTyID:
+        return 8;
+      case Type::TypeID::X86_FP80TyID:
+      case Type::TypeID::FP128TyID:
+      case Type::TypeID::PPC_FP128TyID:
+        return 9;
+      case Type::TypeID::PointerTyID:
+        return 10;
+      case Type::TypeID::StructTyID:
+        return 11;
+      case Type::TypeID::ArrayTyID:
+        return 12;
+      default:
+        return 14;
+    }
+    llvm_unreachable("Unknown TypeID?!");
+  }
+
+  static uint32_t encodeFunction(FunctionType* FuncTy) {
+    if (FuncTy->getNumParams() > 5) {
+      return 0x7FFFF;
+    }
+    uint32_t Result = encodeType(FuncTy->getReturnType());
+    for (auto *Param : FuncTy->params()) {
+      Result = encodeType(Param) + Result * 16;
+    }
+
+    return Result + 0x70000;
+  }
+
   int generateCompareChecks(Function &F, uint64_t ID) {
     // Collect all return statements (usually just a single one) first.
     // We need to do this first, because inserting checks invalidates the Instruction-Iterator.
@@ -524,7 +580,8 @@ private:
 
       if (F.hasAddressTaken()) {
         // Handle indirect call case
-        ConstantInt *indirectMagicNumber = builder.getInt32(0x7EFEF);
+        uint32_t FunctionTypeID = encodeFunction(F.getFunctionType());
+        ConstantInt *indirectMagicNumber = builder.getInt32(FunctionTypeID);
         auto checkIndirectCall = builder.CreateICmpEQ(minID, indirectMagicNumber);
         TerminatorInst *IsIndirectCall, *IsNotIndirectCall;
         SplitBlockAndInsertIfThenElse(checkIndirectCall,
@@ -532,12 +589,12 @@ private:
                                       &IsIndirectCall,
                                       &IsNotIndirectCall);
 
-        /*
+
         builder.SetInsertPoint(IsIndirectCall);
         std::string formatStringIndirect = F.getName().str() + " indirect call from %p\n";
         std::vector<Value *> argsIndirect = {ReturnAddress};
         createPrintCall(formatStringIndirect, argsIndirect, builder, M);
-         */
+
         builder.SetInsertPoint(IsNotIndirectCall);
 
         ConstantInt *unknownMagicNumber = builder.getInt32(0x7FFFF);

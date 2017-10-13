@@ -63,6 +63,9 @@ bool SDMachineFunction::processVirtualCallSite(std::string &DebugLocString,
 
 
   RangeWidths.push_back(width);
+  for (int64_t i = min; i <= range->second.second; ++i) {
+    IDCount[i]++;
+  }
   TII->insertNoop(MBB, MI.getNextNode());
   MI.getNextNode()->operands_begin()[3].setImm(width | 0x80000);
   TII->insertNoop(MBB, MI.getNextNode());
@@ -86,9 +89,18 @@ bool SDMachineFunction::processStaticCallSite(std::string &DebugLocString,
                << " in " << MBB.getParent()->getName()
                << " is static Caller for " << FunctionName << "\n";
 
-  if (FunctionName == "__INDIRECT__") {
+  if (StringRef(FunctionName).startswith("__INDIRECT__")) {
     TII->insertNoop(MBB, MI.getNextNode());
-    MI.getNextNode()->operands_begin()[3].setImm(indirectID);
+
+    auto Splits = StringRef(FunctionName).split("__INDIRECT__");
+    if (Splits.second.empty()) {
+      MI.getNextNode()->operands_begin()[3].setImm(indirectID);
+      IDCount[indirectID]++;
+    } else {
+      auto ID = std::stoul(Splits.second.str());
+      MI.getNextNode()->operands_begin()[3].setImm(ID);
+      IDCount[ID]++;
+    }
 
     ++NumberOfIndirect;
     return true;
@@ -97,7 +109,7 @@ bool SDMachineFunction::processStaticCallSite(std::string &DebugLocString,
   if (FunctionName == "__TAIL__") {
     TII->insertNoop(MBB, MI.getNextNode());
     MI.getNextNode()->operands_begin()[3].setImm(tailID);
-
+    IDCount[tailID]++;
     ++NumberOfTail;
     return true;
   }
@@ -114,7 +126,7 @@ bool SDMachineFunction::processStaticCallSite(std::string &DebugLocString,
   int64_t ID = IDIterator->second;
   TII->insertNoop(MBB, MI.getNextNode());
   MI.getNextNode()->operands_begin()[3].setImm(ID | 0x80000);
-
+  IDCount[ID]++;
   ++NumberOfStaticDirect;
   return true;
 }
@@ -129,7 +141,7 @@ bool SDMachineFunction::processUnknownCallSite(std::string &DebugLocString,
       && !(MI.getOperand(0).getType() == MachineOperand::MO_ExternalSymbol)) {
     TII->insertNoop(MBB, MI.getNextNode());
     MI.getNextNode()->operands_begin()[3].setImm(unknownID);
-
+    IDCount[unknownID]++;
     sdLog::warn() << "Machine CallInst (@" << DebugLocString << ") ";
     MI.print(sdLog::warn(), false);
     sdLog::warn() << " in " << MBB.getParent()->getName()
@@ -221,8 +233,22 @@ void SDMachineFunction::analyse() {
       sum += i;
     }
     double avg = double(sum) / RangeWidths.size();
-    sdLog::stream() << "AVG RANGE: " << avg << "\n";
+    sdLog::stream() << "AVG RANGE WIDTH: " << avg << "\n";
     sdLog::stream() << "TOTAL RANGES: " << RangeWidths.size() << "\n";
+  }
+
+  int number = 0;
+  std::string outName = ((Twine)("./SD_BackendStats" + std::to_string(number))).str();
+  std::ifstream infile(outName);
+  while(infile.good()) {
+    number++;
+    outName = ((Twine)("./SD_BackendStats" + std::to_string(number))).str();
+    infile = std::ifstream(outName);
+  }
+  std::ofstream Outfile(outName);
+  std::ostream_iterator <std::string> OutIterator(Outfile, "\n");
+  for (auto &entry : IDCount) {
+    Outfile << entry.first << "," << entry.second << "\n";
   }
 }
 

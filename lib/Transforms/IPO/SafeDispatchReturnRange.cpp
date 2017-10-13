@@ -56,6 +56,61 @@ static bool isBlackListed(const Function &F) {
   return (F.getName().startswith("llvm.") || F.getName().startswith("__")  || F.getName() == "_Znwm");
 }
 
+static uint8_t encodeType(Type* T) {
+  switch (T->getTypeID()) {
+    case Type::TypeID::VoidTyID:
+      return 0;
+
+    case Type::TypeID::IntegerTyID:
+      auto Bits = cast<IntegerType>(T)->getBitWidth();
+      if (Bits <= 1) {
+        return 1;
+      }
+      if (Bits <= 8) {
+        return 2;
+      }
+      if (Bits <= 16) {
+        return 3;
+      }
+      if (Bits <= 32) {
+        return 4;
+      }
+      return 5;
+
+    case Type::TypeID::HalfTyID:
+      return 6;
+    case Type::TypeID::FloatTyID:
+      return 7;
+    case Type::TypeID::DoubleTyID:
+      return 8;
+    case Type::TypeID::X86_FP80TyID:
+    case Type::TypeID::FP128TyID:
+    case Type::TypeID::PPC_FP128TyID:
+      return 9;
+    case Type::TypeID::PointerTyID:
+      return 10;
+    case Type::TypeID::StructTyID:
+      return 11;
+    case Type::TypeID::ArrayTyID:
+      return 12;
+    default:
+      return 14;
+  }
+  llvm_unreachable("Unknown TypeID?!");
+}
+
+static uint32_t encodeFunction(FunctionType* FuncTy) {
+  if (FuncTy->getNumParams() > 5) {
+    return 0x7FFFF;
+  }
+  uint32_t Result = encodeType(FuncTy->getReturnType());
+  for (auto *Param : FuncTy->params()) {
+    Result = encodeType(Param) + Result * 16;
+  }
+
+  return Result + 0x70000;
+}
+
 bool SDReturnRange::runOnModule(Module &M) {
   sdLog::blankLine();
   sdLog::stream() << "P7a. Started running the SDReturnRange pass ..." << sdLog::newLine << "\n";
@@ -100,6 +155,7 @@ void SDReturnRange::processVirtualCallSites(Module &M) {
       // User was not found, this should not happen...
       if (User == nullptr)
         break;
+      errs() << User << "\n";
 
       for (auto *NextUser : User->users()) {
         User = NextUser;
@@ -175,6 +231,13 @@ void SDReturnRange::addStaticCallSite(CallSite CallSite, Module &M) {
   } else {
     // Indirect Call
     FunctionName = "__INDIRECT__";
+    Type *Ty = CallSite.getCalledValue()->getType();
+    if (auto *PointerTy = dyn_cast<PointerType>(Ty)) {
+      if (auto *FuncTy = dyn_cast<FunctionType>(PointerTy->getElementType())) {
+        uint64_t FunctionTypeID = encodeFunction(FuncTy);
+        FunctionName = "__INDIRECT__" + std::to_string(FunctionTypeID);
+      }
+    }
   }
 
   // write DebugLoc to map

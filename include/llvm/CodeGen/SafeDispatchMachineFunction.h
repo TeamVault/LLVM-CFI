@@ -89,7 +89,6 @@ private:
 
   // Analysis
   std::vector<int64_t> RangeWidths;
-  std::map <std::pair<int64_t , int64_t>, int> RangeCount;
   std::map <int64_t, int> IDCount;
 
   int NumberOfVirtual;
