@@ -51,6 +51,24 @@ class SDReturnAddress : public ModulePass {
 public:
   static char ID;
 
+  enum ProcessingInfoFlags {
+    Static, Virtual, NoCaller, NoReturn, BlackListed
+  };
+
+  struct ProcessingInfo {
+    std::set<ProcessingInfoFlags> Flags;
+    std::set<uint64_t> IDs;
+    StringRef RangeName;
+
+    void insert(ProcessingInfoFlags Flag){
+      Flags.insert(Flag);
+    }
+
+    bool hasFlag(ProcessingInfoFlags Flag) {
+      return Flags.find(Flag) != Flags.end();
+    }
+  };
+
   SDReturnAddress() : ModulePass(ID) {
     sdLog::stream() << "initializing SDReturnAddress pass ...\n";
     initializeSDReturnAddressPass(*PassRegistry::getPassRegistry());
@@ -68,15 +86,18 @@ public:
     CHA = &getAnalysis<SDBuildCHA>();
     ReturnRange = &getAnalysis<SDReturnRange>();
     StaticFunctions = ReturnRange->getStaticCallees();
+    FunctionTypeIDMap = ReturnRange->getFunctionTypeIDMap();
+
     functionID = CHA->getMaxID() + 1;
-    sdLog::log() << "start ID for static functions: " << functionID << "\n";
+
+    sdLog::stream() << "Start ID for static functions: " << functionID << "\n";
 
     // init statistics
-    std::set<StringRef> FunctionsMarkedStatic;
-    std::set<StringRef> FunctionsMarkedVirtual;
-    std::set<StringRef> FunctionsMarkedNoCaller;
-    std::set<StringRef> FunctionsMarkedNoReturn;
-    std::set<StringRef> FunctionsMarkedBlackListed;
+    std::vector<ProcessingInfo> FunctionsMarkedStatic;
+    std::vector<ProcessingInfo> FunctionsMarkedVirtual;
+    std::vector<ProcessingInfo> FunctionsMarkedNoCaller;
+    std::vector<ProcessingInfo> FunctionsMarkedNoReturn;
+    std::vector<ProcessingInfo> FunctionsMarkedBlackListed;
 
     int NumberOfTotalChecks = 0;
 
@@ -91,20 +112,20 @@ public:
       for (auto &Entry : Info.Flags) {
         switch (Entry) {
           case Static:
-            FunctionsMarkedStatic.insert(Info.RangeName);
+            FunctionsMarkedStatic.push_back(Info);
             break;
           case Virtual:
-            FunctionsMarkedVirtual.insert(Info.RangeName);
+            FunctionsMarkedVirtual.push_back(Info);
             break;
           case NoCaller:
-            FunctionsMarkedNoCaller.insert(Info.RangeName);
+            FunctionsMarkedNoCaller.push_back(Info);
             break;
           case NoReturn:
-            FunctionsMarkedNoReturn.insert(Info.RangeName);
+            FunctionsMarkedNoReturn.push_back(Info);
             InfoValidatesNoChecks = true;
             break;
           case BlackListed:
-            FunctionsMarkedBlackListed.insert(Info.RangeName);
+            FunctionsMarkedBlackListed.push_back(Info);
             InfoValidatesNoChecks = true;
             break;
         }
@@ -146,11 +167,11 @@ public:
   }
 
   void storeStatistics(Module &M, int NumberOfTotalChecks,
-                       std::set<StringRef> &FunctionsMarkedStatic,
-                       std::set<StringRef> &FunctionsMarkedVirtual,
-                       std::set<StringRef> &FunctionsMarkedNoCaller,
-                       std::set<StringRef> &FunctionsMarkedNoReturn,
-                       std::set<StringRef> &FunctionsMarkedBlackListed) {
+                       std::vector<ProcessingInfo> &FunctionsMarkedStatic,
+                       std::vector<ProcessingInfo> &FunctionsMarkedVirtual,
+                       std::vector<ProcessingInfo> &FunctionsMarkedNoCaller,
+                       std::vector<ProcessingInfo> &FunctionsMarkedNoReturn,
+                       std::vector<ProcessingInfo> &FunctionsMarkedBlackListed) {
 
     sdLog::stream() << "Store statistics for module: " << M.getName() << "\n";
 
@@ -169,23 +190,53 @@ public:
     Outfile << "\n";
 
     Outfile << "### Static function checks: " << FunctionsMarkedStatic.size() << "\n";
-    std::copy(FunctionsMarkedStatic.begin(), FunctionsMarkedStatic.end(), OutIterator);
+    for (auto &Entry : FunctionsMarkedStatic) {
+      Outfile << Entry.RangeName.str();
+      for (auto &ID : Entry.IDs) {
+        Outfile << "," << std::to_string(ID);
+      }
+      Outfile << "\n";
+    }
     Outfile << "##\n";
 
     Outfile << "### Virtual function checks: " << FunctionsMarkedVirtual.size() << "\n";
-    std::copy(FunctionsMarkedVirtual.begin(), FunctionsMarkedVirtual.end(), OutIterator);
+    for (auto &Entry : FunctionsMarkedVirtual) {
+      Outfile << Entry.RangeName.str();
+      for (auto &ID : Entry.IDs) {
+        Outfile << "," << std::to_string(ID);
+      }
+      Outfile << "\n";
+    }
     Outfile << "##\n";
 
     Outfile << "### Blacklisted functions: " << FunctionsMarkedBlackListed.size() << "\n";
-    std::copy(FunctionsMarkedBlackListed.begin(), FunctionsMarkedBlackListed.end(), OutIterator);
+    for (auto &Entry : FunctionsMarkedBlackListed) {
+      Outfile << Entry.RangeName.str();
+      for (auto &ID : Entry.IDs) {
+        Outfile << "," << std::to_string(ID);
+      }
+      Outfile << "\n";
+    }
     Outfile << "##\n";
 
     Outfile << "### Without return: " << FunctionsMarkedNoReturn.size() << "\n";
-    std::copy(FunctionsMarkedNoReturn.begin(), FunctionsMarkedNoReturn.end(), OutIterator);
+    for (auto &Entry : FunctionsMarkedNoReturn) {
+      Outfile << Entry.RangeName.str();
+      for (auto &ID : Entry.IDs) {
+        Outfile << "," << std::to_string(ID);
+      }
+      Outfile << "\n";
+    }
     Outfile << "##\n";
 
     Outfile << "### Without caller: " << FunctionsMarkedNoCaller.size() << "\n";
-    std::copy(FunctionsMarkedNoCaller.begin(), FunctionsMarkedNoCaller.end(), OutIterator);
+    for (auto &Entry : FunctionsMarkedNoCaller) {
+      Outfile << Entry.RangeName.str();
+      for (auto &ID : Entry.IDs) {
+        Outfile << "," << std::to_string(ID);
+      }
+      Outfile << "\n";
+    }
     Outfile << "##\n";
   }
 
@@ -195,30 +246,15 @@ public:
     AU.setPreservesAll();
   }
 
-  enum ProcessingInfoFlags {
-    Static, Virtual, NoCaller, NoReturn, BlackListed
-  };
-
-  struct ProcessingInfo {
-    std::set<ProcessingInfoFlags> Flags;
-    StringRef RangeName;
-
-    void insert(ProcessingInfoFlags Flag){
-      Flags.insert(Flag);
-    }
-
-    bool hasFlag(ProcessingInfoFlags Flag) {
-      return Flags.find(Flag) != Flags.end();
-    }
-  };
-
 private:
   SDBuildCHA *CHA;
   SDReturnRange *ReturnRange;
 
   const StringSet<> *StaticFunctions;
+  const std::map<uint64_t, uint32_t> *FunctionTypeIDMap;
+
   std::map<std::string, uint64_t> FunctionIDMap;
-  uint64_t functionID{};
+  uint64_t functionID;
 
   int processFunction(Function &F, ProcessingInfo &Info) {
     if (isBlackListedFunction(F)) {
@@ -271,18 +307,20 @@ private:
 
   int processStaticFunction(Function &F, ProcessingInfo &Info) {
     FunctionIDMap[F.getName()] = functionID;
-    int NumberOfChecks = generateCompareChecks(F, functionID);
+    int NumberOfChecks = generateCompareChecks(F, functionID, Info);
 
     sdLog::log() << "Function (static): " << F.getName()
                  << " gets ID: " << functionID
                  << " (Checks: " << NumberOfChecks << ")\n";
 
-    functionID++;
-
     Info.insert(Static);
-    if (NumberOfChecks == 0)
+    if (NumberOfChecks == 0) {
       Info.insert(NoReturn);
+    } else {
+      Info.IDs.insert(functionID);
+    }
 
+    functionID++;
     return NumberOfChecks;
   }
 
@@ -305,19 +343,21 @@ private:
     std::vector<uint64_t> IDs = CHA->getFunctionID(functionNameString);
     assert(!IDs.empty() && "Unknown Virtual Function!");
     FunctionIDMap[F.getName()] = IDs[0];
-    int NumberOfChecks = generateRangeChecks(F, IDs);
+    int NumberOfChecks = generateRangeChecks(F, IDs, Info);
 
     sdLog::log() << "Function (virtual): " << F.getName()
                  << " (Checks: " << NumberOfChecks << ")\n";
 
     Info.insert(Virtual);
-    if (NumberOfChecks == 0)
+    if (NumberOfChecks == 0) {
       Info.insert(NoReturn);
-
+    } else {
+      Info.IDs.insert(IDs.begin(), IDs.end());
+    }
     return NumberOfChecks;
   }
 
-  int generateRangeChecks(Function &F, std::vector<uint64_t> IDs) {
+  int generateRangeChecks(Function &F, std::vector<uint64_t> IDs, ProcessingInfo &Info) {
     // Collect all return statements (usually just a single one) first.
     // We need to do this first, because inserting checks invalidates the Instruction-Iterator.
     std::vector<Instruction *> Returns;
@@ -402,26 +442,34 @@ private:
 
       // Handle external call case
       //TODO MATT: fix constant for external call
+      /*
       builder.SetInsertPoint(CurrentBlock);
       ConstantInt *memRange = builder.getInt64(0x2000000);
       auto returnAddressAsInt = builder.CreatePtrToInt(ReturnAddress, int64Ty);
       auto checkExternal = builder.CreateICmpUGT(returnAddressAsInt, memRange);
       CurrentBlock = BasicBlock::Create(F.getContext(), "", CurrentBlock->getParent());
       builder.CreateCondBr(checkExternal, SuccessBlock, CurrentBlock);
+      */
 
       if (F.hasAddressTaken()) {
         // Handle indirect call case
         builder.SetInsertPoint(CurrentBlock);
-        ConstantInt *indirectMagicNumber = builder.getInt32(0x7EFEF);
-        auto checkIndirectCall = builder.CreateICmpEQ(minID, indirectMagicNumber);
-        CurrentBlock = BasicBlock::Create(F.getContext(), "", CurrentBlock->getParent());
-        builder.CreateCondBr(checkIndirectCall, SuccessBlock, CurrentBlock);
-
+        uint32_t FunctionTypeID = encodeFunction(F.getFunctionType());
+        if (FunctionTypeID != 0) {
+          ConstantInt *indirectMagicNumber = builder.getInt32(FunctionTypeID);
+          auto checkIndirectCall = builder.CreateICmpEQ(minID, indirectMagicNumber);
+          CurrentBlock = BasicBlock::Create(F.getContext(), "", CurrentBlock->getParent());
+          builder.CreateCondBr(checkIndirectCall, SuccessBlock, CurrentBlock);
+          Info.IDs.insert(uint64_t(FunctionTypeID));
+        }
+        /*
         builder.SetInsertPoint(CurrentBlock);
         ConstantInt *unknownMagicNumber = builder.getInt32(0x7FFFF);
         auto checkUnknownCall = builder.CreateICmpEQ(minID, unknownMagicNumber);
         CurrentBlock = BasicBlock::Create(F.getContext(), "", CurrentBlock->getParent());
         builder.CreateCondBr(checkUnknownCall, SuccessBlock, CurrentBlock);
+        Info.IDs.insert(0x7FFFF);
+         */
       }
 
       // Build the success block
@@ -445,61 +493,83 @@ private:
     return count;
   }
 
-  static uint8_t encodeType(Type* T) {
+  static uint16_t encodeType(Type* T, bool recurse = true) {
+    uint16_t TypeEncoded;
     switch (T->getTypeID()) {
       case Type::TypeID::VoidTyID:
-        return 0;
+        TypeEncoded = 1;
+        break;
+
       case Type::TypeID::IntegerTyID: {
         auto Bits = cast<IntegerType>(T)->getBitWidth();
         if (Bits <= 1) {
-          return 1;
+          TypeEncoded = 2;
+        } else if (Bits <= 8) {
+          TypeEncoded = 3;
+        } else if (Bits <= 16) {
+          TypeEncoded = 4;
+        } else if (Bits <= 32) {
+          TypeEncoded = 5;
+        } else {
+          TypeEncoded = 6;
         }
-        if (Bits <= 8) {
-          return 2;
-        }
-        if (Bits <= 16) {
-          return 3;
-        }
-        if (Bits <= 32) {
-          return 4;
-        }
-        return 5;
       }
+        break;
+
       case Type::TypeID::HalfTyID:
-        return 6;
+        TypeEncoded = 7;
+        break;
       case Type::TypeID::FloatTyID:
-        return 7;
+        TypeEncoded = 8;
+        break;
       case Type::TypeID::DoubleTyID:
-        return 8;
+        TypeEncoded = 9;
+        break;
+
       case Type::TypeID::X86_FP80TyID:
       case Type::TypeID::FP128TyID:
       case Type::TypeID::PPC_FP128TyID:
-        return 9;
+        TypeEncoded = 10;
+        break;
+
       case Type::TypeID::PointerTyID:
-        return 10;
+        if (recurse) {
+          TypeEncoded = uint16_t(16) + encodeType(dyn_cast<PointerType>(T)->getElementType(), false);
+        } else {
+          TypeEncoded = 11;
+        }
+        break;
       case Type::TypeID::StructTyID:
-        return 11;
+        TypeEncoded = 12;
+        break;
       case Type::TypeID::ArrayTyID:
-        return 12;
+        TypeEncoded = 13;
+        break;
       default:
-        return 14;
+        TypeEncoded = 14;
+        break;
     }
-    llvm_unreachable("Unknown TypeID?!");
+    assert(TypeEncoded < 32);
+    return TypeEncoded;
   }
 
-  static uint32_t encodeFunction(FunctionType* FuncTy) {
-    if (FuncTy->getNumParams() > 5) {
-      return 0x7FFFF;
-    }
-    uint32_t Result = encodeType(FuncTy->getReturnType());
-    for (auto *Param : FuncTy->params()) {
-      Result = encodeType(Param) + Result * 16;
+  uint32_t encodeFunction(FunctionType* FuncTy) {
+    uint64_t Encoding = 31;
+    if (FuncTy->getNumParams() < 8) {
+      Encoding = encodeType(FuncTy->getReturnType());
+      for (auto *Param : FuncTy->params()) {
+        Encoding = encodeType(Param) + Encoding * 32;
+      }
     }
 
-    return Result + 0x70000;
+    auto Entry = FunctionTypeIDMap->find(Encoding);
+    if (Entry == FunctionTypeIDMap->end()) {
+      return 0;
+    }
+    return Entry->second;
   }
 
-  int generateCompareChecks(Function &F, uint64_t ID) {
+  int generateCompareChecks(Function &F, uint64_t ID, ProcessingInfo &Info) {
     // Collect all return statements (usually just a single one) first.
     // We need to do this first, because inserting checks invalidates the Instruction-Iterator.
     std::vector<Instruction *> Returns;
@@ -581,30 +651,33 @@ private:
       if (F.hasAddressTaken()) {
         // Handle indirect call case
         uint32_t FunctionTypeID = encodeFunction(F.getFunctionType());
-        ConstantInt *indirectMagicNumber = builder.getInt32(FunctionTypeID);
-        auto checkIndirectCall = builder.CreateICmpEQ(minID, indirectMagicNumber);
-        TerminatorInst *IsIndirectCall, *IsNotIndirectCall;
-        SplitBlockAndInsertIfThenElse(checkIndirectCall,
-                                      IsNotExternal,
-                                      &IsIndirectCall,
-                                      &IsNotIndirectCall);
+        if (FunctionTypeID != 0) {
+          ConstantInt *indirectMagicNumber = builder.getInt32(FunctionTypeID);
+          auto checkIndirectCall = builder.CreateICmpEQ(minID, indirectMagicNumber);
+          TerminatorInst *IsIndirectCall, *IsNotIndirectCall;
+          SplitBlockAndInsertIfThenElse(checkIndirectCall,
+                                        IsNotExternal,
+                                        &IsIndirectCall,
+                                        &IsNotIndirectCall);
+          Info.IDs.insert(uint64_t(FunctionTypeID));
 
 
-        builder.SetInsertPoint(IsIndirectCall);
-        std::string formatStringIndirect = F.getName().str() + " indirect call from %p\n";
-        std::vector<Value *> argsIndirect = {ReturnAddress};
-        createPrintCall(formatStringIndirect, argsIndirect, builder, M);
+          builder.SetInsertPoint(IsIndirectCall);
+          std::string formatStringIndirect = F.getName().str() + " indirect call from %p\n";
+          std::vector<Value *> argsIndirect = {ReturnAddress};
+          //createPrintCall(formatStringIndirect, argsIndirect, builder, M);
+          builder.SetInsertPoint(IsNotIndirectCall);
 
-        builder.SetInsertPoint(IsNotIndirectCall);
-
-        ConstantInt *unknownMagicNumber = builder.getInt32(0x7FFFF);
-        auto checkUnknownCall = builder.CreateICmpEQ(minID, unknownMagicNumber);
-        TerminatorInst *IsUnknown, *IsNotUnknown;
-        SplitBlockAndInsertIfThenElse(checkUnknownCall,
-                                      IsNotIndirectCall,
-                                      &IsUnknown,
-                                      &IsNotUnknown);
-        builder.SetInsertPoint(IsNotUnknown);
+          ConstantInt *unknownMagicNumber = builder.getInt32(0x7FFFF);
+          auto checkUnknownCall = builder.CreateICmpEQ(minID, unknownMagicNumber);
+          TerminatorInst *IsUnknown, *IsNotUnknown;
+          SplitBlockAndInsertIfThenElse(checkUnknownCall,
+                                        IsNotIndirectCall,
+                                        &IsUnknown,
+                                        &IsNotUnknown);
+          builder.SetInsertPoint(IsNotUnknown);
+          Info.IDs.insert(0x7FFFF);
+        }
       }
 
       /*

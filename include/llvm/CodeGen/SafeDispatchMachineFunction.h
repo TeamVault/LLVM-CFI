@@ -55,7 +55,7 @@ public:
 private:
   // Constants
   const int64_t unknownID = 0xFFFFF;
-  const int64_t indirectID = 0xFEFEF;
+  const int64_t indirectID = 0xFFFFF;
   const int64_t tailID = 0xFEFEF;
 
   // Data

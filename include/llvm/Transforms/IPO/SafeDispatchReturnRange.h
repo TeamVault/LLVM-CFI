@@ -35,6 +35,7 @@ public:
     sdLog::stream() << "initializing SDReturnRange pass\n";
     initializeSDReturnRangePass(*PassRegistry::getPassRegistry());
 
+    CurrentFunctionTypeID = 0x7FFFE;
     pseudoDebugLoc = 1;
   }
 
@@ -53,6 +54,10 @@ public:
     return &CalledFunctions;
   }
 
+  const std::map<uint64_t, uint32_t> *getFunctionTypeIDMap() {
+    return &FunctionTypeIDMap;
+  };
+
 private:
   SDBuildCHA *CHA;
 
@@ -67,6 +72,10 @@ private:
 
   /// Set of all virtual CallSites.
   std::set<CallSite> VirtualCallSites;
+
+  std::map<uint64_t, uint32_t> FunctionTypeIDMap;
+
+  uint32_t CurrentFunctionTypeID;
 
   /// Current ID for the DebugLoc hack.
   uint64_t pseudoDebugLoc;
@@ -88,6 +97,8 @@ private:
 
   /// Get or create a DebugLoc for CallSite (created by using pseudoDebugLoc).
   const DebugLoc* getOrCreateDebugLoc(CallSite CallSite, Module &M);
+
+  uint32_t encodeFunction(FunctionType* FuncTy);
 };
 
 }
