@@ -327,6 +327,8 @@ void initializeSDReturnAddressPass(PassRegistry&);
 //this pass is used to create the return address ranges
 void initializeSDReturnRangePass(PassRegistry&);
 
+void initializeSDAnalysisPass(PassRegistry&);
+
 
 void initializeSDMachineFunctionPass(PassRegistry&);
 }

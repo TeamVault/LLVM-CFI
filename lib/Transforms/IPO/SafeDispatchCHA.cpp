@@ -466,7 +466,7 @@ void SDBuildCHA::buildFunctionInfo() {
 
     if (functionMap.find(funcAndClass) == functionMap.end()) {
       sdLog::log() << "New base function: " << function << "\n";
-      buildFunctionInfoForFunction(function);
+      buildFunctionInfoForFunction(function, function.functionName);
     }
   }
 
@@ -495,7 +495,7 @@ void SDBuildCHA::buildFunctionInfo() {
   }
 }
 
-SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &function) {
+SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &function, std::string rootFunctionName) {
   sdLog::log() << "Function : " << function;
 
   // functionMap
@@ -504,6 +504,9 @@ SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &func
     sdLog::warn() << "\nFunction "<< function << " was encountered multiple times!\n";
   }
   functionMap[funcAndClass].push_back(function);
+
+  // analysis
+  functionParentMap[function.functionName] = rootFunctionName;
 
   // functionIDMap
   assert(functionIDMap.find(function) == functionIDMap.end() && "Function already has an ID?");
@@ -520,7 +523,7 @@ SDBuildCHA::range_t SDBuildCHA::buildFunctionInfoForFunction(FunctionEntry &func
       }
     }
     assert(childFunction && "Child vtable does not copy function from parent!");
-    range_t subRange = buildFunctionInfoForFunction(*childFunction);
+    range_t subRange = buildFunctionInfoForFunction(*childFunction, rootFunctionName);
 
     assert(result.second + 1 == subRange.first && "Range is not consistent!");
     result.second = subRange.second;

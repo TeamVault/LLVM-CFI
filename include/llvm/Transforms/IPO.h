@@ -216,6 +216,8 @@ ModulePass* createSDSubstModulePass();
 ModulePass* createSDReturnRangePass();
 ModulePass* createSDReturnAddressPass();
 
+ModulePass* createSDAnalysisPass();
+
 } // End llvm namespace
 
 #endif

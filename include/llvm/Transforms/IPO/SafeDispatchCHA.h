@@ -109,6 +109,8 @@ namespace llvm {
     function_range_map_t functionRangeMap;
     function_id_map_t functionIDMap;
     uint64_t  currentID;
+
+    std::map<func_name_t, func_name_t> functionParentMap;
     
     /**
      * These functions and variables used to deal with duplication
@@ -180,7 +182,7 @@ namespace llvm {
      */
     std::vector<nmd_t> static extractMetadata(NamedMDNode* md);
 
-    range_t buildFunctionInfoForFunction(FunctionEntry &function);
+    range_t buildFunctionInfoForFunction(FunctionEntry &function, std::string rootFunctionName);
 
     void topoSortHelper(vtbl_name_t node, std::deque<vtbl_name_t> &ordered,
                         std::set<vtbl_name_t> &visited, std::set<vtbl_name_t> &tempMarked);
@@ -459,6 +461,23 @@ namespace llvm {
           result.push_back(entryID->second);
       }
       return result;
+    }
+
+    std::string getFunctionRootParent(std:: string functionName) {
+      auto entryPtr = functionParentMap.find(functionName);
+      if (entryPtr == functionParentMap.end()) {
+        return "";
+      }
+      return entryPtr->second;
+    }
+
+    int getEntriesForFunction(std:: string functionName) {
+      auto entryPtr = functionImplMap.find(functionName);
+      if (entryPtr == functionImplMap.end()) {
+        return 0;
+      }
+
+      return entryPtr->second.size();
     }
 
     uint64_t getMaxID() {
