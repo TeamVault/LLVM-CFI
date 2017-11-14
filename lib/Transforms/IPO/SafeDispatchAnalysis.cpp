@@ -11,13 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/IPO/SafeDispatchReturnRange.h"
-
+#include "llvm/Transforms/IPO/SafeDispatchLayoutBuilder.h"
+#include "llvm/Transforms/IPO/SafeDispatchLogStream.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/Transforms/IPO/SafeDispatchTools.h"
 
 #include <fstream>
 #include <sstream>
+
 
 using namespace llvm;
 
@@ -113,10 +114,11 @@ static uint16_t encodeType(Type* T, bool recurse = true) {
   assert(TypeEncoded < 32);
   return TypeEncoded;
 }
+
+
 class SDAnalysis : public ModulePass {
 public:
   static char ID;
-  typedef std::pair<std::string, uint64_t> PreciseFunctionSignature;
 
   SDAnalysis() : ModulePass(ID) {
     sdLog::stream() << "initializing SDReturnAddress pass ...\n";
@@ -135,27 +137,36 @@ public:
 private:
 
   struct VirtualCallsiteInfo {
-    VirtualCallsiteInfo(std::string _FunctionName, std::string _Dwarf, int _Params) :
-            FunctionName(_FunctionName), Dwarf(_Dwarf) {
-      Params = _Params;
-    }
+    VirtualCallsiteInfo(std::string _FunctionName,
+                        std::string _Dwarf,
+                        std::string _ClassName,
+                        std::string _PreciseName,
+                        int _Params) :
+
+            FunctionName(_FunctionName),
+            Dwarf(_Dwarf),
+            ClassName(_ClassName),
+            PreciseName(_PreciseName),
+            Params(Params)
+    {}
 
   public:
     std::string FunctionName;
     std::string Dwarf;
     int Params;
+    std::string ClassName;
+    std::string PreciseName;
     int SubhierarchyCount;
     int PreciseSubhierarchyCount;
     int TargetSignatureMatches;
     int ShortTargetSignatureMatches;
     int PreciseTargetSignatureMatches;
-    int NumberOfEntries;
     int NumberOfParamMatches;
-
+    int SizeOfVTableIsland;
   };
 
   struct Encodings {
-    Encodings() {}
+    Encodings() = default;
 
     Encodings(uint64_t _Normal, uint64_t _Short, uint64_t _Precise) {
       Normal = _Normal;
@@ -169,41 +180,56 @@ private:
   };
 
   SDBuildCHA *CHA;
-
-  std::map<uint64_t, int> FunctionWithEncodingCount;
-  std::map<uint64_t, int> FunctionWithEncodingShortCount;
-  std::map<std::string, Encodings> FunctionToEncoding;
-  int NumberOfParameters[7];
-  std::map<PreciseFunctionSignature, int> PreciseFunctionSignatureCount;
-
   std::vector<VirtualCallsiteInfo> Data;
 
-  uint64_t encodeFunction(FunctionType *FuncTy, bool encodePointers, bool encodeReturnType = true) {
-    uint64_t Encoding = 32;
 
-    if (FuncTy->getNumParams() < 8) {
-      if (encodeReturnType)
-        Encoding = encodeType(FuncTy->getReturnType(), encodePointers);
+  /** Start function type matching data */
+  typedef std::pair<std::string, uint64_t> PreciseFunctionSignature;
 
-      for (auto *Param : FuncTy->params()) {
-        Encoding = encodeType(Param) + Encoding * 32;
-      }
-    }
+  std::map<PreciseFunctionSignature, int> PreciseFunctionSignatureCount;
+  std::map<uint64_t, int> FunctionWithEncodingCount;
+  std::map<uint64_t, int> FunctionWithEncodingShortCount;
 
-    return Encoding;
-  }
+  std::map<std::string, Encodings> FunctionToEncoding;
+  int NumberOfParameters[8];
+
+  /** End function type matching data */
+
+  /** Start hierarchy analysis data */
+
+  typedef std::map<uint64_t, SDBuildCHA::func_name_t> offset_to_func_name;
+  typedef std::map<uint64_t, std::set<SDBuildCHA::func_name_t>> offset_to_func_name_set;
+
+  std::map<SDBuildCHA::vtbl_t, offset_to_func_name> FunctionNameInVTableAtOffset;
+  std::map<SDBuildCHA::vtbl_name_t, offset_to_func_name_set> FunctionNamesInClassAtOffset;
+
+  std::map<SDBuildCHA::vtbl_t, std::set<SDBuildCHA::vtbl_t>> VTableSubHierarchy;
+  std::map<SDBuildCHA::vtbl_name_t, std::set<SDBuildCHA::vtbl_name_t>> ClassSubHierarchy;
+
+  std::map<SDBuildCHA::func_and_class_t, std::set<SDBuildCHA::func_name_t>> VTableSubHierarchyPerFunction;
+  std::map<SDBuildCHA::func_and_class_t, std::set<SDBuildCHA::func_name_t>> ClassSubHierarchyPerFunction;
+
+  /** End hierarchy analysis data */
+
+  /** Start binary vtable tool data */
+  uint64_t TotalNumberOfDefinedVTables;
+
+  std::map<SDBuildCHA::vtbl_t, std::set<SDBuildCHA::vtbl_t>*> VTableToIsland;
+
+  /** End binary vtable tool data */
+
 
   bool runOnModule(Module &M) override {
     sdLog::blankLine();
     sdLog::stream() << "P7a. Started running the SDAnalysis pass ..." << sdLog::newLine << "\n";
 
     CHA = &getAnalysis<SDBuildCHA>();
-    // Build the virtual ID ranges.
-    CHA->buildFunctionInfo();
 
-    // Process Callsites and annotate them for the backend pass.
+    analyseCHA();
+
+    computeVTableIslands();
+
     processVirtualFunctions(M);
-
     processVirtualCallSites(M);
 
     storeData(M);
@@ -211,6 +237,149 @@ private:
     sdLog::stream() << sdLog::newLine << "P7a. Finished running the SDAnalysis pass ..." << "\n";
     sdLog::blankLine();
     return false;
+  }
+
+  void analyseCHA() {
+    std::cout << "Building hierarchies..." << std::endl;
+    buildSubHierarchies();
+    std::cout << "Computing targets in VTable hierarchy..." << std::endl;
+    matchTargetsInVTableHierarchy();
+    std::cout << "Computing targets in Class hierarchy..." << std::endl;
+    matchTargetsInClassHierarchy();
+    std::cout << "Finished hierarchy analysis!" << std::endl;
+
+    for (auto &entry : VTableSubHierarchyPerFunction) {
+      std::cout << entry.first.second << ", " << entry.first.first << ":";
+      for (auto name : entry.second) {
+        std::cout << " " << name;
+      }
+      std::cout << std::endl;
+    }
+  }
+
+  void buildSubHierarchies() {
+    auto topologicalOrder = CHA->topoSort();
+    for (auto className = topologicalOrder.rbegin(); className != topologicalOrder.rend(); ++className) {
+      auto vTableList = CHA->getSubVTables(*className);
+      std::cout << "\t" << *className << " with " << vTableList.size() << " vTables:" << std::endl;
+
+      std::set<SDBuildCHA::vtbl_name_t> classChildren;
+      offset_to_func_name_set functionNamesAtOffset;
+      int vTableIndex = 0;
+      for (auto &vTableType : vTableList) {
+        auto vTable = SDBuildCHA::vtbl_t(*className, vTableIndex);
+        std::cout << "\t(" << vTable.first << ", " << vTable.second << ") of type " << vTableType << std::endl;
+
+        for (auto functionEntry : CHA->getFunctionEntries(vTable)) {
+          std::cout << "\t\t" << functionEntry.functionName << "@" << functionEntry.offsetInVTable << std::endl;
+          FunctionNameInVTableAtOffset[vTable][functionEntry.offsetInVTable] = functionEntry.functionName;
+          FunctionNamesInClassAtOffset[vTable.first][functionEntry.offsetInVTable].insert(functionEntry.functionName);
+        }
+
+
+        std::set<SDBuildCHA::vtbl_t> vTableChildren;
+        if (CHA->isDefined(vTable)) {
+          vTableChildren.insert(vTable);
+        }
+
+        for (auto child = CHA->children_begin(vTable); child != CHA->children_end(vTable); child++) {
+          assert(VTableSubHierarchy.find(*child) != VTableSubHierarchy.end());
+          vTableChildren.insert(VTableSubHierarchy[*child].begin(), VTableSubHierarchy[*child].end());
+        }
+
+        VTableSubHierarchy[vTable] = vTableChildren;
+        vTableIndex++;
+
+        for (auto &vTable : vTableChildren) {
+          classChildren.insert(vTable.first);
+        }
+      }
+
+      ClassSubHierarchy[*className] = classChildren;
+    }
+  }
+
+  void matchTargetsInVTableHierarchy() {
+    for (auto &subHierarchy : VTableSubHierarchy) {
+      auto rootVTable = subHierarchy.first;
+      for (auto &functionNameEntry : FunctionNameInVTableAtOffset[rootVTable]) {
+
+        auto offsetInVTable = functionNameEntry.first;
+        std::set<SDBuildCHA::func_name_t> functionNames;
+        functionNames.insert(functionNameEntry.second);
+
+        for (auto &vTable : subHierarchy.second) {
+          functionNames.insert(FunctionNameInVTableAtOffset[vTable][offsetInVTable]);
+        }
+
+        VTableSubHierarchyPerFunction[SDBuildCHA::func_and_class_t(functionNameEntry.second, rootVTable.first)]
+                = functionNames;
+      }
+    }
+  }
+
+  void matchTargetsInClassHierarchy() {
+    for (auto &subHierarchy : ClassSubHierarchy) {
+      auto rootClassName = subHierarchy.first;
+      for (auto &functionNameEntry : FunctionNamesInClassAtOffset.find(rootClassName)->second) {
+        auto offsetInVTable = functionNameEntry.first;
+
+        std::set<SDBuildCHA::func_name_t> functionNames;
+        functionNames.insert(functionNameEntry.second.begin(), functionNameEntry.second.end());
+
+        for (auto &className : subHierarchy.second) {
+          auto &functionNamesInChild  = FunctionNamesInClassAtOffset[className][offsetInVTable];
+          functionNames.insert(functionNamesInChild.begin(), functionNamesInChild.end());
+        }
+
+        for (auto &functionName : functionNameEntry.second) {
+          ClassSubHierarchyPerFunction[SDBuildCHA::func_and_class_t(functionName, rootClassName)]
+                  = functionNames;
+        }
+      }
+    }
+  }
+
+  void countAllVTables() {
+    std::set<SDBuildCHA::vtbl_t> vtables;
+    int sum = 0;
+    for (auto itr = CHA->roots_begin(); itr != CHA->roots_end(); ++itr) {
+      auto root = SDBuildCHA::vtbl_t(*itr, 0);
+      for(auto &vTable : CHA->preorder(root)) {
+        if (CHA->isDefined(vTable))
+          vtables.insert(vTable);
+      }
+      sum += CHA->getCloudSize(root.first);
+    }
+    std::cout << "Number of VTables: " << vtables.size() << " (sum of clouds:" << sum << ")" << std::endl;
+  }
+
+  void computeVTableIslands() {
+    std::vector<std::set<SDBuildCHA::vtbl_t>*> islands;
+
+    for (auto itr = CHA->roots_begin(); itr != CHA->roots_end(); ++itr) {
+      auto root = SDBuildCHA::vtbl_t(*itr, 0);
+      std::set<SDBuildCHA::vtbl_t> *island = new std::set<SDBuildCHA::vtbl_t>();
+      bool isNewIsland = true;
+
+      for (auto &vTable : CHA->preorder(root)) {
+        if (CHA->isDefined(vTable)) {
+          if (VTableToIsland.find(vTable) != VTableToIsland.end()) {
+            VTableToIsland[vTable]->insert(island->begin(), island->end());
+            island = VTableToIsland[vTable];
+            isNewIsland = false;
+          }
+          VTableToIsland[vTable] = island;
+          island->insert(vTable);
+        }
+      }
+      if (isNewIsland) {
+        islands.push_back(island);
+      }
+    }
+
+    TotalNumberOfDefinedVTables = VTableToIsland.size();
+    std::cout << "Total Number of VTables: " << VTableToIsland.size() << std::endl;
   }
 
   bool isVirtualFunction(const Function &F) const {
@@ -243,7 +412,7 @@ private:
 
       FunctionToEncoding[F.getName()] = Encodings(Encoding, EncodingShort, EncodingPrecise);
 
-      for(int i = 0; i <= F.getFunctionType()->getNumParams(); ++i) {
+      for(int i = 0; i <= F.getFunctionType()->getNumParams() && i <= 7; ++i) {
         NumberOfParameters[i]++;
       }
       FunctionWithEncodingCount[Encoding]++;
@@ -275,7 +444,6 @@ private:
         // User was not found, this should not happen...
         if (User == nullptr)
           break;
-        errs() << User << "\n";
 
         for (auto *NextUser : User->users()) {
           User = NextUser;
@@ -327,11 +495,14 @@ private:
       Dwarf = Stream.str();
     }
 
-    VirtualCallsiteInfo CallSiteInfo(FunctionName, Dwarf, CallSite.getFunctionType()->getNumParams());
+    VirtualCallsiteInfo CallSiteInfo(FunctionName, Dwarf, ClassName, PreciseName, CallSite.getFunctionType()->getNumParams());
 
     //sub-hierarchy
-    CallSiteInfo.SubhierarchyCount = CHA->getCloudSize(ClassName);
-    CallSiteInfo.PreciseSubhierarchyCount = CHA->getCloudSize(PreciseName);
+    CallSiteInfo.SubhierarchyCount =
+            ClassSubHierarchyPerFunction[SDBuildCHA::func_and_class_t(FunctionName, PreciseName)].size();
+
+    CallSiteInfo.PreciseSubhierarchyCount =
+            VTableSubHierarchyPerFunction[SDBuildCHA::func_and_class_t(FunctionName, PreciseName)].size();
 
     //src types, safe src types
     auto EncodingsPtr = FunctionToEncoding.find(FunctionName);
@@ -344,13 +515,31 @@ private:
     auto ParentFunctionName = CHA->getFunctionRootParent(FunctionName);
     CallSiteInfo.PreciseTargetSignatureMatches = PreciseFunctionSignatureCount[PreciseFunctionSignature(ParentFunctionName,Encodings.Precise)];
 
-    CallSiteInfo.NumberOfEntries = CHA->getEntriesForFunction(FunctionName);
     auto NumberOfParam = CallSite.getFunctionType()->getNumParams();
-    if (NumberOfParam > 6)
-      NumberOfParam = 6;
-
+    if (NumberOfParam >= 7)
+      NumberOfParam = 7;
     CallSiteInfo.NumberOfParamMatches = NumberOfParameters[NumberOfParam];
+
+    //TODO MATT: subvtable 0 is wrong! Figure out which vtable is being used, by transfering the data from the frontend.
+    CallSiteInfo.NumberOfParamMatches = VTableToIsland[SDBuildCHA::vtbl_t(PreciseName, 0)]->size();
+
+    sdLog::log() << "Finished callsite: " << Dwarf << "\n";
     Data.push_back(CallSiteInfo);
+  }
+
+  uint64_t encodeFunction(FunctionType *FuncTy, bool encodePointers, bool encodeReturnType = true) {
+    uint64_t Encoding = 32;
+
+    if (FuncTy->getNumParams() < 8) {
+      if (encodeReturnType)
+        Encoding = encodeType(FuncTy->getReturnType(), encodePointers);
+
+      for (auto *Param : FuncTy->params()) {
+        Encoding = encodeType(Param) + Encoding * 32;
+      }
+    }
+
+    return Encoding;
   }
 
   void storeData(Module &M) {
@@ -369,17 +558,33 @@ private:
     // Virtual
     {
       std::ofstream Outfile("./SD_CallSiteVirtualData");
-      for (auto Callsite : Data) {
-        Outfile << Callsite.FunctionName
-                << "," << Callsite.Dwarf
+      Outfile << "Dwarf"
+              << ",FunctionName"
+              << ",ClassName"
+              << ",PreciseName"
+              << ",Params"
+              << ",ClassSubHierarchy"
+              << ",VTableSubHierarchy"
+              << ",SafeSrcType"
+              << ",SrcType"
+              << ",PreciseSrcType"
+              << ",BinType"
+              << "VTableIsland"
+              << "\n";
+
+      for (auto &Callsite : Data) {
+        Outfile << Callsite.Dwarf
+                << "," << Callsite.FunctionName
+                << "," << Callsite.ClassName
+                << "," << Callsite.PreciseName
                 << "," << Callsite.Params
-                << "," << Callsite.NumberOfEntries
                 << "," << Callsite.SubhierarchyCount
                 << "," << Callsite.PreciseSubhierarchyCount
                 << "," << Callsite.ShortTargetSignatureMatches
                 << "," << Callsite.TargetSignatureMatches
                 << "," << Callsite.PreciseTargetSignatureMatches
                 << "," << Callsite.NumberOfParamMatches
+                << "," << Callsite.SizeOfVTableIsland
                 << "\n";
       }
       Outfile.close();

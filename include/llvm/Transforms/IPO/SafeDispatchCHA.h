@@ -391,6 +391,10 @@ namespace llvm {
       return subObjNameMap[name][ind];
     }
 
+    const std::vector<vtbl_name_t> getSubVTables(const vtbl_name_t &name) {
+      return subObjNameMap[name];
+    }
+
     /**
      * Return a list that contains the preorder traversal of the tree
      * starting from the given node
@@ -478,6 +482,17 @@ namespace llvm {
       }
 
       return entryPtr->second.size();
+    }
+
+    FunctionEntry getFunctionEntry(const vtbl_t &v, uint64_t offsetInVtable) {
+      for (auto &entry : vTableFunctionMap[v]) {
+        if (entry.offsetInVTable == offsetInVtable)
+          return entry;
+      }
+    }
+
+    std::vector<FunctionEntry> getFunctionEntries(const vtbl_t &v) {
+      return vTableFunctionMap[v];
     }
 
     uint64_t getMaxID() {
