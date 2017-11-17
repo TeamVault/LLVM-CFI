@@ -193,8 +193,6 @@ namespace {
       (void) llvm::createSDUpdateIndicesPass();
       (void) llvm::createSDMoveBasicBlocksPass();
       (void) llvm::createSDSubstModulePass();
-      (void) llvm::createSDReturnAddressPass();
-      (void) llvm::createSDReturnRangePass();
     }
   } ForcePassLinking; // Force link by creating a global definition.
 }

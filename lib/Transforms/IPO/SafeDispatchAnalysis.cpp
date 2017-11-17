@@ -1,4 +1,4 @@
-//===-- SafeDispatchReturnRange.cpp - SafeDispatch ReturnRange code ---------------------------===//
+//===-- SafeDispatchAnalysis.cpp - SafeDispatch Analysis code ---------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the SDReturnRange class.
+// This file implements the SDAnalysis class.
 //
 //===----------------------------------------------------------------------===//
 

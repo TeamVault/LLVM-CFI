@@ -213,9 +213,6 @@ ModulePass* createSDLayoutBuilderPass(bool interleave = false);
 ModulePass* createSDUpdateIndicesPass();
 ModulePass* createSDMoveBasicBlocksPass();
 ModulePass* createSDSubstModulePass();
-ModulePass* createSDReturnRangePass();
-ModulePass* createSDReturnAddressPass();
-
 ModulePass* createSDAnalysisPass();
 
 } // End llvm namespace

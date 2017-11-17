@@ -177,12 +177,13 @@ def read_config():
     }
   elif is_on_matt_desktop(): # mattDesktop
     clang_config = {
-      "LLVM_DIR"           : os.environ["HOME"] + "/thesis/llvm",
-      "LLVM_BUILD_DIR"     : os.environ["HOME"] + "/thesis/llvm-build",
-      "LLVM_DEBUG_BUILD_DIR"     : os.environ["HOME"] + "/thesis/llvm-debug",
-      "BINUTILS_BUILD_DIR" : os.environ["HOME"] + "/thesis/binutils-build",
-      "SD_DIR"             : os.environ["HOME"] + "/thesis/llvm/scripts",
-      "MY_GCC_VER"         : "5.4.0"
+      "LLVM_DIR"            : os.environ["HOME"] + "/thesis/llvm",
+      "LLVM_BUILD_DIR"      : os.environ["HOME"] + "/thesis/llvm-build",
+      "LLVM_DEBUG_BUILD_DIR": os.environ["HOME"] + "/thesis/llvm-debug",
+      "LLVM_ANALYSIS_BUILD_DIR": os.environ["HOME"] + "/thesis/llvm-build-analysis",
+      "BINUTILS_BUILD_DIR"  : os.environ["HOME"] + "/thesis/binutils-build",
+      "SD_DIR"              : os.environ["HOME"] + "/thesis/llvm/scripts",
+      "MY_GCC_VER"          : "5.4.0"
     }
 
   else: # don't know this machine
@@ -191,6 +192,8 @@ def read_config():
   #Debug build?
   if BUILD_TYPE == "DEBUG":
     LLVM_BUILD_OUTPUT = clang_config["LLVM_DEBUG_BUILD_DIR"] + "/Debug+Asserts"
+  elif BUILD_TYPE == "ANALYSIS":
+    LLVM_BUILD_OUTPUT = clang_config["LLVM_ANALYSIS_BUILD_DIR"] + "/Release+Asserts"
   else:
     LLVM_BUILD_OUTPUT = clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts"
 
@@ -202,7 +205,7 @@ def read_config():
     })
 
   clang_config.update({
-    "CC"              : clang_config["LLVM_BUILD_BIN"] + "/clang",
+    "CC"              : clang_config["LLVM_BUILD_BIN"] + "/clang++",
     "CXX"             : clang_config["LLVM_BUILD_BIN"] + "/clang++",
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",

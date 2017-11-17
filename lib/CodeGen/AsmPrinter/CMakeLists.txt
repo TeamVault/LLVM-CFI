@@ -18,7 +18,6 @@ add_llvm_library(LLVMAsmPrinter
   EHStreamer.cpp
   ErlangGCPrinter.cpp
   OcamlGCPrinter.cpp
-  SDAsmPrinterHandler.cpp
   Win64Exception.cpp
   WinCodeViewLineTables.cpp
   )

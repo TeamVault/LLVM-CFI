@@ -320,17 +320,8 @@ void initializeSDMoveBasicBlocksPass(PassRegistry&);
 //this pass is used to add the new checks before the v call site
 void initializeSDSubstModulePass(PassRegistry&);
 
-//TODO MATT: write docs
-//this pass is used to insert the return address checks
-void initializeSDReturnAddressPass(PassRegistry&);
-
-//this pass is used to create the return address ranges
-void initializeSDReturnRangePass(PassRegistry&);
-
 void initializeSDAnalysisPass(PassRegistry&);
 
-
-void initializeSDMachineFunctionPass(PassRegistry&);
 }
 
 #endif
