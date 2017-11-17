@@ -820,7 +820,7 @@ llvm::GlobalVariable *CodeGenVTables::GenerateConstructionVTable(const CXXRecord
   CGM.EmitVTableBitSetEntries(VTable, *VTLayout.get());
 
   //Paul: added by us
-  std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
+  //std::cerr << "Creating construction vtable for " << RD->getQualifiedNameAsString() << "\n";
 
   //Paul added by us: this function is calling into our SD_VtableMD.h. 
   //The goal is to make sure that the v table metadata is written

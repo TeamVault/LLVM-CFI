@@ -1029,7 +1029,7 @@ public:
     LayoutVTable();
     buildParentsInformation();
 
-    //if (Context.getLangOpts().DumpVTableLayouts)
+    if (Context.getLangOpts().DumpVTableLayouts)
       dumpLayout(llvm::outs());
   }
 
@@ -1819,9 +1819,9 @@ void ItaniumVTableBuilder::LayoutPrimaryAndSecondaryVTables(
     CurInheritancePath.push_back(DirectParent);
 
   // Add to map.
-  std::cerr << "{" << MostDerivedClass->getQualifiedNameAsString() << "} Setting [";
-  for (auto it : CurInheritancePath)  std::cerr << it->getQualifiedNameAsString() << ",";
-  std::cerr << "] to " << CurVTableInd << "\n";
+//  std::cerr << "{" << MostDerivedClass->getQualifiedNameAsString() << "} Setting [";
+//  for (auto it : CurInheritancePath)  std::cerr << it->getQualifiedNameAsString() << ",";
+//  std::cerr << "] to " << CurVTableInd << "\n";
 
   InheritanceMap[CurInheritancePath] = CurVTableInd;
   if (BaseIsMorallyVirtual) {
@@ -2388,7 +2388,7 @@ VTableLayout::VTableLayout(uint64_t NumVTableComponents,
   for (auto it : AddressPoints) {
     uintptr_t addrPt = it.second;
     const CXXRecordDecl* base = it.first.getBase();
-    std::cerr << "Addr Pt: " << addrPt << " base " << base->getQualifiedNameAsString() << "\n";
+    //std::cerr << "Addr Pt: " << addrPt << " base " << base->getQualifiedNameAsString() << "\n";
     ParentMap[addrPt].insert(base);
     addrPts.insert(addrPt);
   }
@@ -2480,7 +2480,7 @@ ItaniumVTableContext::computeVTableRelatedInformation(const CXXRecordDecl *RD) {
   ItaniumVTableBuilder Builder(*this, RD, CharUnits::Zero(),
                                /*MostDerivedClassIsVirtual=*/0, RD);
 
-  std::cerr << "Create vtable layout for " << RD->getQualifiedNameAsString() << "\n";
+  //std::cerr << "Create vtable layout for " << RD->getQualifiedNameAsString() << "\n";
   VTableLayouts[RD] = CreateVTableLayout(Builder);
 
   MethodVTableIndices.insert(Builder.vtable_indices_begin(),

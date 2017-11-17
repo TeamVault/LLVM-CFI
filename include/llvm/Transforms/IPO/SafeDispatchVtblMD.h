@@ -202,7 +202,7 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
   std::vector<SD_VtableMD> subVtables;
   unsigned order = 0; // order of the sub-vtable
 
-  std::cerr << "Emitting subvtable info for " << RD->getQualifiedNameAsString() << "\n";
+  //std::cerr << "Emitting subvtable info for " << RD->getQualifiedNameAsString() << "\n";
 
   //print inheritance map and add the parent vtables to the addrPtMap
   //std::map<inheritance_path_t, uint64_t> = VTLayout->getInheritanceMap()
@@ -224,13 +224,13 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
     //printing the parent inherintance path for one v table layout if length > 0
     if (parentInheritancePath.size() > 0)
     {
-      std::cerr << "\n---Print an inheritance path with legth: " << parentInheritancePath.size() << "---\n";
-      std::cerr << "addrPt: " << addrPt << "-> has following inheritance chain: \n";
-      for (auto it1 : parentInheritancePath)
-        std::cerr << "parent inheritance map element: " << it1->getQualifiedNameAsString() << ",\n";
+      //std::cerr << "\n---Print an inheritance path with legth: " << parentInheritancePath.size() << "---\n";
+      //std::cerr << "addrPt: " << addrPt << "-> has following inheritance chain: \n";
+      //for (auto it1 : parentInheritancePath)
+      //  std::cerr << "parent inheritance map element: " << it1->getQualifiedNameAsString() << ",\n";
     }
     
-    std::cerr << "\n (order in Inheritance Map " << it.second << ")\n";
+    //std::cerr << "\n (order in Inheritance Map " << it.second << ")\n";
 
     //declare an empty v table
     vtbl_t parentVtbl("", 0);
@@ -262,7 +262,7 @@ static std::vector<SD_VtableMD> sd_generateSubvtableInfo(clang::CodeGen::CodeGen
       }
     }
 
-    std::cerr << "addr Pt:" << addrPt << " direct parent = " << parentVtbl.first << ", order: " << parentVtbl.second << "\n";
+    //std::cerr << "addr Pt:" << addrPt << " direct parent = " << parentVtbl.first << ", order: " << parentVtbl.second << "\n";
 
     // add the v table with order number 0 declared above
     //collect all the parent v tables
@@ -381,7 +381,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule *CGM,
                               const clang::BaseSubobject *Base = NULL)
 {
 
-  std::cerr << " CGM: " << CGM << " VTLayout: " << VTLayout << " RD: " << RD << " RD->getQualifiedNameAsString() (class name): " << RD->getQualifiedNameAsString() << "\n";
+  //std::cerr << " CGM: " << CGM << " VTLayout: " << VTLayout << " RD: " << RD << " RD->getQualifiedNameAsString() (class name): " << RD->getQualifiedNameAsString() << "\n";
   assert(CGM && VTLayout && RD);
 
   clang::CodeGen::CGCXXABI *ABI = &CGM->getCXXABI();
@@ -450,7 +450,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule *CGM,
     //do recursive call if subRD != RD "CXXRecordDecl"
     if (subRD != RD)
     {
-      std::cerr << "Recursively calling sd_insertVtableMD for " << subRD->getQualifiedNameAsString() << "\n";
+      //std::cerr << "Recursively calling sd_insertVtableMD for " << subRD->getQualifiedNameAsString() << "\n";
       sd_insertVtableMD(CGM,
                         NULL,
                         &(CGM->getVTables().getItaniumVTableContext().getVTableLayout(subRD)),
@@ -461,7 +461,7 @@ static void sd_insertVtableMD(clang::CodeGen::CodeGenModule *CGM,
 
   //save the v table layout inheritance paths
   //the path will help to check to which inheritance path a certain v table belongs
-  std::cerr << "Storing all inheritance paths contained in the VTableLayout \n";
+  //std::cerr << "Storing all inheritance paths contained in the VTableLayout \n";
 
   //store the number of paths
   //classInfo->addOperand(llvm::MDNode::get(C, sd_getMDNumber(C, VTLayout->getInheritanceMap().size())));

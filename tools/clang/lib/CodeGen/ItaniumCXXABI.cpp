@@ -1655,7 +1655,7 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
 
   ItaniumVTableContext &VTContext = CGM.getItaniumVTableContext();
   std::cerr << "getAddrOfVTable: " << RD->getQualifiedNameAsString() << "\n";
-  std::cerr << "layout : " << &(VTContext.getVTableLayout(RD)) << "\n";
+  //std::cerr << "layout : " << &(VTContext.getVTableLayout(RD)) << "\n";
 
   llvm::ArrayType *ArrayType = llvm::ArrayType::get(
       CGM.Int8PtrTy, VTContext.getVTableLayout(RD).getNumVTableComponents());
