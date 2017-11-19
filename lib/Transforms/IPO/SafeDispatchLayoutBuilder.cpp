@@ -27,6 +27,7 @@
 #include <set>
 #include <map>
 #include <algorithm>
+#include <llvm/Transforms/IPO/SafeDispatchLogStream.h>
 
 // you have to modify the following 4 files for each additional LLVM pass
 // 1. include/llvm/IPO.h
@@ -770,15 +771,15 @@ void SDLayoutBuilder::calculateVPtrRangesHelper(const SDLayoutBuilder::vtbl_t& v
     coalesced_ranges.push_back(range_t(start,end));
   
   //print the ranges 
-  std::cerr << "Range for: {" << vtbl.first << "," << vtbl.second << "} From ranges [";
+  sdLog::log() << "Range for: {" << vtbl.first << "," << vtbl.second << "} From ranges [";
   for (auto it : ranges)
-    std::cerr << "(" << it.first << "," << it.second << "),";
+    sdLog::log() << "(" << it.first << "," << it.second << "),";
 
-  std::cerr << "] coalesced [";
+  sdLog::log() << "] coalesced [";
   for (auto it : coalesced_ranges)
-    std::cerr << "(" << it.first << "," << it.second << "),";
-    
-  std::cerr << "]\n";
+    sdLog::log() << "(" << it.first << "," << it.second << "),";
+
+  sdLog::log() << "]\n";
   
   rangeMap[vtbl] = coalesced_ranges;
 }
@@ -859,7 +860,7 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
   //print preorder nodes of one root node 
   sd_print("\ncalculateVPtrRanges: Preorder nodes of root %s are: \n", vtbl.c_str());
   for (uint64_t i= 0; i < preorderV.size(); i++)
-  std::cerr << "first: " << preorderV[i].first << ", second: " << preorderV[i].second << "\n";
+    sdLog::log() << "first: " << preorderV[i].first << ", second: " << preorderV[i].second << "\n";
 
   std::map<vtbl_t, uint64_t> indMap;
 
@@ -872,9 +873,9 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
  
   //Paul: iterate through all the nodes for this root 
   //and print the ranges 
-  std::cerr << "\n Printing and buid memRangeMap for root node " << vtbl.c_str() << " \n";
+  sdLog::log() << "\n Printing and buid memRangeMap for root node " << vtbl.c_str() << " \n";
   for (uint64_t i = 0; i < preorderV.size(); i++) {
-    std::cerr << "For pre node first: " << preorderV[i].first << ", and pre node second:" << preorderV[i].second << " ";
+    sdLog::log() << "For pre node first: " << preorderV[i].first << ", and pre node second:" << preorderV[i].second << " ";
 
     for (auto it : rangeMap[preorderV[i]]) {
       uint64_t start = it.first,
@@ -889,7 +890,7 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
         if (cha->isDefined(preorderV[j])) 
             def_count++;
 
-      std::cerr << "(range " << start << "-" << end << " contains "
+      sdLog::log() << "(range " << start << "-" << end << " contains "
         << def_count << " defined,";
       
       //skip if not defined 
@@ -898,19 +899,19 @@ void SDLayoutBuilder::calculateVPtrRanges(Module& M, SDLayoutBuilder::vtbl_name_
       
       //if undefined than skip it 
       while (cha->isUndefined(preorderV[start]) && start < end) {
-        std::cerr << "skipping " << preorderV[start].first << "," << preorderV[start].second 
+        sdLog::log() << "skipping " << preorderV[start].first << "," << preorderV[start].second
           << ",";
         start++;
       }
 
-      std::cerr << "final range " << preorderV[start].first << "," << preorderV[start].second
+      sdLog::log() << "final range " << preorderV[start].first << "," << preorderV[start].second
         << "+" << def_count << ")";
     
       // Paul: for each node a memory range will be added to the map and 
       // and a definition count will be icremented and added. Add to the memRangeMap. 
       memRangeMap[preorderV[i]].push_back(mem_range_t(newVtblAddressConst(M, preorderV[start]), def_count));
     }
-    std::cerr << "\n";
+    sdLog::log() << "\n";
   }
 }
 
