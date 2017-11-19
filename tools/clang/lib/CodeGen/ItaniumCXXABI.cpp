@@ -1578,7 +1578,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
     EmitFundamentalRTTIDescriptors();
 
   CGM.EmitVTableBitSetEntries(VTable, VTLayout);
-  std::cerr << "emitVTableDefinitions for " << RD->getQualifiedNameAsString() << "\n";
+  //std::cerr << "emitVTableDefinitions for " << RD->getQualifiedNameAsString() << "\n";
 
   //Paul: insert the v table module, calls into SafeDispatchVtblMD.h
   //this create a new module node with the v table definition attached to the each 
@@ -1654,7 +1654,7 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
 
 
   ItaniumVTableContext &VTContext = CGM.getItaniumVTableContext();
-  std::cerr << "getAddrOfVTable: " << RD->getQualifiedNameAsString() << "\n";
+  //std::cerr << "getAddrOfVTable: " << RD->getQualifiedNameAsString() << "\n";
   //std::cerr << "layout : " << &(VTContext.getVTableLayout(RD)) << "\n";
 
   llvm::ArrayType *ArrayType = llvm::ArrayType::get(
@@ -1784,11 +1784,11 @@ static llvm::Value* sd_getCheckedVTable2(CodeGenModule &CGM,
 
   //class name of the object making the call
   std::string PreciseName = (preciseType ? CGM.getCXXABI().GetClassMangledName(preciseType) : ClassName);
-
+  /*
   std::cerr << "get checked VTable in " <<
     dyn_cast<NamedDecl>(CGF.CurFuncDecl)->getQualifiedNameAsString() <<
     " for class " << ClassName << "(more precisely " << PreciseName << ")" << " for method " << MD->getQualifiedNameAsString() << std::endl; 
-
+  */
   llvm::Module& M = CGM.getModule();
   llvm::LLVMContext& C = M.getContext();
   llvm::MDNode* preciseMD;

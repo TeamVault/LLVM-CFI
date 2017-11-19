@@ -298,6 +298,10 @@ namespace llvm {
       return undefinedVTables.find(vtbl) != undefinedVTables.end();
     }
 
+    bool isDefined(const vtbl_name_t &vtbl) {
+      return !isUndefined(vtbl); //Paul: notice this calls the above method
+    }
+
     bool isUndefined(const vtbl_t &vtbl) {
       return isUndefined(vtbl.first);//Paul: notice this calls the above method 
     }

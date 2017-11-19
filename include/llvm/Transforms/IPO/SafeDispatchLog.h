@@ -7,7 +7,6 @@
 #include <execinfo.h>
 #include <stdarg.h>
 
-#define SD_DEBUG
 
 //Paul: this is the default terminal printing method
 static void sd_print(const char* fmt, ...) {

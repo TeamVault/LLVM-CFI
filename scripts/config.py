@@ -193,9 +193,9 @@ def read_config():
   if BUILD_TYPE == "DEBUG":
     LLVM_BUILD_OUTPUT = clang_config["LLVM_DEBUG_BUILD_DIR"] + "/Debug+Asserts"
   elif BUILD_TYPE == "ANALYSIS":
-    LLVM_BUILD_OUTPUT = clang_config["LLVM_ANALYSIS_BUILD_DIR"] + "/Release+Asserts"
+    LLVM_BUILD_OUTPUT = clang_config["LLVM_ANALYSIS_BUILD_DIR"] + "/Release"
   else:
-    LLVM_BUILD_OUTPUT = clang_config["LLVM_BUILD_DIR"] + "/Release+Asserts"
+    LLVM_BUILD_OUTPUT = clang_config["LLVM_BUILD_DIR"] + "/Release"
 
   clang_config.update({
     "LLVM_SCRIPTS_DIR"    : clang_config["LLVM_DIR"] + "/scripts",
@@ -205,7 +205,7 @@ def read_config():
     })
 
   clang_config.update({
-    "CC"              : clang_config["LLVM_BUILD_BIN"] + "/clang++",
+    "CC"              : clang_config["LLVM_BUILD_BIN"] + "/clang",
     "CXX"             : clang_config["LLVM_BUILD_BIN"] + "/clang++",
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
