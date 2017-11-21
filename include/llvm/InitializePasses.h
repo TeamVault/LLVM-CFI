@@ -320,8 +320,10 @@ void initializeSDMoveBasicBlocksPass(PassRegistry&);
 //this pass is used to add the new checks before the v call site
 void initializeSDSubstModulePass(PassRegistry&);
 
+//TODO MATT: write docs
 void initializeSDAnalysisPass(PassRegistry&);
 
+void initializeSDCleanupPass(PassRegistry&);
 }
 
 #endif

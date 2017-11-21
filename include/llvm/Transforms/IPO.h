@@ -211,6 +211,7 @@ ModulePass* createSDFixPass();
 ModulePass* createSDBuildCHAPass();
 ModulePass* createSDLayoutBuilderPass(bool interleave = false);
 ModulePass* createSDUpdateIndicesPass();
+ModulePass* createSDCleanupPass();
 ModulePass* createSDMoveBasicBlocksPass();
 ModulePass* createSDSubstModulePass();
 ModulePass* createSDAnalysisPass();
