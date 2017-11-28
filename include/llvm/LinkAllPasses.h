@@ -192,6 +192,7 @@ namespace {
       (void) llvm::createSDLayoutBuilderPass();
       (void) llvm::createSDUpdateIndicesPass();
       (void) llvm::createSDCleanupPass();
+      (void) llvm::createSDAnalysisPass();
       (void) llvm::createSDMoveBasicBlocksPass();
       (void) llvm::createSDSubstModulePass();
     }

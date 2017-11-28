@@ -1,4 +1,4 @@
-;===- ./lib/LLVMBuild.txt --------------------------------------*- Conf -*--===;
+;===- ./lib/Support/LLVMBuild.txt ------------------------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -15,10 +15,7 @@
 ;
 ;===------------------------------------------------------------------------===;
 
-[common]
-subdirectories = Analysis AsmParser Bitcode CodeGen DebugInfo Demangle ExecutionEngine LineEditor Linker IR IRReader LTO MC Object Option Passes ProfileData Support TableGen Target Transforms
-
 [component_0]
-type = Group
-name = Libraries
-parent = $ROOT
+type = Library
+name = Demangle
+parent = Libraries

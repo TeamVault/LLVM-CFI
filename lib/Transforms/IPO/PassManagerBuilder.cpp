@@ -530,7 +530,6 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
   if (OptLevel > 1)
     addLTOOptimizationPasses(PM);
 
-  //EmitReturnChecks = true;
   //Paul: emit interleaved or ordered v tables
   if (EmitIVTBLs || EmitOVTBLs || EmitReturnChecks) {
     // Lets get the sd passes out of the way
@@ -551,6 +550,7 @@ void PassManagerBuilder::populateLTOPassManager(legacy::PassManagerBase &PM) {
       PM.add(llvm::createSDSubstModulePass());
     }
   }
+  PM.add(createSDCleanupPass());
 
   // Lower bit sets to globals. This pass supports Clang's control flow
   // integrity mechanisms (-fsanitize=cfi*) and needs to run at link time if CFI

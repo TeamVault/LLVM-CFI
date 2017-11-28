@@ -35,4 +35,9 @@ add_llvm_library(LLVMipo
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Transforms/IPO
   )
 
+
+set(LLVM_LINK_COMPONENTS
+        Demangle
+        )
+
 add_dependencies(LLVMipo intrinsics_gen)

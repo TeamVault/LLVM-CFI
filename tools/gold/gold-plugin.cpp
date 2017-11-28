@@ -46,6 +46,7 @@
 #include <plugin-api.h>
 #include <system_error>
 #include <vector>
+#include "llvm/Support/Path.h"
 
 #ifndef LDPO_PIE
 // FIXME: remove this declaration when we stop maintaining Ubuntu Quantal and
@@ -789,7 +790,21 @@ static void codegen(Module &M) {
       TripleStr, options::mcpu, Features.getString(), Options, RelocationModel,
       CodeModel::Default, CGOptLevel));
 
-  //runSDPasses(M, *TM);
+  // Insert the sd_filename and sd_output metadata.
+  SmallString<128> FileName = llvm::sys::path::filename(output_name);
+  llvm::NamedMDNode *SDFileName = M.getOrInsertNamedMetadata("sd_filename");
+  SDFileName->addOperand(llvm::MDNode::get(M.getContext(),
+                                           llvm::MDString::get(M.getContext(), FileName.c_str())));
+
+  auto EC = sys::fs::create_directory("SDOutput", true);
+  if (!EC && sys::fs::can_write("SDOutput")) {
+    SmallString<128> Model;
+    sys::path::append(Model, "SDOutput", FileName);
+    NamedMDNode *SDFileName = M.getOrInsertNamedMetadata("sd_output");
+    SDFileName->addOperand(llvm::MDNode::get(M.getContext(),
+                                             llvm::MDString::get(M.getContext(), Model.c_str())));
+  }
+
   runLTOPasses(M, *TM);
 
   if (options::TheOutputType == options::OT_SAVE_TEMPS)
