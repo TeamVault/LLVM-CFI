@@ -22,12 +22,10 @@
 #include <fstream>
 #include <sstream>
 
-
 using namespace llvm;
 
 static const std::string itaniumConstructorTokens[3] = {"C0Ev", "C1Ev", "C2Ev"};
 
-//TODO MATT: format properly / code duplication
 static StringRef sd_getClassNameFromMD(llvm::MDNode *MDNode, unsigned operandNo = 0) {
   llvm::MDTuple *mdTuple = cast<llvm::MDTuple>(MDNode);
   assert(mdTuple->getNumOperands() > operandNo + 1);
@@ -51,104 +49,107 @@ static StringRef sd_getFunctionNameFromMD(llvm::MDNode *MDNode, unsigned operand
 
 static std::stringstream writeDebugLocToStream(const DebugLoc* Loc) {
   assert(Loc);
-
   auto *Scope = cast<MDScope>(Loc->getScope());
   std::stringstream Stream;
   Stream << Scope->getFilename().str() + ":" << Loc->getLine() << ":" << Loc->getCol();
   return Stream;
 }
 
-static uint16_t encodeType(Type* T, bool recurse = true) {
-  uint16_t TypeEncoded;
-  switch (T->getTypeID()) {
-    case Type::TypeID::VoidTyID:
-      TypeEncoded = 1;
-      break;
+/** Encodings contains the three relevant encodings */
+struct Encodings {
+public:
+  Encodings() = default;
 
-    case Type::TypeID::IntegerTyID: {
-      auto Bits = cast<IntegerType>(T)->getBitWidth();
-      if (Bits <= 1) {
-        TypeEncoded = 2;
-      } else if (Bits <= 8) {
-        TypeEncoded = 3;
-      } else if (Bits <= 16) {
-        TypeEncoded = 4;
-      } else if (Bits <= 32) {
-        TypeEncoded = 5;
-      } else {
-        TypeEncoded = 6;
+  Encodings(uint64_t _Normal, uint64_t _Short, uint64_t _Precise) {
+    Normal = _Normal;
+    Short = _Short;
+    Precise = _Precise;
+  }
+
+  uint64_t Normal;
+  uint64_t Short;
+  uint64_t Precise;
+
+  static uint16_t encodeType(Type* T, bool recurse = true) {
+    uint16_t TypeEncoded;
+    switch (T->getTypeID()) {
+      case Type::TypeID::VoidTyID:
+        TypeEncoded = 1;
+        break;
+
+      case Type::TypeID::IntegerTyID: {
+        auto Bits = cast<IntegerType>(T)->getBitWidth();
+        if (Bits <= 1) {
+          TypeEncoded = 2;
+        } else if (Bits <= 8) {
+          TypeEncoded = 3;
+        } else if (Bits <= 16) {
+          TypeEncoded = 4;
+        } else if (Bits <= 32) {
+          TypeEncoded = 5;
+        } else {
+          TypeEncoded = 6;
+        }
+      }
+        break;
+
+      case Type::TypeID::HalfTyID:
+        TypeEncoded = 7;
+        break;
+      case Type::TypeID::FloatTyID:
+        TypeEncoded = 8;
+        break;
+      case Type::TypeID::DoubleTyID:
+        TypeEncoded = 9;
+        break;
+
+      case Type::TypeID::X86_FP80TyID:
+      case Type::TypeID::FP128TyID:
+      case Type::TypeID::PPC_FP128TyID:
+        TypeEncoded = 10;
+        break;
+
+      case Type::TypeID::PointerTyID:
+        if (recurse) {
+          TypeEncoded = uint16_t(16) + encodeType(dyn_cast<PointerType>(T)->getElementType(), false);
+        } else {
+          TypeEncoded = 11;
+        }
+        break;
+      case Type::TypeID::StructTyID:
+        TypeEncoded = 12;
+        break;
+      case Type::TypeID::ArrayTyID:
+        TypeEncoded = 13;
+        break;
+      default:
+        TypeEncoded = 14;
+        break;
+    }
+    assert(TypeEncoded < 32);
+    return TypeEncoded;
+  }
+
+  static uint64_t encodeFunction(FunctionType *FuncTy, bool encodePointers, bool encodeReturnType = true) {
+    uint64_t Encoding = 32;
+    if (FuncTy->getNumParams() < 8) {
+      if (encodeReturnType)
+        Encoding = encodeType(FuncTy->getReturnType(), encodePointers);
+
+      for (auto *Param : FuncTy->params()) {
+        Encoding = encodeType(Param) + Encoding * 32;
       }
     }
-      break;
-
-    case Type::TypeID::HalfTyID:
-      TypeEncoded = 7;
-      break;
-    case Type::TypeID::FloatTyID:
-      TypeEncoded = 8;
-      break;
-    case Type::TypeID::DoubleTyID:
-      TypeEncoded = 9;
-      break;
-
-    case Type::TypeID::X86_FP80TyID:
-    case Type::TypeID::FP128TyID:
-    case Type::TypeID::PPC_FP128TyID:
-      TypeEncoded = 10;
-      break;
-
-    case Type::TypeID::PointerTyID:
-      if (recurse) {
-        TypeEncoded = uint16_t(16) + encodeType(dyn_cast<PointerType>(T)->getElementType(), false);
-      } else {
-        TypeEncoded = 11;
-      }
-      break;
-    case Type::TypeID::StructTyID:
-      TypeEncoded = 12;
-      break;
-    case Type::TypeID::ArrayTyID:
-      TypeEncoded = 13;
-      break;
-    default:
-      TypeEncoded = 14;
-      break;
-  }
-  assert(TypeEncoded < 32);
-  return TypeEncoded;
-}
-
-static uint64_t encodeFunction(FunctionType *FuncTy, bool encodePointers, bool encodeReturnType = true) {
-  uint64_t Encoding = 32;
-  if (FuncTy->getNumParams() < 8) {
-    if (encodeReturnType)
-      Encoding = encodeType(FuncTy->getReturnType(), encodePointers);
-
-    for (auto *Param : FuncTy->params()) {
-      Encoding = encodeType(Param) + Encoding * 32;
-    }
-  }
-  return Encoding;
-}
-
-static bool isBlackListed(const Function &F) {
-  return (F.getName().startswith("llvm.") || F.getName().startswith("__")  || F.getName() == "_Znwm");
-}
-
-static bool isVirtualFunction(const Function &F) {
-  if (!F.getName().startswith("_Z")) {
-    return false;
+    return Encoding;
   }
 
-  for (auto &Token : itaniumConstructorTokens) {
-    if (F.getName().endswith(Token)) {
-      return false;
-    }
+  static Encodings encode(FunctionType* Type) {
+    auto Encoding = encodeFunction(Type, true);
+    auto EncodingShort = encodeFunction(Type, false);
+    auto EncodingPrecise = encodeFunction(Type, true, true);
+    return {Encoding, EncodingShort, EncodingPrecise};
   }
-
-  return true;
-}
-
+};
 
 class SDAnalysis : public ModulePass {
 public:
@@ -170,6 +171,12 @@ public:
 
 private:
 
+  /** CallSiteInfo encapsulates all analysis data for a single CallSite.
+   *  Iff isVirtual == false:
+   *    FunctionName, ClassName, PreciseName
+   *    and SubHierarchyMatches, PreciseSubHierarchyMatches, HierarchyIslandMatches
+   *    will not contain meaningful data.
+   * */
   struct CallSiteInfo {
   public:
     explicit CallSiteInfo(const int _Params, const bool _isVirtual = false) :
@@ -185,14 +192,14 @@ private:
       ClassName = _ClassName;
     }
 
-
     const bool isVirtual;
-    const int Params;
     std::string FunctionName = "";
     std::string ClassName = "";
     std::string PreciseName = "";
 
+    const int Params;
     std::string Dwarf = "";
+    Encodings Encoding{};
 
     int64_t TargetSignatureMatches = -1;
     int64_t ShortTargetSignatureMatches = -1;
@@ -204,83 +211,79 @@ private:
     int64_t PreciseTargetSignatureMatches_virtual = -1;
     int64_t NumberOfParamMatches_virtual = -1;
 
-    int64_t SubhierarchyCount = -1;
-    int64_t PreciseSubhierarchyCount = -1;
-    int64_t SizeOfVTableIsland = -1;
+    int64_t SubHierarchyMatches = -1;
+    int64_t PreciseSubHierarchyMatches = -1;
+    int64_t HierarchyIslandMatches = -1;
   };
-
-  SDBuildCHA *CHA{};
-  std::set<CallSite> VirtualCallSites{};
-  std::vector<CallSiteInfo> Data{};
 
   typedef std::set<SDBuildCHA::func_name_t> func_name_set;
-
-  int64_t count = 0;
-  func_name_set allFunctions{};
-
-  /** Start hierarchy analysis data */
   typedef std::map<uint64_t, SDBuildCHA::func_name_t> offset_to_func_name;
   typedef std::map<uint64_t, std::set<SDBuildCHA::func_name_t>> offset_to_func_name_set;
+  typedef std::pair<std::string, uint64_t> preciseFunctionSignature_t;
 
+  SDBuildCHA *CHA{};
+
+  std::set<CallSite> VirtualCallSites{};  // analysed vcall (used to filter the remaining indirect calls)
+  int64_t CallSiteCount = 0;              // counts analysed CallSites
+  std::vector<CallSiteInfo> Data{};       // info for every analysed CallSite
+
+  // metric results (used for sorting CallSiteInfo)
+  std::map<float, std::vector<CallSiteInfo>> MetricVirtual{};
+  std::map<float, std::vector<CallSiteInfo>> MetricIndirect{};
+
+  func_name_set AllFunctions{};           // baseline
+  func_name_set AllVFunctions{};          // baseline virtual functions
+
+  /** hierarchy analysis data */
+
+  // vTable hierarchy (ShrinkWrap / IVT)
   std::map<SDBuildCHA::vtbl_t, offset_to_func_name> FunctionNameInVTableAtOffset{};
-  std::map<SDBuildCHA::vtbl_name_t, offset_to_func_name_set> FunctionNamesInClassAtOffset{};
-
   std::map<SDBuildCHA::vtbl_t, std::set<SDBuildCHA::vtbl_t>> VTableSubHierarchy{};
-  std::map<SDBuildCHA::vtbl_name_t, std::set<SDBuildCHA::vtbl_name_t>> ClassSubHierarchy{};
-
   std::map<SDBuildCHA::func_and_class_t, func_name_set> VTableSubHierarchyPerFunction{};
+
+  // class hierarchy (VTV)
+  std::map<SDBuildCHA::vtbl_name_t, offset_to_func_name_set> FunctionNamesInClassAtOffset{};
+  std::map<SDBuildCHA::vtbl_name_t, std::set<SDBuildCHA::vtbl_name_t>> ClassSubHierarchy{};
   std::map<SDBuildCHA::func_and_class_t, func_name_set> ClassSubHierarchyPerFunction{};
-  /** End hierarchy analysis data */
 
-  /** Start binary vtable tool data */
-  int64_t NumberOfFunctionsWithVTablesEntry = -1;
+  // class hierarchy islands (Marx)
   std::map<SDBuildCHA::func_and_class_t, func_name_set> ClassToIsland{};
-  /** End binary vtable tool data */
+  // all functions in any vTable (vTint)
+  int64_t AllVFunctionsInVTables = 0;
 
-  /** Start function type matching data */
-  struct Encodings {
-    Encodings() = default;
+  /** function type matching data */
 
-    Encodings(uint64_t _Normal, uint64_t _Short, uint64_t _Precise) {
-      Normal = _Normal;
-      Short = _Short;
-      Precise = _Precise;
-    }
-  public:
-    uint64_t Normal;
-    uint64_t Short;
-    uint64_t Precise;
-  };
-
-  typedef std::pair<std::string, uint64_t> PreciseFunctionSignature;
-
-  std::map<PreciseFunctionSignature, int64_t> PreciseFunctionSignatureCount{};
-  std::map<uint64_t, int64_t> FunctionWithEncodingCount{};
-  std::map<uint64_t, int64_t> FunctionWithEncodingShortCount{};
+  std::map<preciseFunctionSignature_t, func_name_set> PreciseTargetSignature{};
+  std::map<uint64_t, func_name_set> TargetSignature{};
+  std::map<uint64_t, func_name_set> ShortTargetSignature{};
   std::array<int64_t, 8> NumberOfParameters{};
 
-  std::map<PreciseFunctionSignature, int64_t> PreciseFunctionSignatureCount_virtual{};
-  std::map<uint64_t, int64_t> FunctionWithEncodingCount_virtual{};
-  std::map<uint64_t, int64_t> FunctionWithEncodingShortCount_virtual{};
+  std::map<preciseFunctionSignature_t, func_name_set> PreciseTargetSignature_virtual{};
+  std::map<uint64_t, func_name_set> TargetSignature_virtual{};
+  std::map<uint64_t, func_name_set> ShortTargetSignature_virtual{};
   std::array<int64_t, 8> NumberOfParameters_virtual{};
-  /** End function type matching data */
 
   bool runOnModule(Module &M) override {
     sdLog::blankLine();
     sdLog::stream() << "P7a. Started running the SDAnalysis pass ..." << sdLog::newLine << "\n";
 
+    // setup CHA info
     CHA = &getAnalysis<SDBuildCHA>();
-    CHA->buildFunctionInfo();
-
     analyseCHA();
     computeVTableIslands();
-    countAllFunctionsWithVTableEntry();
+    findAllVFunctions();
 
-    processFunctions(M);
+    // setup callee and callee signature info
+    analyseCallees(M);
 
+    // process the CallSites
     processVirtualCallSites(M);
     processIndirectCallSites(M);
-    sdLog::stream() << "Found a total of " << count << "CallSites.\n";
+    sdLog::stream() << "Total number of CallSites: " << CallSiteCount << "\n";
+
+    // apply the metric to the CallSiteInfo's in order to sort them
+    applyCallSiteMetric();
+    // store the analysis data
     storeData(M);
 
     sdLog::stream() << sdLog::newLine << "P7a. Finished running the SDAnalysis pass ..." << "\n";
@@ -288,7 +291,7 @@ private:
     return false;
   }
 
-  /** Start hierarchy analysis functions */
+  /** hierarchy analysis functions */
 
   void analyseCHA() {
     sdLog::stream() << "Building hierarchies...\n";
@@ -403,20 +406,15 @@ private:
     }
   }
 
-  /** End hierarchy analysis functions */
-
-  void countAllFunctionsWithVTableEntry() {
-    std::set<SDBuildCHA::vtbl_name_t> functionNames;
+  void findAllVFunctions() {
     for (auto &classEntries : FunctionNamesInClassAtOffset) {
       if (CHA->isDefined(classEntries.first)) {
         for (auto &functionEntries : classEntries.second) {
-          functionNames.insert(functionEntries.second.begin(), functionEntries.second.end());
+          AllVFunctions.insert(functionEntries.second.begin(), functionEntries.second.end());
         }
       }
     }
-
-    NumberOfFunctionsWithVTablesEntry = functionNames.size();
-    sdLog::stream() << "Number of Functions: " << NumberOfFunctionsWithVTablesEntry << "\n";
+    AllVFunctionsInVTables = AllVFunctions.size();
   }
 
   void computeVTableIslands() {
@@ -466,9 +464,10 @@ private:
     sdLog::stream() << "Number of islands: " << islands.size() << "\n";
   }
 
-  /** Start function type matching functions */
 
-  void processFunctions(Module &M) {
+  /** function type matching functions */
+
+  void analyseCallees(Module &M) {
     sdLog::stream() << "\n";
     sdLog::stream() << "Processing functions...\n";
 
@@ -476,35 +475,36 @@ private:
       if (isBlackListed(F))
         continue;
 
-      allFunctions.insert(F.getName());
-
       auto NumOfParams = F.getFunctionType()->getNumParams();
       if (NumOfParams > 7)
         NumOfParams = 7;
 
-      auto Encode = createEncoding(F.getFunctionType());
+      auto Encode = Encodings::encode(F.getFunctionType());
+      std::string FunctionName = F.getName();
 
-      NumberOfParameters[NumOfParams]++;
-      FunctionWithEncodingCount[Encode.Normal]++;
-      FunctionWithEncodingShortCount[Encode.Short]++;
-
+      std::string DemangledFunctionName = FunctionName;
       int Status = 0;
-      char *Demangled =
-              itaniumDemangle(F.getName().str().c_str(), nullptr, nullptr, &Status);
-      if (Demangled != nullptr && Status == 0) {
-        errs() << Demangled;
+      if (F.getName().startswith("_")) {
+        auto DemangledPair = itaniumDemanglePair(F.getName(), Status);
+        if (Status == 0 && DemangledPair.second != "") {
+          DemangledFunctionName = DemangledPair.second;
+        }
       }
 
-      if (Demangled != nullptr)
-        std::free(Demangled);
+      AllFunctions.insert(F.getName());
+      NumberOfParameters[NumOfParams]++;
+      TargetSignature[Encode.Normal].insert(F.getName());
+      ShortTargetSignature[Encode.Short].insert(F.getName());
+      PreciseTargetSignature[preciseFunctionSignature_t(DemangledFunctionName, Encode.Precise)]
+              .insert(FunctionName);
 
       if (isVirtualFunction(F)) {
-        auto ParentFunctionName = CHA->getFunctionRootParent(F.getName());
-
+        AllVFunctions.insert(F.getName());
         NumberOfParameters_virtual[NumOfParams]++;
-        FunctionWithEncodingCount_virtual[Encode.Normal]++;
-        FunctionWithEncodingShortCount_virtual[Encode.Short]++;
-        PreciseFunctionSignatureCount_virtual[PreciseFunctionSignature(ParentFunctionName, Encode.Precise)]++;
+        TargetSignature_virtual[Encode.Normal].insert(F.getName());
+        ShortTargetSignature_virtual[Encode.Short].insert(F.getName());
+        PreciseTargetSignature_virtual[preciseFunctionSignature_t(DemangledFunctionName, Encode.Precise)]
+                .insert(FunctionName);
       }
     }
 
@@ -518,9 +518,7 @@ private:
 
   }
 
-  /** End function type matching functions */
-
-  /** Start CallSite analysis functions */
+  /** CallSite analysis functions */
 
   void processIndirectCallSites(Module &M) {
     int64_t countIndirect = 0;
@@ -618,7 +616,7 @@ private:
   }
 
   void analyseCall(CallSite CallSite, CallSiteInfo Info) {
-    count++;
+    CallSiteCount++;
     const DebugLoc &Loc = CallSite.getInstruction()->getDebugLoc();
     std::string Dwarf;
     if (Loc) {
@@ -631,17 +629,20 @@ private:
     if (NumberOfParam >= 7)
       NumberOfParam = 7;
 
-    auto Encode = createEncoding(CallSite.getFunctionType());
+    auto Encode = Encodings::encode(CallSite.getFunctionType());
+    Info.Encoding = Encode;
 
-    Info.TargetSignatureMatches = FunctionWithEncodingCount[Encode.Normal];
-    Info.ShortTargetSignatureMatches = FunctionWithEncodingShortCount[Encode.Short];
+    Info.TargetSignatureMatches = TargetSignature[Encode.Normal].size();
+    Info.ShortTargetSignatureMatches = ShortTargetSignature[Encode.Short].size();
+
     Info.NumberOfParamMatches = 0;
     for (int i = 0; i <= NumberOfParam; ++i) {
       Info.NumberOfParamMatches += NumberOfParameters[i];
     }
 
-    Info.TargetSignatureMatches_virtual = FunctionWithEncodingCount_virtual[Encode.Normal];
-    Info.ShortTargetSignatureMatches_virtual = FunctionWithEncodingShortCount_virtual[Encode.Short];
+    Info.TargetSignatureMatches_virtual = TargetSignature_virtual[Encode.Normal].size();
+    Info.ShortTargetSignatureMatches_virtual = ShortTargetSignature_virtual[Encode.Short].size();
+
     Info.NumberOfParamMatches_virtual = 0;
     for (int i = 0; i <= NumberOfParam; ++i) {
       Info.NumberOfParamMatches_virtual += NumberOfParameters_virtual[i];
@@ -650,104 +651,92 @@ private:
     if (Info.isVirtual) {
       auto func_and_class = SDBuildCHA::func_and_class_t(Info.FunctionName, Info.PreciseName);
 
-      Info.SubhierarchyCount = ClassSubHierarchyPerFunction[func_and_class].size();
-      Info.PreciseSubhierarchyCount = VTableSubHierarchyPerFunction[func_and_class].size();
-      Info.SizeOfVTableIsland = ClassToIsland[func_and_class].size();
+      Info.SubHierarchyMatches = ClassSubHierarchyPerFunction[func_and_class].size();
+      Info.PreciseSubHierarchyMatches = VTableSubHierarchyPerFunction[func_and_class].size();
+      Info.HierarchyIslandMatches = ClassToIsland[func_and_class].size();
 
+      std::string DemangledFunctionName = Info.FunctionName;
       int Status = 0;
-      char *Demangled =
-              itaniumDemangle(Info.FunctionName.c_str(), nullptr, nullptr, &Status);
-      if (Demangled != nullptr && Status == 0) {
-        errs() << Demangled;
+      auto DemangledPair = itaniumDemanglePair(Info.FunctionName, Status);
+      if (Status == 0 && DemangledPair.second != "") {
+        DemangledFunctionName = DemangledPair.second;
       }
 
-      if (Demangled != nullptr)
-        std::free(Demangled);
 
+      Info.PreciseTargetSignatureMatches =
+              PreciseTargetSignature[preciseFunctionSignature_t(DemangledFunctionName,Encode.Precise)].size();
 
-      auto ParentFunctionName = CHA->getFunctionRootParent(Info.FunctionName);
-      if (ParentFunctionName != "") {
-        Info.PreciseTargetSignatureMatches_virtual =
-                PreciseFunctionSignatureCount[PreciseFunctionSignature(ParentFunctionName,Encode.Precise)];
-      }
+      Info.PreciseTargetSignatureMatches_virtual =
+              PreciseTargetSignature_virtual[preciseFunctionSignature_t(DemangledFunctionName,Encode.Precise)].size();
     }
+
     Data.push_back(Info);
   }
 
-  /** End CallSite analysis functions */
+  /** Helper functions */
+
+  void applyCallSiteMetric() {
+    for (auto& entry : Data) {
+      if (entry.isVirtual) {
+        float metric = entry.TargetSignatureMatches - entry.PreciseSubHierarchyMatches;
+        if (entry.PreciseSubHierarchyMatches != 0) {
+          metric /= entry.PreciseSubHierarchyMatches;
+        }
+        MetricVirtual[metric].push_back(entry);
+      } else {
+        float metric = entry.TargetSignatureMatches / (float) (AllFunctions.size());
+        MetricIndirect[metric].push_back(entry);
+      }
+    }
+  }
 
   void storeData(Module &M) {
-    sdLog::stream() << "Store all CallSites for Module: " << M.getName() << "\n";
-
-    auto SDOutputMD = M.getNamedMetadata("sd_output");
-    auto SDFilenameMD = M.getNamedMetadata("sd_filename");
-
-    StringRef OutputPath;
-    if (SDOutputMD != nullptr)
-      OutputPath = dyn_cast_or_null<MDString>(SDOutputMD->getOperand(0)->getOperand(0))->getString();
-    else if (SDFilenameMD != nullptr)
-      OutputPath = ("./" + dyn_cast_or_null<MDString>(SDOutputMD->getOperand(0)->getOperand(0))->getString()).str();
-
-    std::string OutfileVirtualName = "./SDAnalysis-Virtual";
-    std::string OutfileIndirectName = "./SDAnalysis-Indirect";
-    if (OutputPath != "") {
-      OutfileVirtualName = (OutputPath + "-Virtual").str();
-      OutfileIndirectName = (OutputPath + "-Indirect").str();
-    }
-
-    std::string VirtualFileName = (Twine(OutfileVirtualName) + ".csv").str();
-    std::string IndirectFileName = (Twine(OutfileIndirectName) + ".csv").str();
-    if (sys::fs::exists(OutfileVirtualName + ".csv") || sys::fs::exists(OutfileVirtualName + ".csv")) {
-      uint number = 1;
-      while (sys::fs::exists(OutfileVirtualName + Twine(number) + ".csv")
-             || sys::fs::exists(OutfileVirtualName + Twine(number) + ".csv")) {
-        number++;
-      }
-      VirtualFileName = (OutfileVirtualName + Twine(number) + ".csv").str();
-      IndirectFileName = (OutfileIndirectName + Twine(number) + ".csv").str();
-    }
-
-    std::error_code ECVirtual, ECIndirect;
-    raw_fd_ostream OutfileVirtual(VirtualFileName, ECVirtual, sys::fs::OpenFlags::F_None);
-    raw_fd_ostream OutfileIndirect(IndirectFileName, ECIndirect, sys::fs::OpenFlags::F_None);
-
-    if (ECVirtual || ECIndirect) {
-      sdLog::errs() << "Failed to write to " << VirtualFileName << ", " << IndirectFileName << "\n";
+    if (Data.empty()) {
+      sdLog::stream() << "Nothing to store...\n";
       return;
     }
+    sdLog::stream() << "Store all CallSites for Module: " << M.getName() << "\n";
 
-    sdLog::stream() << "Writing " << Data.size() << " lines to " << VirtualFileName << ", " << VirtualFileName << "\n";
+    auto FileNames = findOutputFileName(M);
 
-    std::stringstream ShortHeader;
-    ShortHeader << "Dwarf"
-                << ",FunctionName"
-                << ",ClassName"
-                << ",PreciseName"
-                << ",Params"
-                << ","
-                << ",PreciseSrcType"
-                << ",SrcType"
-                << ",SafeSrcType"
-                << ",BinType"
-                << ","
-                << ",PreciseSrcType-VFunctions"
-                << ",SrcType-VFunctions"
-                << ",SafeSrcType-VFunctions"
-                << ",BinType-VFunctions";
+    // write general analysis data
 
-    std::stringstream FullHeader;
-    FullHeader << ShortHeader.str()
-               << ","
-               << ",VTableSubHierarchy"
-               << ",ClassSubHierarchy"
-               << ",VTableIsland"
-               << ",All VTables"
-               << "\n";
+    std::error_code ECVirtual, ECIndirect;
+    raw_fd_ostream OutfileVirtual(FileNames.first, ECVirtual, sys::fs::OpenFlags::F_None);
+    raw_fd_ostream OutfileIndirect(FileNames.second, ECIndirect, sys::fs::OpenFlags::F_None);
+    if (ECVirtual || ECIndirect) {
+      sdLog::errs() << "Failed to write to " << FileNames.first << ", " << FileNames.second << "!\n";
+      return;
+    }
+    sdLog::stream() << "Writing " << Data.size() << " lines to "
+                    << FileNames.first << ", " << FileNames.second << ".\n";
 
-    ShortHeader << "\n";
+    writeAnalysisData(OutfileVirtual, OutfileIndirect);
 
-    OutfileVirtual << FullHeader.str();
-    OutfileIndirect << ShortHeader.str();
+    // write metric
+
+    std::string MetricFileNameVirtual = FileNames.first.substr(0, FileNames.first.size() - 4) + "-metric.csv";
+    std::string MetricFileNameIndirect = FileNames.second.substr(0, FileNames.second.size() - 4) + "-metric.csv";
+
+    raw_fd_ostream OutfileMetricVirtual(MetricFileNameVirtual, ECVirtual, sys::fs::OpenFlags::F_None);
+    raw_fd_ostream OutfileMetricIndirect(MetricFileNameIndirect, ECIndirect, sys::fs::OpenFlags::F_None);
+    if (ECVirtual || ECIndirect) {
+      sdLog::errs() << "Failed to write to " << MetricFileNameVirtual << ", " << MetricFileNameIndirect << "!\n";
+      return;
+    }
+    sdLog::stream() << "Writing metric results to "
+                    << MetricFileNameVirtual << ", " << MetricFileNameIndirect << ".\n";
+
+    writeMetricVirtual(OutfileMetricVirtual);
+    writeMetricIndirect(OutfileMetricIndirect);
+  }
+
+  void writeAnalysisData(raw_fd_ostream &OutfileVirtual, raw_fd_ostream &OutfileIndirect) {
+    writeHeader(OutfileVirtual, true);
+    writeHeader(OutfileIndirect, false);
+
+    auto BaseLine = AllFunctions.size();
+    auto BaseLineVirtual = AllVFunctions.size();
     for (auto &Info : Data) {
       if (Info.isVirtual) {
         OutfileVirtual
@@ -761,16 +750,18 @@ private:
                 << "," << Info.TargetSignatureMatches
                 << "," << Info.ShortTargetSignatureMatches
                 << "," << Info.NumberOfParamMatches
+                << "," << BaseLine
                 << ","
                 << "," << Info.PreciseTargetSignatureMatches_virtual
                 << "," << Info.TargetSignatureMatches_virtual
                 << "," << Info.ShortTargetSignatureMatches_virtual
                 << "," << Info.NumberOfParamMatches_virtual
+                << "," << BaseLineVirtual
                 << ","
-                << "," << Info.PreciseSubhierarchyCount
-                << "," << Info.SubhierarchyCount
-                << "," << Info.SizeOfVTableIsland
-                << "," << NumberOfFunctionsWithVTablesEntry
+                << "," << Info.PreciseSubHierarchyMatches
+                << "," << Info.SubHierarchyMatches
+                << "," << Info.HierarchyIslandMatches
+                << "," << AllVFunctionsInVTables
                 << "\n";
       } else {
         OutfileIndirect
@@ -780,15 +771,17 @@ private:
                 << ","
                 << "," << Info.Params
                 << ","
-                << "," << Info.PreciseTargetSignatureMatches
+                << ","
                 << "," << Info.TargetSignatureMatches
                 << "," << Info.ShortTargetSignatureMatches
                 << "," << Info.NumberOfParamMatches
+                << "," << AllFunctions.size()
                 << ","
-                << "," << Info.PreciseTargetSignatureMatches_virtual
+                << ","
                 << "," << Info.TargetSignatureMatches_virtual
                 << "," << Info.ShortTargetSignatureMatches_virtual
                 << "," << Info.NumberOfParamMatches_virtual
+                << "," << BaseLineVirtual
                 << "\n";
 
       };
@@ -798,12 +791,263 @@ private:
     OutfileIndirect.close();
   }
 
-  static Encodings createEncoding(FunctionType* Type) {
-    auto Encoding = encodeFunction(Type, true);
-    auto EncodingShort = encodeFunction(Type, false);
-    auto EncodingPrecise = encodeFunction(Type, true, true);
-    return {Encoding, EncodingShort, EncodingPrecise};
+  void writeMetricVirtual(raw_fd_ostream &Out) {
+    if (MetricVirtual.empty())
+      return;
+
+    writeHeader(Out, true);
+
+    auto BaseLine = AllFunctions.size();
+    auto BaseLineVirtual = AllVFunctions.size();
+    std::set<std::string> ExportedLines;
+
+    int i = 0;
+    for (auto I = MetricVirtual.rbegin(), E = MetricVirtual.rend(); I != E; ++I) {
+      for (auto &Info : I->second) {
+        if (ExportedLines.find(Info.Dwarf) != ExportedLines.end())
+          continue;
+
+        ExportedLines.insert(Info.Dwarf);
+        Out << Info.Dwarf
+            << "," << Info.FunctionName
+            << "," << Info.ClassName
+            << "," << Info.PreciseName
+            << "," << Info.Params
+            << ","
+            << "," << Info.PreciseTargetSignatureMatches
+            << "," << Info.TargetSignatureMatches
+            << "," << Info.ShortTargetSignatureMatches
+            << "," << Info.NumberOfParamMatches
+            << "," << BaseLine
+            << ","
+            << "," << Info.PreciseTargetSignatureMatches_virtual
+            << "," << Info.TargetSignatureMatches_virtual
+            << "," << Info.ShortTargetSignatureMatches_virtual
+            << "," << Info.NumberOfParamMatches_virtual
+            << "," << BaseLineVirtual
+            << ","
+            << "," << Info.PreciseSubHierarchyMatches
+            << "," << Info.SubHierarchyMatches
+            << "," << Info.HierarchyIslandMatches
+            << "," << AllVFunctionsInVTables;
+
+        std::set<std::string> ValidTargets, Targets, InvalidTargets;
+
+        auto ValidItr = VTableSubHierarchyPerFunction.find(
+                SDBuildCHA::func_and_class_t(Info.FunctionName, Info.PreciseName));
+        if (ValidItr != VTableSubHierarchyPerFunction.end())
+          ValidTargets = ValidItr->second;
+
+        auto TargetItr = TargetSignature.find(Info.Encoding.Normal);
+        if (TargetItr != TargetSignature.end())
+          Targets = TargetItr->second;
+
+        std::set_difference(Targets.begin(), Targets.end(),
+                            ValidTargets.begin(), ValidTargets.end(),
+                            std::inserter(InvalidTargets, InvalidTargets.end()));
+
+        Out << ",ValidTargets (" << ValidTargets.size() << "):";
+        for (const SDBuildCHA::func_name_t &Target : ValidTargets) {
+          auto FunctionName = Target;
+          if (StringRef(FunctionName).startswith("_Z")) {
+            int Status = 0;
+            auto DemangledPair = itaniumDemanglePair(Target, Status);
+            if (Status == 0 && DemangledPair.first != "") {
+              FunctionName = DemangledPair.first;
+            }
+          }
+          Out << "," << FunctionName;
+        }
+
+        Out << ",InvalidTargets (" << InvalidTargets.size() << "):";
+        for (const SDBuildCHA::func_name_t &Target : InvalidTargets) {
+          auto FunctionName = Target;
+          if (StringRef(FunctionName).startswith("_Z")) {
+            int Status = 0;
+            auto DemangledPair = itaniumDemanglePair(Target, Status);
+            if (Status == 0 && DemangledPair.first != "") {
+              FunctionName = DemangledPair.first;
+            }
+          }
+          Out << "," << FunctionName;
+        }
+
+        Out << "\n";
+        i++;
+      }
+
+      if (i > 30) {
+        break;
+      }
+    }
+    Out.close();
+
   }
+
+  void writeMetricIndirect(raw_fd_ostream &Out) {
+    if (MetricIndirect.empty())
+      return;
+
+    writeHeader(Out, false);
+
+    auto BaseLine = AllFunctions.size();
+    auto BaseLineVirtual = AllVFunctions.size();
+    std::set<std::string> ExportedLines;
+
+    int i = 0;
+    for (auto I = MetricIndirect.rbegin(), E = MetricIndirect.rend(); I != E; ++I) {
+      for (auto &Info : I->second) {
+        if (ExportedLines.find(Info.Dwarf) != ExportedLines.end())
+          continue;
+
+        ExportedLines.insert(Info.Dwarf);
+        Out << Info.Dwarf
+            << ","
+            << ","
+            << ","
+            << "," << Info.Params
+            << ","
+            << ","
+            << "," << Info.TargetSignatureMatches
+            << "," << Info.ShortTargetSignatureMatches
+            << "," << Info.NumberOfParamMatches
+            << "," << AllFunctions.size()
+            << ","
+            << ","
+            << "," << Info.TargetSignatureMatches_virtual
+            << "," << Info.ShortTargetSignatureMatches_virtual
+            << "," << Info.NumberOfParamMatches_virtual
+            << "," << BaseLineVirtual;
+
+        std::set<std::string> Targets;
+        auto TargetItr = TargetSignature.find(Info.Encoding.Normal);
+        if (TargetItr != TargetSignature.end())
+          Targets = TargetItr->second;
+
+        Out << ",Targets (" << Targets.size() << "):";
+        for (const SDBuildCHA::func_name_t &Target : Targets) {
+          auto FunctionName = Target;
+          if (StringRef(FunctionName).startswith("_Z")) {
+            int Status = 0;
+            auto DemangledPair = itaniumDemanglePair(Target, Status);
+            if (Status == 0 && DemangledPair.first != "") {
+              FunctionName = DemangledPair.first;
+            }
+          }
+          Out << "," << FunctionName;
+        }
+
+        Out << "\n";
+        i++;
+      }
+
+      if (i > 50) {
+        break;
+      }
+    }
+    Out.close();
+
+  }
+
+  void writeHeader(raw_ostream &Out, bool writeFullHeader, bool writeDetails = true) {
+    std::stringstream ShortHeader, ShortDetails, FullHeader, FullDetails;
+
+    Out << "Dwarf"
+        << ",FunctionName"
+        << ",ClassName"
+        << ",PreciseName"
+        << ",Params"
+        << ","
+        << ",PreciseSrcType (vTrust)"
+        << ",SrcType (IFCC)"
+        << ",SafeSrcType (IFCC-safe)"
+        << ",BinType (TypeArmor)"
+        << ",Baseline"
+        << ","
+        << ",PreciseSrcType-VFunctions"
+        << ",SrcType-VFunctions"
+        << ",SafeSrcType-VFunctions"
+        << ",BinType-VFunctions"
+        << ",Baseline-VFunctions";
+    if (writeFullHeader) {
+      Out << ","
+          << ",VTableSubHierarchy (ShrinkWrap)"
+          << ",ClassSubHierarchy (VTV)"
+          << ",ClassIsland (Marx)"
+          << ",AllVTables (vTint)";
+    }
+    Out << "\n";
+
+    if (writeDetails) {
+      Out << "(The dwarf info of this callsite)"
+          << ",(The least-derived vfunction used at this vcall)"
+          << ",(The class defining functionname)"
+          << ",(The least-derived class of the object used at this vcall)"
+          << ",(# of params provided by this callsite (=# consumed))"
+          << ","
+          << ",(func sig matching including C/C++ func name & ret type)"
+          << ",(param type matching w/ pointer types)"
+          << ",(param type matching wo/ pointer types)"
+          << ",(Callsite param >= Callee param (up to 6)"
+          << ",(total # of functions)"
+          << ","
+          << ",(PreciseSrcType only virtual targets)"
+          << ",(SrcType only virtual targets)"
+          << ",(SafeSrcType only virtual targets)"
+          << ",(BinType only virtual targets)"
+          << ",(total # of virtual targets)";
+
+      if (writeFullHeader) {
+        Out << ","
+            << ",(targets at offset in vTable hierarchy with PreciseName as root)"
+            << ",(targets at offset in class hierarchy with PreciseName as root)"
+            << ",(targets in class hierarchy island containing PreciseName)"
+            << ",(targets in any vtable)";
+      }
+      Out << "\n";
+    }
+  }
+
+  std::pair<std::string, std::string> findOutputFileName(Module &M) {
+    auto SDOutputMD = M.getNamedMetadata("sd_output");
+    auto SDFilenameMD = M.getNamedMetadata("sd_filename");
+
+    StringRef OutputPath;
+    if (SDOutputMD != nullptr)
+      OutputPath = dyn_cast_or_null<MDString>(SDOutputMD->getOperand(0)->getOperand(0))->getString();
+    else if (SDFilenameMD != nullptr)
+      OutputPath = ("./" + dyn_cast_or_null<MDString>(SDFilenameMD->getOperand(0)->getOperand(0))->getString()).str();
+
+    std::string VirtualFileName = "./SDAnalysis-Virtual";
+    std::string IndirectFileName = "./SDAnalysis-Indirect";
+    if (OutputPath != "") {
+      VirtualFileName = (OutputPath + "-Virtual").str();
+      IndirectFileName = (OutputPath + "-Indirect").str();
+    }
+
+    std::string VirtualFileNameExtended = (Twine(VirtualFileName) + ".csv").str();
+    std::string IndirectFileNameExtended = (Twine(IndirectFileName) + ".csv").str();
+    if (sys::fs::exists(VirtualFileNameExtended) || sys::fs::exists(IndirectFileNameExtended)) {
+      uint number = 1;
+      while (sys::fs::exists(VirtualFileName + Twine(number) + ".csv")
+             || sys::fs::exists(VirtualFileName + Twine(number) + ".csv")) {
+        number++;
+      }
+      VirtualFileNameExtended = (VirtualFileName + Twine(number) + ".csv").str();
+      IndirectFileNameExtended = (IndirectFileName + Twine(number) + ".csv").str();
+    }
+
+    return {VirtualFileNameExtended, IndirectFileNameExtended};
+  };
+
+  bool isVirtualFunction(const Function &F) {
+    return AllVFunctions.find(F.getName()) != AllVFunctions.end() || F.getName().startswith("_ZTh");
+  }
+
+  bool isBlackListed(const Function &F) {
+    return (F.getName().startswith("llvm.") || F.getName().startswith("__")  || F.getName() == "_Znwm");
+  }
+
 };
 
 char SDAnalysis::ID = 0;

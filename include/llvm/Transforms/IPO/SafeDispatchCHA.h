@@ -225,14 +225,14 @@ namespace llvm {
       buildClouds(M);
 
       //Paul: print the clouds in tmp/dot; can be viewed with graphviz
-      printClouds("");
+      //printClouds("");
 
       //for each root node it counts the number of children 
       //this value is stored when calculating the range width 
       for (auto rootName : roots) {
         calculateChildrenCounts(vtbl_t(rootName, 0));
       }
-      
+
       //Paul: do a verification of the clouds.
       //Check that the cloud map is not empty
       //for each of the root nodes 
@@ -442,51 +442,6 @@ namespace llvm {
     void buildFunctionInfo();
 
     std::deque<vtbl_name_t> topoSort();
-
-    std::vector<uint64_t> getFunctionID(std::string functionName) {
-      auto entryPtr = functionImplMap.find(functionName);
-      if (entryPtr == functionImplMap.end()) {
-        return std::vector<uint64_t>();
-      }
-      std::vector<uint64_t> result;
-      for (auto &entry : entryPtr->second) {
-        auto entryID = functionIDMap.find(entry);
-        if (entryID != functionIDMap.end())
-          result.push_back(entryID->second);
-      }
-      return result;
-    }
-
-    std::vector<range_t> getFunctionRange(std::string functionName, std::string className)  {
-      auto entryPtr = functionMap.find({functionName, className});
-      if (entryPtr == functionMap.end()) {
-        return std::vector<range_t>();
-      }
-      std::vector<range_t> result;
-      for (auto &entry : entryPtr->second) {
-        auto entryID = functionRangeMap.find(entry);
-        if (entryID != functionRangeMap.end())
-          result.push_back(entryID->second);
-      }
-      return result;
-    }
-
-    std::string getFunctionRootParent(std:: string functionName) {
-      auto entryPtr = functionParentMap.find(functionName);
-      if (entryPtr == functionParentMap.end()) {
-        return "";
-      }
-      return entryPtr->second;
-    }
-
-    int getEntriesForFunction(std:: string functionName) {
-      auto entryPtr = functionImplMap.find(functionName);
-      if (entryPtr == functionImplMap.end()) {
-        return 0;
-      }
-
-      return entryPtr->second.size();
-    }
 
     FunctionEntry getFunctionEntry(const vtbl_t &v, uint64_t offsetInVtable) {
       for (auto &entry : vTableFunctionMap[v]) {

@@ -2757,7 +2757,6 @@ static const char *parse_unscoped_name(const char *first, const char *last,
       first = t1;
     }
   }
-  db.functionName = db.names.back().first;
   return first;
 }
 
@@ -3607,8 +3606,9 @@ static const char *parse_nested_name(const char *first, const char *last, C &db,
           t1 = parse_unqualified_name(t0, last, db);
           if (t1 != t0 && t1 != last) {
             auto name = db.names.back().move_full();
-            if (!ends_with_template_args && !component_ends_with_template_args)
+            if (!component_ends_with_template_args)
               db.functionName = name;
+            db.names.pop_back();
             if (db.names.empty())
               return first;
             if (!db.names.back().first.empty())
@@ -3754,6 +3754,8 @@ static const char *parse_name(const char *first, const char *last, C &db,
       }
       default: {
         const char *t1 = parse_unscoped_name(t0, last, db);
+        if (db.functionName == "")
+          db.functionName = db.names.front().first;
         if (t1 != t0) {
           if (t1 != last &&
               *t1 == 'I') // <unscoped-template-name> <template-args>
