@@ -1,0 +1,210 @@
+/usr/bin/python3.5 /home/matt/PycharmProjects/LLVMsupport/analysisParser.py
+Start virtual parsing...
+Start indirect parsing...
+
+All callsites -> all targets:
+Number of callsites: 39073
+Baseline: 32478
+
+srcType
+Mean: 1097.86
+SD: 1832.94
+Median: 56.0
+90p: 5751.0
+Min: 0
+Max: 5751
+Norm-mean: 3.38
+Norm-SD: 5.64
+Norm-90p: 17.71
+
+safeSrcType
+Mean: 1241.88
+SD: 1895.02
+Median: 88.0
+90p: 5751.0
+Min: 0
+Max: 5751
+Norm-mean: 3.82
+Norm-SD: 5.83
+Norm-90p: 17.71
+
+binType
+Mean: 20787.48
+SD: 6635.15
+Median: 21950.0
+90p: 30179.0
+Min: 885
+Max: 32478
+Norm-mean: 64.0
+Norm-SD: 20.43
+Norm-90p: 92.92
+
+
+Virtual callsites -> all targets:
+Number of callsites: 18549
+Baseline: 32478
+
+preciseSrcType
+Mean: 85.76
+SD: 175.11
+Median: 3.0
+90p: 499.0
+Min: 0
+Max: 730
+Norm-mean: 0.26
+Norm-SD: 0.54
+Norm-90p: 1.54
+
+srcType
+Mean: 2113.41
+SD: 2090.48
+Median: 1511.0
+90p: 5751.0
+Min: 0
+Max: 5751
+Norm-mean: 6.51
+Norm-SD: 6.44
+Norm-90p: 17.71
+
+safeSrcType
+Mean: 2405.7
+SD: 2052.01
+Median: 2885.0
+90p: 5751.0
+Min: 0
+Max: 5751
+Norm-mean: 7.41
+Norm-SD: 6.32
+Norm-90p: 17.71
+
+binType
+Mean: 19394.83
+SD: 6821.24
+Median: 21950.0
+90p: 30179.0
+Min: 12545
+Max: 32478
+Norm-mean: 59.72
+Norm-SD: 21.0
+Norm-90p: 92.92
+
+
+Virtual callsites -> virtual targets:
+Number of callsites: 18549
+Baseline: 6300
+
+preciseSrcType-vtarget
+Mean: 11.99
+SD: 41.14
+Median: 3.0
+90p: 10.0
+Min: 0
+Max: 243
+Norm-mean: 0.19
+Norm-SD: 0.65
+Norm-90p: 0.16
+
+srcType-vtarget
+Mean: 353.88
+SD: 348.77
+Median: 121.0
+90p: 810.0
+Min: 0
+Max: 810
+Norm-mean: 5.62
+Norm-SD: 5.54
+Norm-90p: 12.86
+
+safeSrcType-vtarget
+Mean: 413.95
+SD: 326.23
+Median: 426.0
+90p: 810.0
+Min: 0
+Max: 810
+Norm-mean: 6.57
+Norm-SD: 5.18
+Norm-90p: 12.86
+
+binType-vtarget
+Mean: 2793.23
+SD: 835.09
+Median: 3106.0
+90p: 4078.0
+Min: 1956
+Max: 4455
+Norm-mean: 44.34
+Norm-SD: 13.26
+Norm-90p: 64.73
+
+vTableSubHierarchy
+Mean: 8.0
+SD: 28.94
+Median: 2.0
+90p: 6.0
+Min: 0
+Max: 243
+Norm-mean: 0.13
+Norm-SD: 0.46
+Norm-90p: 0.1
+
+classSubHierarchy
+Mean: 8.1
+SD: 28.95
+Median: 2.0
+90p: 7.0
+Min: 0
+Max: 243
+Norm-mean: 0.13
+Norm-SD: 0.46
+Norm-90p: 0.11
+
+classIsland
+Mean: 14.41
+SD: 39.4
+Median: 2.0
+90p: 54.0
+Min: 0
+Max: 243
+Norm-mean: 0.23
+Norm-SD: 0.63
+Norm-90p: 0.86
+
+allVTables
+Mean: 6128.0
+SD: 0.0
+Median: 6128.0
+90p: 6128.0
+Min: 6128
+Max: 6128
+Norm-mean: 97.27
+Norm-SD: 0.0
+Norm-90p: 97.27
+
+
+TABLE 4
+
+	&min	&	&32478	&6300	&12545 (1956)	&0 (0)	&0 (0)	&0 (0)	&6128	&0	&0	&0	\\
+	&90p	&	&32478	&6300	&30179.0 (4078.0)	&5751.0 (810.0)	&5751.0 (810.0)	&499.0 (10.0)	&6128.0	&54.0	&7.0	&6.0	\\
+	&max	&none	&32478	&6300	&32478 (4455)	&5751 (810)	&5751 (810)	&730 (243)	&6128	&243	&243	&243	\\
+	&median	&	&32478	&6300	&21950.0 (3106.0)	&2885.0 (426.0)	&1511.0 (121.0)	&3.0 (3.0)	&6128.0	&2.0	&2.0	&2.0	\\
+	&mean	&	&32478	&6300	&19394.83 (2793.23)	&2405.7 (413.95)	&2113.41 (353.88)	&85.76 (11.99)	&6128.0	&14.41	&8.1	&8.0	\\
+
+TABLE 5
+
+	&min	&	&32478	&&885	&0	&0	\\
+	&90p	&	&32478	&&30179.0	&5751.0	&5751.0	\\
+	&max	&	&32478	&&32478	&5751	&5751	\\
+	&median	&	&32478	&&21950.0	&88.0	&56.0	\\
+	&mean	&	&32478	&&20787.48	&1241.88	&1097.86	\\
+
+TABLE 7
+
+	&32478	&64.0	&20.43	&92.92	&3.82	&5.83	&17.71	&3.38	&5.64	&17.71	\\
+
+TABLE 6
+
+	&6300	&59.72	&21.0	&92.92	&7.41	&6.32	&17.71	&6.51	&6.44	&17.71	&0.26	&0.54	&1.54	&97.27	&0.0	&97.27	&0.23	&0.63	&0.86	&0.13	&0.46	&0.11	&0.13	&0.46	&0.1	\\
+
+
+Process finished with exit code 0

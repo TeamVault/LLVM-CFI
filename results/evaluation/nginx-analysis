@@ -1,0 +1,55 @@
+/usr/bin/python3.5 /home/matt/PycharmProjects/LLVMsupport/analysisParser.py
+Start virtual parsing...
+Start indirect parsing...
+
+All callsites -> all targets:
+Number of callsites: 379
+Baseline: 1270
+
+srcType
+Mean: 80.8
+SD: 58.06
+Median: 75.0
+90p: 149.0
+Min: 1
+Max: 149
+Norm-mean: 6.36
+Norm-SD: 4.57
+Norm-90p: 11.73
+
+safeSrcType
+Mean: 81.01
+SD: 57.94
+Median: 75.0
+90p: 149.0
+Min: 1
+Max: 149
+Norm-mean: 6.38
+Norm-SD: 4.56
+Norm-90p: 11.73
+
+binType
+Mean: 697.41
+SD: 315.64
+Median: 719.0
+90p: 1172.0
+Min: 422
+Max: 1259
+Norm-mean: 54.91
+Norm-SD: 24.85
+Norm-90p: 92.28
+
+
+TABLE 5
+
+	&min	&	&1270	&&422	&1	&1	\\
+	&90p	&	&1270	&&1172.0	&149.0	&149.0	\\
+	&max	&	&1270	&&1259	&149	&149	\\
+	&median	&	&1270	&&719.0	&75.0	&75.0	\\
+	&mean	&	&1270	&&697.41	&81.01	&80.8	\\
+
+TABLE 7
+
+	&1270	&54.91	&24.85	&92.28	&6.38	&4.56	&11.73	&6.36	&4.57	&11.73	\\
+
+Process finished with exit code 0
