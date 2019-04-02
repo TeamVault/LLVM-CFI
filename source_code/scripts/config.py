@@ -49,7 +49,7 @@ for k in sd_config:
 linker_flag_opt_map = {
   "SD_ENABLE_INTERLEAVING" : "-plugin-opt=sd-ivtbl",
   "SD_ENABLE_ORDERING"     : "-plugin-opt=sd-ovtbl",
-  "SD_ENABLE_CHECKS"       : "",
+  "SD_ENABLE_CHECKS"       : "-plugin-opt=sd-return",
   "SD_LTO_EMIT_LLVM"       : "-plugin-opt=emit-llvm",
   "SD_LTO_SAVE_TEMPS"      : "-plugin-opt=save-temps",
 }
@@ -98,6 +98,8 @@ def is_on_zoidberg_dimo():
 def is_on_matt_desktop():
   return get_hostname() == "mattDesktop" and get_username() == "matt"
 
+def is_on_richard_desktop():
+  return get_hostname() == "Richard-Mint" and get_username() == "richard"
 
 # ----------------------------------------------------------------------
 
@@ -185,6 +187,15 @@ def read_config():
       "SD_DIR"              : os.environ["HOME"] + "/thesis/llvm/scripts",
       "MY_GCC_VER"          : "5.4.0"
     }
+  elif is_on_richard_desktop():
+    clang_config = {
+      "LLVM_DIR"            : os.environ["HOME"] + "/Code/Reckon/CFI-Assessor-SourceCode/source_code",
+      "LLVM_BUILD_DIR"      : os.environ["HOME"] + "/Code/Reckon/CFI-Assessor-SourceCode/source_code/cmake-build-release",
+      "LLVM_DEBUG_BUILD_DIR": os.environ["HOME"] + "/Code/Reckon/CFI-Assessor-SourceCode/source_code/cmake-build-debug",
+      "BINUTILS_BUILD_DIR"  : os.environ["HOME"] + "/Code/Reckon/build",
+      "SD_DIR"              : os.environ["HOME"] + "/Code/Reckon/CFI-Assessor-SourceCode/source_code/scripts",
+      "MY_GCC_VER"          : "5.4.0"
+    }
 
   else: # don't know this machine
     return None
@@ -196,6 +207,12 @@ def read_config():
     LLVM_BUILD_OUTPUT = clang_config["LLVM_ANALYSIS_BUILD_DIR"] + "/Release"
   else:
     LLVM_BUILD_OUTPUT = clang_config["LLVM_BUILD_DIR"] + "/Release"
+
+  if is_on_richard_desktop():
+    if BUILD_TYPE == "DEBUG":
+      LLVM_BUILD_OUTPUT = clang_config["LLVM_DEBUG_BUILD_DIR"]
+    else:
+      LLVM_BUILD_OUTPUT = clang_config["LLVM_BUILD_DIR"]
 
   clang_config.update({
     "LLVM_SCRIPTS_DIR"    : clang_config["LLVM_DIR"] + "/scripts",
@@ -210,7 +227,7 @@ def read_config():
     "CXX_FLAGS"       : ["-flto"],
     "LD"              : clang_config["BINUTILS_BUILD_DIR"] + "/gold/ld-new",
     "LD_FLAGS"        : [],
-    "SD_LIB_FOLDERS"  : ["-L" + clang_config["LLVM_DIR"] + "/libdyncast"],
+    "SD_LIB_FOLDERS"  : ["-L" + clang_config["LLVM_DIR"] + "/sd/libdyncast"],
     "SD_LIBS"         : ["-ldyncast"],
     "LD_PLUGIN"       : [opt for (key,opt) in linker_flag_opt_map.items()
                          if sd_config[key]],
