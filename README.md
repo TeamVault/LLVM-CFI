@@ -1,11 +1,11 @@
-# Reckon
+# LLVM-CFI
 
 Installation
 ============
 
 1. get the llvm gold plugin and follow it's intallation instructions: https://llvm.org/docs/GoldPlugin.html
 2. install ld.gold to ```/usr/bin/ld.gold```
-3. compile Reckon with ```-DLLVM_BINUTILS_INCDIR=/path/to/binutils/include```
+3. compile LLVM-CFI with ```-DLLVM_BINUTILS_INCDIR=/path/to/binutils/include```
 4. set environment variables:
 ```bash
     export PREFIX="/path/to/built/reckon"
@@ -19,8 +19,8 @@ Installation
 Usage
 =====
 
-Compile any project with Reckon. If autotooled, make sure that the C/C++ compilers and flags outlined above are used.
-Reckon will generate folders called "SDOutput" which contains the analysis results. The folders are created in the directory the
+Compile any project with LLVM-CFI. If autotooled, make sure that the C/C++ compilers and flags outlined above are used.
+LLVM-CFI will generate folders called "SDOutput" which contains the analysis results. The folders are created in the directory the
 linker was called in. Use 
 ```bash
     find . -type d -name "SDOutput"
