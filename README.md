@@ -3,7 +3,7 @@
 Installation
 ============
 
-1. get the llvm gold plugin and follow the intallation instructions: https://llvm.org/docs/GoldPlugin.html
+1. get the llvm gold plugin and follow the installation instructions: https://llvm.org/docs/GoldPlugin.html
 2. install ld.gold to ```/usr/bin/ld.gold```
 3. compile LLVM-CFI with ```-DLLVM_BINUTILS_INCDIR=/path/to/binutils/include```
 4. set environment variables:
