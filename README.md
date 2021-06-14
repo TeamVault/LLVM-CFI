@@ -1,6 +1,9 @@
 # About
 This is the GitHub repository of the LLVM-CFI tool. This tool can be used to assess CFI policies and compare them against each other.
 
+## Publication
+https://dl.acm.org/doi/abs/10.1145/3359789.3359806
+
 ## Installation
 
 1. get the llvm gold plugin and follow the installation instructions: https://llvm.org/docs/GoldPlugin.html
