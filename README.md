@@ -1,7 +1,7 @@
-# LLVM-CFI
+# About
+This is the GitHub repository of the LLVM-CFI tool. This tool can be used to assess CFI policies and compare them against each other.
 
-Installation
-============
+## Installation
 
 1. get the llvm gold plugin and follow the installation instructions: https://llvm.org/docs/GoldPlugin.html
 2. install ld.gold to ```/usr/bin/ld.gold```
@@ -16,8 +16,7 @@ Installation
     export RANLIB=/bin/true
     export LDFLAGS="-fuse-ld=gold -Wl,-plugin-opt=sd-return"
 ```
-Usage
-=====
+## Usage
 
 Compile any project with LLVM-CFI. If autotooled, make sure that the C/C++ compilers and flags outlined above are used.
 LLVM-CFI will generate folders called "SDOutput" which contains the analysis results. The folders are created in the directory the
